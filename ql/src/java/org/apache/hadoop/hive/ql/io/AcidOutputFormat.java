@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,17 +18,18 @@
 
 package org.apache.hadoop.hive.ql.io;
 
+import java.io.IOException;
+import java.io.PrintStream;
+import java.util.Properties;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.FileSinkOperator.RecordWriter;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.mapred.Reporter;
-
-import java.io.IOException;
-import java.io.PrintStream;
-import java.util.Properties;
 
 /**
  * An extension for OutputFormats that want to implement ACID transactions.
@@ -44,12 +45,18 @@ public interface AcidOutputFormat<K extends WritableComparable, V> extends HiveO
     private FileSystem fs;
     private ObjectInspector inspector;
     private boolean writingBase = false;
+    private boolean writingDeleteDelta = false;
     private boolean isCompressed = false;
     private Properties properties;
     private Reporter reporter;
     private long minimumTransactionId;
     private long maximumTransactionId;
-    private int bucket;
+    private int bucketId;
+    /**
+     * Based on {@link org.apache.hadoop.hive.ql.metadata.Hive#mvFile(HiveConf, FileSystem, Path, FileSystem, Path, boolean, boolean)}
+     * _copy_N starts with 1.
+     */
+    private int copyNumber = 0;
     private PrintStream dummyStream = null;
     private boolean oldStyle = false;
     private int recIdCol = -1;  // Column the record identifier is in, -1 indicates no record id
@@ -94,6 +101,16 @@ public interface AcidOutputFormat<K extends WritableComparable, V> extends HiveO
      */
     public Options writingBase(boolean val) {
       this.writingBase = val;
+      return this;
+    }
+
+    /**
+     * Is this writing a delete delta directory?
+     * @param val is this a delete delta file?
+     * @return this
+     */
+    public Options writingDeleteDelta(boolean val) {
+      this.writingDeleteDelta = val;
       return this;
     }
 
@@ -159,12 +176,24 @@ public interface AcidOutputFormat<K extends WritableComparable, V> extends HiveO
     }
 
     /**
-     * The bucket that is included in this file.
-     * @param bucket the bucket number
+     * The bucketId that is included in this file.
+     * @param bucket the bucketId number
      * @return this
      */
     public Options bucket(int bucket) {
-      this.bucket = bucket;
+      this.bucketId = bucket;
+      return this;
+    }
+
+    /**
+     * Multiple inserts into legacy (pre-acid) tables can generate multiple copies of each bucket
+     * file.
+     * @see org.apache.hadoop.hive.ql.exec.Utilities#COPY_KEYWORD
+     * @param copyNumber the number of the copy ( > 0)
+     * @return this
+     */
+    public Options copyNumber(int copyNumber) {
+      this.copyNumber = copyNumber;
       return this;
     }
 
@@ -223,7 +252,7 @@ public interface AcidOutputFormat<K extends WritableComparable, V> extends HiveO
       this.finalDestination = p;
       return this;
     }
-    
+
     public Configuration getConfiguration() {
       return configuration;
     }
@@ -260,8 +289,12 @@ public interface AcidOutputFormat<K extends WritableComparable, V> extends HiveO
       return writingBase;
     }
 
-    public int getBucket() {
-      return bucket;
+    public boolean isWritingDeleteDelta() {
+      return writingDeleteDelta;
+    }
+
+    public int getBucketId() {
+      return bucketId;
     }
 
     public int getRecordIdColumn() {
@@ -277,6 +310,9 @@ public interface AcidOutputFormat<K extends WritableComparable, V> extends HiveO
     }
     public int getStatementId() {
       return statementId;
+    }
+    public int getCopyNumber() {
+      return copyNumber;
     }
     public Path getFinalDestination() {
       return finalDestination;

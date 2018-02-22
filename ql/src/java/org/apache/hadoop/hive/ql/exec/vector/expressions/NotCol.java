@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hive.ql.exec.vector.expressions;
 
+import java.util.Arrays;
+
 import org.apache.hadoop.hive.ql.exec.vector.LongColumnVector;
 import org.apache.hadoop.hive.ql.exec.vector.VectorExpressionDescriptor;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
@@ -26,17 +28,19 @@ import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
  */
 public class NotCol extends VectorExpression {
   private static final long serialVersionUID = 1L;
-  private int colNum;
-  private int outputColumn;
 
-  public NotCol(int colNum, int outputColumn) {
-    this();
+  private final int colNum;
+
+  public NotCol(int colNum, int outputColumnNum) {
+    super(outputColumnNum);
     this.colNum = colNum;
-    this.outputColumn = outputColumn;
   }
 
   public NotCol() {
     super();
+
+    // Dummy final assignments.
+    colNum = -1;
   }
 
   @Override
@@ -50,49 +54,65 @@ public class NotCol extends VectorExpression {
     int[] sel = batch.selected;
     int n = batch.size;
     long[] vector = inputColVector.vector;
-    LongColumnVector outV = (LongColumnVector) batch.cols[outputColumn];
+    LongColumnVector outV = (LongColumnVector) batch.cols[outputColumnNum];
     long[] outputVector = outV.vector;
+    boolean[] inputIsNull = inputColVector.isNull;
+    boolean[] outputIsNull = outV.isNull;
 
     if (n <= 0) {
       // Nothing to do, this is EOF
       return;
     }
 
-    if (inputColVector.noNulls) {
-      outV.noNulls = true;
-      if (inputColVector.isRepeating) {
-        outV.isRepeating = true;
-        // mask out all but low order bit with "& 1" so NOT 1 yields 0, NOT 0 yields 1
-        outputVector[0] = ~vector[0] & 1;
-      } else if (batch.selectedInUse) {
-        for (int j = 0; j != n; j++) {
-          int i = sel[j];
-          outputVector[i] = ~vector[i] & 1;
-        }
-        outV.isRepeating = false;
+    // We do not need to do a column reset since we are carefully changing the output.
+    outV.isRepeating = false;
+
+    if (inputColVector.isRepeating) {
+      if (inputColVector.noNulls || !inputIsNull[0]) {
+        // Set isNull before call in case it changes it mind.
+        outputIsNull[0] = false;
+        // 0 XOR 1 yields 1, 1 XOR 1 yields 0
+        outputVector[0] = vector[0] ^ 1;
       } else {
-        for (int i = 0; i != n; i++) {
-          outputVector[i] = ~vector[i] & 1;
-        }
-        outV.isRepeating = false;
+        outputIsNull[0] = true;
+        outV.noNulls = false;
       }
-    } else {
-      outV.noNulls = false;
-      if (inputColVector.isRepeating) {
-        outV.isRepeating = true;
-        outputVector[0] = ~vector[0] & 1;
-        outV.isNull[0] = inputColVector.isNull[0];
-      } else if (batch.selectedInUse) {
-        outV.isRepeating = false;
+      outV.isRepeating = true;
+      return;
+    }
+
+    if (inputColVector.noNulls) {
+      if (batch.selectedInUse) {
         for (int j = 0; j != n; j++) {
           int i = sel[j];
-          outputVector[i] = ~vector[i] & 1;
+          outV.isNull[i] = false;
+          outputVector[i] = vector[i] ^ 1;
+        }
+      } else {
+        Arrays.fill(outV.isNull, 0, n, false);
+        for (int i = 0; i != n; i++) {
+          outputVector[i] = vector[i] ^ 1;
+        }
+      }
+    } else /* there are nulls in the inputColVector */ {
+
+      // Carefully handle NULLs...
+
+      /*
+       * For better performance on LONG/DOUBLE we don't want the conditional
+       * statements inside the for loop.
+       */
+      outV.noNulls = false;
+
+      if (batch.selectedInUse) {
+        for (int j = 0; j != n; j++) {
+          int i = sel[j];
+          outputVector[i] = vector[i] ^ 1;
           outV.isNull[i] = inputColVector.isNull[i];
         }
       } else {
-        outV.isRepeating = false;
         for (int i = 0; i != n; i++) {
-          outputVector[i] = ~vector[i] & 1;
+          outputVector[i] = vector[i] ^ 1;
           outV.isNull[i] = inputColVector.isNull[i];
         }
       }
@@ -100,25 +120,8 @@ public class NotCol extends VectorExpression {
   }
 
   @Override
-  public int getOutputColumn() {
-    return outputColumn;
-  }
-
-  @Override
-  public String getOutputType() {
-    return "boolean";
-  }
-
-  public int getColNum() {
-    return colNum;
-  }
-
-  public void setColNum(int colNum) {
-    this.colNum = colNum;
-  }
-
-  public void setOutputColumn(int outputColumn) {
-    this.outputColumn = outputColumn;
+  public String vectorExpressionParameters() {
+    return getColumnParamString(0, colNum);
   }
 
   @Override

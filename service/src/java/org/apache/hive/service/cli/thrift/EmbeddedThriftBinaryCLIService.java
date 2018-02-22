@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -30,7 +30,7 @@ import org.apache.hive.service.cli.ICLIService;
 public class EmbeddedThriftBinaryCLIService extends ThriftBinaryCLIService {
 
   public EmbeddedThriftBinaryCLIService() {
-    super(new CLIService(null));
+    super(new CLIService(null), null);
     isEmbedded = true;
     HiveConf.setLoadHiveServer2Config(true);
   }
@@ -38,7 +38,7 @@ public class EmbeddedThriftBinaryCLIService extends ThriftBinaryCLIService {
   @Override
   public synchronized void init(HiveConf hiveConf) {
 	// Null HiveConf is passed in jdbc driver side code since driver side is supposed to be
-	// independent of hiveConf object. Create new HiveConf object here in this case.
+	// independent of conf object. Create new HiveConf object here in this case.
 	if (hiveConf == null) {
 	  hiveConf = new HiveConf();
 	}

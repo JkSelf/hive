@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -30,6 +30,7 @@ import org.apache.hadoop.hive.ql.optimizer.calcite.stats.HiveRelMdDistinctRowCou
 import org.apache.hadoop.hive.ql.optimizer.calcite.stats.HiveRelMdDistribution;
 import org.apache.hadoop.hive.ql.optimizer.calcite.stats.HiveRelMdMemory;
 import org.apache.hadoop.hive.ql.optimizer.calcite.stats.HiveRelMdParallelism;
+import org.apache.hadoop.hive.ql.optimizer.calcite.stats.HiveRelMdPredicates;
 import org.apache.hadoop.hive.ql.optimizer.calcite.stats.HiveRelMdRowCount;
 import org.apache.hadoop.hive.ql.optimizer.calcite.stats.HiveRelMdSelectivity;
 import org.apache.hadoop.hive.ql.optimizer.calcite.stats.HiveRelMdSize;
@@ -75,7 +76,8 @@ public class HiveDefaultRelMetadataProvider {
                     new HiveRelMdParallelism(maxSplitSize).getMetadataProvider(),
                     HiveRelMdDistribution.SOURCE,
                     HiveRelMdCollation.SOURCE,
-                    new DefaultRelMetadataProvider()));
+                    HiveRelMdPredicates.SOURCE,
+                    DefaultRelMetadataProvider.INSTANCE));
   }
 
 }

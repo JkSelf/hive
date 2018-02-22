@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,15 +21,12 @@ package org.apache.hadoop.hive.ql.exec;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.concurrent.Future;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.DemuxDesc;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
@@ -40,6 +37,8 @@ import org.apache.hadoop.hive.serde2.SerDeUtils;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory;
 import org.apache.hive.common.util.ReflectionUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * DemuxOperator is an operator used by MapReduce Jobs optimized by
@@ -51,7 +50,7 @@ public class DemuxOperator extends Operator<DemuxDesc>
   implements Serializable {
 
   private static final long serialVersionUID = 1L;
-  protected static final Log LOG = LogFactory.getLog(DemuxOperator.class.getName());
+  protected static final Logger LOG = LoggerFactory.getLogger(DemuxOperator.class.getName());
 
   // Counters for debugging, we cannot use existing counters (cntr and nextCntr)
   // in Operator since we want to individually track the number of rows from
@@ -109,9 +108,18 @@ public class DemuxOperator extends Operator<DemuxDesc>
   // its children's parents lists, also see childOperatorsTag in Operator) at here.
   private int[][] newChildOperatorsTag;
 
+  /** Kryo ctor. */
+  protected DemuxOperator() {
+    super();
+  }
+
+  public DemuxOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
   @Override
-  protected Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
-    Collection<Future<?>> result = super.initializeOp(hconf);
+  protected void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
     // A DemuxOperator should have at least one child
     if (childOperatorsArray.length == 0) {
       throw new HiveException(
@@ -180,10 +188,10 @@ public class DemuxOperator extends Operator<DemuxDesc>
       }
       newChildOperatorsTag[i] = toArray(childOperatorTags);
     }
-    if (isLogInfoEnabled) {
+    if (LOG.isInfoEnabled()) {
       LOG.info("newChildOperatorsTag " + Arrays.toString(newChildOperatorsTag));
     }
-    return result;
+
   }
 
   private int[] toArray(List<Integer> list) {
@@ -206,15 +214,14 @@ public class DemuxOperator extends Operator<DemuxDesc>
   @Override
   protected void initializeChildren(Configuration hconf) throws HiveException {
     state = State.INIT;
-    if (isLogInfoEnabled) {
+    if (LOG.isInfoEnabled()) {
       LOG.info("Operator " + id + " " + getName() + " initialized");
       LOG.info("Initializing children of " + id + " " + getName());
     }
     for (int i = 0; i < childOperatorsArray.length; i++) {
-      if (isLogInfoEnabled) {
-	LOG.info("Initializing child " + i + " " + childOperatorsArray[i].getIdentifier() + " " +
-	    childOperatorsArray[i].getName() +
-	    " " + childInputObjInspectors[i].length);
+      if (LOG.isInfoEnabled()) {
+        LOG.info("Initializing child " + i + " " + childOperatorsArray[i].getIdentifier() + " " +
+          childOperatorsArray[i].getName() + " " + childInputObjInspectors[i].length);
       }
       // We need to initialize those MuxOperators first because if we first
       // initialize other operators, the states of all parents of those MuxOperators
@@ -239,10 +246,9 @@ public class DemuxOperator extends Operator<DemuxDesc>
       }
     }
     for (int i = 0; i < childOperatorsArray.length; i++) {
-      if (isLogInfoEnabled) {
-	LOG.info("Initializing child " + i + " " + childOperatorsArray[i].getIdentifier() + " " +
-	    childOperatorsArray[i].getName() +
-	    " " + childInputObjInspectors[i].length);
+      if (LOG.isInfoEnabled()) {
+        LOG.info("Initializing child " + i + " " + childOperatorsArray[i].getIdentifier() + " " +
+          childOperatorsArray[i].getName() + " " + childInputObjInspectors[i].length);
       }
       if (!(childOperatorsArray[i] instanceof MuxOperator)) {
         childOperatorsArray[i].initialize(hconf, childInputObjInspectors[i]);
@@ -267,7 +273,7 @@ public class DemuxOperator extends Operator<DemuxDesc>
     endGroupIfNecessary(currentChildIndex);
 
     int oldTag = newTagToOldTag[tag];
-    if (isLogDebugEnabled) {
+    if (LOG.isDebugEnabled()) {
       cntrs[tag]++;
       if (cntrs[tag] == nextCntrs[tag]) {
         LOG.debug(id + " (newTag, childIndex, oldTag)=(" + tag + ", " + currentChildIndex + ", "
@@ -303,9 +309,9 @@ public class DemuxOperator extends Operator<DemuxDesc>
       int newTag = i;
       int oldTag = newTagToOldTag[i];
       int childIndex = newTagToChildIndex[newTag];
-      if (isLogInfoEnabled) {
-	LOG.info(id + " (newTag, childIndex, oldTag)=(" + newTag + ", " + childIndex + ", "
-	    + oldTag + "),  forwarded " + cntrs[newTag] + " rows");
+      if (LOG.isInfoEnabled()) {
+        LOG.info(id + " (newTag, childIndex, oldTag)=(" + newTag + ", " + childIndex + ", "
+          + oldTag + "),  forwarded " + cntrs[newTag] + " rows");
       }
     }
   }
@@ -364,7 +370,7 @@ public class DemuxOperator extends Operator<DemuxDesc>
    */
   @Override
   public String getName() {
-    return getOperatorName();
+    return DemuxOperator.getOperatorName();
   }
 
   static public String getOperatorName() {
@@ -374,5 +380,10 @@ public class DemuxOperator extends Operator<DemuxDesc>
   @Override
   public OperatorType getType() {
     return OperatorType.DEMUX;
+  }
+
+  @Override
+  public boolean logicalEquals(Operator other) {
+    return getClass().getName().equals(other.getClass().getName());
   }
 }

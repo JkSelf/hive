@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -38,7 +38,12 @@ public class JavaHiveVarcharObjectInspector extends AbstractPrimitiveJavaObjectI
     if (o == null) {
       return null;
     }
-    HiveVarchar value = (HiveVarchar) o;
+    HiveVarchar value;
+    if (o instanceof String) {
+      value= new HiveVarchar((String)o, getMaxLength());
+    } else {
+      value = (HiveVarchar)o;
+    }
     if (BaseCharUtils.doesPrimitiveMatchTypeParams(value, (VarcharTypeInfo) typeInfo)) {
       return value;
     }
@@ -51,7 +56,13 @@ public class JavaHiveVarcharObjectInspector extends AbstractPrimitiveJavaObjectI
     if (o == null) {
       return null;
     }
-    return getWritableWithParams((HiveVarchar) o);
+    HiveVarchar var;
+    if (o instanceof String) {
+      var= new HiveVarchar((String)o, getMaxLength());
+    } else {
+      var = (HiveVarchar)o;
+    }
+    return getWritableWithParams(var);
   }
 
   @Override

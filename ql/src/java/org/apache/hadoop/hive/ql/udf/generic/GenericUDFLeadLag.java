@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,7 +20,6 @@ package org.apache.hadoop.hive.ql.udf.generic;
 
 import org.apache.hadoop.hive.ql.exec.ExprNodeEvaluator;
 import org.apache.hadoop.hive.ql.exec.PTFPartition.PTFPartitionIterator;
-import org.apache.hadoop.hive.ql.exec.PTFUtils;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentTypeException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -37,21 +36,15 @@ public abstract class GenericUDFLeadLag extends GenericUDF {
   transient ExprNodeEvaluator exprEvaluator;
   transient PTFPartitionIterator<Object> pItr;
   transient ObjectInspector firstArgOI;
-  transient ObjectInspector defaultArgOI;
   transient Converter defaultValueConverter;
   int amt;
-
-  static {
-    PTFUtils.makeTransient(GenericUDFLeadLag.class, "exprEvaluator", "pItr", "firstArgOI",
-            "defaultArgOI", "defaultValueConverter");
-  }
 
   @Override
   public Object evaluate(DeferredObject[] arguments) throws HiveException {
     Object defaultVal = null;
     if (arguments.length == 3) {
       defaultVal = ObjectInspectorUtils.copyToStandardObject(
-              defaultValueConverter.convert(arguments[2].get()), defaultArgOI);
+              defaultValueConverter.convert(arguments[2].get()), firstArgOI);
     }
 
     int idx = pItr.getIndex() - 1;
@@ -103,10 +96,7 @@ public abstract class GenericUDFLeadLag extends GenericUDF {
     }
 
     if (arguments.length == 3) {
-      defaultArgOI = arguments[2];
-      ObjectInspectorConverters.getConverter(arguments[2], arguments[0]);
       defaultValueConverter = ObjectInspectorConverters.getConverter(arguments[2], arguments[0]);
-
     }
 
     firstArgOI = arguments[0];
@@ -138,14 +128,6 @@ public abstract class GenericUDFLeadLag extends GenericUDF {
     this.firstArgOI = firstArgOI;
   }
 
-  public ObjectInspector getDefaultArgOI() {
-    return defaultArgOI;
-  }
-
-  public void setDefaultArgOI(ObjectInspector defaultArgOI) {
-    this.defaultArgOI = defaultArgOI;
-  }
-
   public Converter getDefaultValueConverter() {
     return defaultValueConverter;
   }
@@ -164,7 +146,9 @@ public abstract class GenericUDFLeadLag extends GenericUDF {
 
   @Override
   public String getDisplayString(String[] children) {
-    assert (children.length == 2);
+    if (children.length != 2) {
+      return _getFnName() + "(...)";
+    }
     return getStandardDisplayString(_getFnName(), children);
   }
 

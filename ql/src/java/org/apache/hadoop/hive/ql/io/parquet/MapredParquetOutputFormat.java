@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -19,8 +19,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.ql.io.HiveOutputFormat;
@@ -28,6 +28,8 @@ import org.apache.hadoop.hive.ql.io.IOConstants;
 import org.apache.hadoop.hive.ql.io.parquet.convert.HiveSchemaConverter;
 import org.apache.hadoop.hive.ql.io.parquet.write.DataWritableWriteSupport;
 import org.apache.hadoop.hive.ql.io.parquet.write.ParquetRecordWriterWrapper;
+import org.apache.hadoop.hive.serde.serdeConstants;
+import org.apache.hadoop.hive.serde2.SerDeUtils;
 import org.apache.hadoop.hive.serde2.io.ParquetHiveRecord;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
@@ -39,7 +41,6 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordWriter;
 import org.apache.hadoop.mapreduce.OutputFormat;
 import org.apache.hadoop.util.Progressable;
-
 import org.apache.parquet.hadoop.ParquetOutputFormat;
 
 /**
@@ -50,7 +51,7 @@ import org.apache.parquet.hadoop.ParquetOutputFormat;
 public class MapredParquetOutputFormat extends FileOutputFormat<NullWritable, ParquetHiveRecord>
     implements HiveOutputFormat<NullWritable, ParquetHiveRecord> {
 
-  private static final Log LOG = LogFactory.getLog(MapredParquetOutputFormat.class);
+  private static final Logger LOG = LoggerFactory.getLogger(MapredParquetOutputFormat.class);
 
   protected ParquetOutputFormat<ParquetHiveRecord> realOutputFormat;
 
@@ -67,6 +68,15 @@ public class MapredParquetOutputFormat extends FileOutputFormat<NullWritable, Pa
     realOutputFormat.checkOutputSpecs(ShimLoader.getHadoopShims().getHCatShim().createJobContext(job, null));
   }
 
+  /**
+   *
+   * @param ignored Unused parameter
+   * @param job JobConf - expecting mandatory parameter PARQUET_HIVE_SCHEMA
+   * @param name Path to write to
+   * @param progress Progress
+   * @return
+   * @throws IOException
+   */
   @Override
   public RecordWriter<NullWritable, ParquetHiveRecord> getRecordWriter(
       final FileSystem ignored,
@@ -74,7 +84,7 @@ public class MapredParquetOutputFormat extends FileOutputFormat<NullWritable, Pa
       final String name,
       final Progressable progress
       ) throws IOException {
-    throw new RuntimeException("Should never be used");
+    return new ParquetRecordWriterWrapper(realOutputFormat, job, name, progress);
   }
 
   /**
@@ -97,11 +107,12 @@ public class MapredParquetOutputFormat extends FileOutputFormat<NullWritable, Pa
     final String columnTypeProperty = tableProperties.getProperty(IOConstants.COLUMNS_TYPES);
     List<String> columnNames;
     List<TypeInfo> columnTypes;
-
+    final String columnNameDelimiter = tableProperties.containsKey(serdeConstants.COLUMN_NAME_DELIMITER) ? tableProperties
+        .getProperty(serdeConstants.COLUMN_NAME_DELIMITER) : String.valueOf(SerDeUtils.COMMA);
     if (columnNameProperty.length() == 0) {
       columnNames = new ArrayList<String>();
     } else {
-      columnNames = Arrays.asList(columnNameProperty.split(","));
+      columnNames = Arrays.asList(columnNameProperty.split(columnNameDelimiter));
     }
 
     if (columnTypeProperty.length() == 0) {

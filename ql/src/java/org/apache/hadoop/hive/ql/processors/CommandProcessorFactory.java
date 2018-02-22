@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,14 +21,15 @@ package org.apache.hadoop.hive.ql.processors;
 import static org.apache.commons.lang.StringUtils.isBlank;
 
 import java.sql.SQLException;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 
+import javax.annotation.Nonnull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.ql.Driver;
+import org.apache.hadoop.hive.ql.DriverFactory;
 import org.apache.hadoop.hive.ql.metadata.*;
 import org.apache.hadoop.hive.ql.session.SessionState;
 
@@ -40,13 +41,6 @@ public final class CommandProcessorFactory {
 
   private CommandProcessorFactory() {
     // prevent instantiation
-  }
-
-  private static final Map<HiveConf, Driver> mapDrivers = Collections.synchronizedMap(new HashMap<HiveConf, Driver>());
-
-  public static CommandProcessor get(String cmd)
-      throws SQLException {
-    return get(new String[]{cmd}, null);
   }
 
   public static CommandProcessor getForHiveCommand(String[] cmd, HiveConf conf)
@@ -71,6 +65,11 @@ public final class CommandProcessorFactory {
     }
     if (!availableCommands.contains(cmd[0].trim().toLowerCase())) {
       throw new SQLException("Insufficient privileges to execute " + cmd[0], "42000");
+    }
+    if (cmd.length > 1 && "reload".equalsIgnoreCase(cmd[0])
+      && "function".equalsIgnoreCase(cmd[1])) {
+      // special handling for SQL "reload function"
+      return null;
     }
     switch (hiveCommand) {
       case SET:
@@ -101,8 +100,9 @@ public final class CommandProcessorFactory {
     }
   }
 
-  public static CommandProcessor get(String[] cmd, HiveConf conf)
-      throws SQLException {
+  static Logger LOG = LoggerFactory.getLogger(CommandProcessorFactory.class);
+
+  public static CommandProcessor get(String[] cmd, @Nonnull HiveConf conf) throws SQLException {
     CommandProcessor result = getForHiveCommand(cmd, conf);
     if (result != null) {
       return result;
@@ -110,25 +110,7 @@ public final class CommandProcessorFactory {
     if (isBlank(cmd[0])) {
       return null;
     } else {
-      if (conf == null) {
-        return new Driver();
-      }
-      Driver drv = mapDrivers.get(conf);
-      if (drv == null) {
-        drv = new Driver();
-        mapDrivers.put(conf, drv);
-      }
-      drv.init();
-      return drv;
+      return DriverFactory.newDriver(conf);
     }
-  }
-
-  public static void clean(HiveConf conf) {
-    Driver drv = mapDrivers.get(conf);
-    if (drv != null) {
-      drv.destroy();
-    }
-
-    mapDrivers.remove(conf);
   }
 }

@@ -1,18 +1,8 @@
-PREHOOK: query: -- SORT_QUERY_RESULTS
-
--- union case: both subqueries are map-reduce jobs on same input, followed by filesink
-
-
-create table tmptable(key string, value int)
+PREHOOK: query: create table tmptable(key string, value int)
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@tmptable
-POSTHOOK: query: -- SORT_QUERY_RESULTS
-
--- union case: both subqueries are map-reduce jobs on same input, followed by filesink
-
-
-create table tmptable(key string, value int)
+POSTHOOK: query: create table tmptable(key string, value int)
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@tmptable
@@ -38,7 +28,7 @@ STAGE PLANS:
     Spark
       Edges:
         Reducer 2 <- Map 1 (GROUP, 1)
-        Reducer 4 <- Map 1 (GROUP, 1)
+        Reducer 4 <- Map 3 (GROUP, 1)
 #### A masked pattern was here ####
       Vertices:
         Map 1 
@@ -49,7 +39,23 @@ STAGE PLANS:
                   Select Operator
                     Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: COMPLETE
                     Group By Operator
-                      aggregations: count(1)
+                      aggregations: count()
+                      mode: hash
+                      outputColumnNames: _col0
+                      Statistics: Num rows: 1 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
+                      Reduce Output Operator
+                        sort order: 
+                        Statistics: Num rows: 1 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
+                        value expressions: _col0 (type: bigint)
+        Map 3 
+            Map Operator Tree:
+                TableScan
+                  alias: s2
+                  Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: COMPLETE
+                  Select Operator
+                    Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: COMPLETE
+                    Group By Operator
+                      aggregations: count()
                       mode: hash
                       outputColumnNames: _col0
                       Statistics: Num rows: 1 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
@@ -115,7 +121,8 @@ STAGE PLANS:
               name: default.tmptable
 
   Stage: Stage-2
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
 
 PREHOOK: query: insert overwrite table tmptable
 select unionsrc.key, unionsrc.value FROM (select 'tst1' as key, count(1) as value from src s1
@@ -132,7 +139,7 @@ POSTHOOK: type: QUERY
 POSTHOOK: Input: default@src
 POSTHOOK: Output: default@tmptable
 POSTHOOK: Lineage: tmptable.key EXPRESSION []
-POSTHOOK: Lineage: tmptable.value EXPRESSION []
+POSTHOOK: Lineage: tmptable.value EXPRESSION [(src)s1.null, (src)s2.null, ]
 PREHOOK: query: select * from tmptable x sort by x.key
 PREHOOK: type: QUERY
 PREHOOK: Input: default@tmptable

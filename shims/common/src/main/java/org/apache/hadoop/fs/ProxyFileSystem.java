@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,6 +23,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Options.Rename;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.Shell;
@@ -82,6 +83,7 @@ public class ProxyFileSystem extends FilterFileSystem {
    * @return
    * @throws IOException
    */
+  @Override
   public Path resolvePath(final Path p) throws IOException {
     // Return the fully-qualified path of path f resolving the path
     // through any symlinks or mount point
@@ -174,7 +176,15 @@ public class ProxyFileSystem extends FilterFileSystem {
 
   @Override
   public boolean rename(Path src, Path dst) throws IOException {
-    return super.rename(swizzleParamPath(src), swizzleParamPath(dst));
+    Path dest = swizzleParamPath(dst);
+    // Make sure for existing destination we return false as per FileSystem api contract
+    return super.isFile(dest) ? false : super.rename(swizzleParamPath(src), dest);
+  }
+
+  @Override
+  protected void rename(Path src, Path dst, Rename... options)
+      throws IOException {
+    super.rename(swizzleParamPath(src), swizzleParamPath(dst), options);
   }
 
   @Override
@@ -258,6 +268,11 @@ public class ProxyFileSystem extends FilterFileSystem {
   @Override
   public ContentSummary getContentSummary(Path f) throws IOException {
     return super.getContentSummary(swizzleParamPath(f));
+  }
+
+  @Override
+  public FileStatus getFileLinkStatus(Path f) throws IOException {
+    return swizzleFileStatus(super.getFileLinkStatus(swizzleParamPath(f)), false);
   }
 
   @Override

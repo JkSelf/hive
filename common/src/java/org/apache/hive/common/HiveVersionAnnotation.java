@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -58,12 +58,12 @@ public @interface HiveVersionAnnotation {
   String date();
 
   /**
-   * Get the url for the subversion repository.
+   * Get the url for the git repository.
    */
   String url();
 
   /**
-   * Get the subversion revision.
+   * Get the git revision.
    * @return the revision number as a string (eg. "451451")
    */
   String revision();

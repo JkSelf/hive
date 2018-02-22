@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,7 +20,7 @@ package org.apache.hive.hcatalog.streaming;
 
 public class TransactionError extends StreamingException {
   public TransactionError(String msg, Exception e) {
-    super(msg, e);
+    super(msg + (e == null ? "" : ": " + e.getMessage()), e);
   }
 
   public TransactionError(String msg) {

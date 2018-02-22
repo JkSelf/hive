@@ -1,3 +1,4 @@
+set hive.mapred.mode=nonstrict;
 drop table tstsrc;
 
 set hive.exec.pre.hooks = org.apache.hadoop.hive.ql.hooks.PreExecutePrinter,org.apache.hadoop.hive.ql.hooks.EnforceReadOnlyTables,org.apache.hadoop.hive.ql.hooks.UpdateInputAccessTimeHook$PreExec;
@@ -28,3 +29,8 @@ desc extended tstsrcpart partition (ds='2008-04-08', hr='11');
 desc extended tstsrcpart partition (ds='2008-04-08', hr='12');
 
 drop table tstsrcpart;
+
+set hive.exec.pre.hooks = org.apache.hadoop.hive.ql.hooks.PreExecutePrinter;
+
+ANALYZE TABLE src COMPUTE STATISTICS;
+ANALYZE TABLE src COMPUTE STATISTICS FOR COLUMNS key,value;

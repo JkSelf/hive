@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,10 +23,9 @@ import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.hive.cli.CliSessionState;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.hadoop.hive.ql.Driver;
-import org.apache.hadoop.hive.ql.WindowsPathUtil;
+import org.apache.hadoop.hive.ql.DriverFactory;
+import org.apache.hadoop.hive.ql.IDriver;
 import org.apache.hadoop.hive.ql.session.SessionState;
-import org.apache.hadoop.util.Shell;
 import org.apache.hive.hcatalog.common.HCatUtil;
 import org.apache.pig.ExecType;
 import org.apache.pig.PigServer;
@@ -44,14 +43,14 @@ import java.util.Properties;
 /**
  * Simplify writing HCatalog tests that require a HiveMetaStore.
  */
-public class HCatBaseTest {
+public abstract class HCatBaseTest {
   protected static final Logger LOG = LoggerFactory.getLogger(HCatBaseTest.class);
   public static final String TEST_DATA_DIR = HCatUtil.makePathASafeFileName(System.getProperty("user.dir") +
           "/build/test/data/" + HCatBaseTest.class.getCanonicalName() + "-" + System.currentTimeMillis());
   protected static final String TEST_WAREHOUSE_DIR = TEST_DATA_DIR + "/warehouse";
 
   protected HiveConf hiveConf = null;
-  protected Driver driver = null;
+  protected IDriver driver = null;
   protected HiveMetaStoreClient client = null;
 
   @BeforeClass
@@ -68,7 +67,7 @@ public class HCatBaseTest {
   public void setUp() throws Exception {
     if (driver == null) {
       setUpHiveConf();
-      driver = new Driver(hiveConf);
+      driver = DriverFactory.newDriver(hiveConf);
       client = new HiveMetaStoreClient(hiveConf);
       SessionState.start(new CliSessionState(hiveConf));
     }
@@ -83,10 +82,11 @@ public class HCatBaseTest {
     hiveConf.setVar(HiveConf.ConfVars.POSTEXECHOOKS, "");
     hiveConf.setBoolVar(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY, false);
     hiveConf.setVar(HiveConf.ConfVars.METASTOREWAREHOUSE, TEST_WAREHOUSE_DIR);
-
-    if (Shell.WINDOWS) {
-      WindowsPathUtil.convertPathsFromWindowsToHdfs(hiveConf);
-    }
+    hiveConf.setVar(HiveConf.ConfVars.HIVEMAPREDMODE, "nonstrict");
+    hiveConf.setBoolVar(HiveConf.ConfVars.HIVEOPTIMIZEMETADATAQUERIES, true);
+    hiveConf
+    .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
   }
 
   protected void logAndRegister(PigServer server, String query) throws IOException {
@@ -99,7 +99,7 @@ public class HCatBaseTest {
   }
 
   /**
-   * creates PigServer in LOCAL mode.  
+   * creates PigServer in LOCAL mode.
    * http://pig.apache.org/docs/r0.12.0/perf.html#error-handling
    * @param stopOnFailure equivalent of "-stop_on_failure" command line arg, setting to 'true' makes
    *                      debugging easier

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -24,8 +24,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 
 /**
@@ -35,22 +35,26 @@ import org.apache.hadoop.hive.ql.metadata.HiveException;
  */
 public class ObjectCache implements org.apache.hadoop.hive.ql.exec.ObjectCache {
 
-  private static final Log LOG = LogFactory.getLog(ObjectCache.class.getName());
-  private static final boolean isInfoEnabled = LOG.isInfoEnabled();
+  private static final Logger LOG = LoggerFactory.getLogger(ObjectCache.class.getName());
 
   @Override
   public void release(String key) {
     // nothing to do
-    if (isInfoEnabled) {
-      LOG.info(key + " no longer needed");
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(key + " no longer needed");
     }
+  }
+
+  @Override
+  public <T> T retrieve(String key) throws HiveException {
+    return retrieve(key, null);
   }
 
   @Override
   public <T> T retrieve(String key, Callable<T> fn) throws HiveException {
     try {
-      if (isInfoEnabled) {
-        LOG.info("Creating " + key);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Creating " + key);
       }
       return fn.call();
     } catch (Exception e) {

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -31,11 +31,14 @@ import junit.framework.TestCase;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.Driver;
-import org.apache.hadoop.hive.ql.io.IOContext;
 import org.apache.hadoop.hive.ql.io.IOContextMap;
+import org.apache.hadoop.hive.ql.optimizer.ConvertJoinMapJoin;
+import org.apache.hadoop.hive.ql.optimizer.physical.LlapClusterStateForCompile;
 import org.apache.hadoop.hive.ql.parse.TypeCheckProcFactory;
 import org.apache.hadoop.hive.ql.plan.CollectDesc;
+import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.MapredWork;
@@ -54,10 +57,12 @@ import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.TextInputFormat;
+import org.apache.hadoop.mapreduce.MRJobConfig;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -155,7 +160,7 @@ public class TestOperators extends TestCase {
    */
   public void testScriptOperatorEnvVarsProcessing() throws Throwable {
     try {
-      ScriptOperator scriptOperator = new ScriptOperator();
+      ScriptOperator scriptOperator = new ScriptOperator(new CompilationOpContext());
 
       //Environment Variables name
       assertEquals("a_b_c", scriptOperator.safeEnvVarName("a.b.c"));
@@ -194,7 +199,7 @@ public class TestOperators extends TestCase {
   }
 
   public void testScriptOperatorBlacklistedEnvVarsProcessing() {
-    ScriptOperator scriptOperator = new ScriptOperator();
+    ScriptOperator scriptOperator = new ScriptOperator(new CompilationOpContext());
 
     Configuration hconf = new JobConf(ScriptOperator.class);
 
@@ -212,10 +217,11 @@ public class TestOperators extends TestCase {
     try {
       System.out.println("Testing Script Operator");
       // col1
-      ExprNodeDesc exprDesc1 = TestExecDriver.getStringColumn("col1");
-
+      ExprNodeDesc exprDesc1 = new ExprNodeColumnDesc(TypeInfoFactory.stringTypeInfo, "col1", "",
+          false);
       // col2
-      ExprNodeDesc expr1 = TestExecDriver.getStringColumn("col0");
+      ExprNodeDesc expr1 = new ExprNodeColumnDesc(TypeInfoFactory.stringTypeInfo, "col0", "",
+          false);
       ExprNodeDesc expr2 = new ExprNodeConstantDesc("1");
       ExprNodeDesc exprDesc2 = TypeCheckProcFactory.DefaultExprProcessor
           .getFuncExprNodeDesc("concat", expr1, expr2);
@@ -229,7 +235,7 @@ public class TestOperators extends TestCase {
         outputCols.add("_col" + i);
       }
       SelectDesc selectCtx = new SelectDesc(earr, outputCols);
-      Operator<SelectDesc> op = OperatorFactory.get(SelectDesc.class);
+      Operator<SelectDesc> op = OperatorFactory.get(new CompilationOpContext(), SelectDesc.class);
       op.setConf(selectCtx);
 
       // scriptOperator to echo the output of the select
@@ -245,8 +251,7 @@ public class TestOperators extends TestCase {
 
       // Collect operator to observe the output of the script
       CollectDesc cd = new CollectDesc(Integer.valueOf(10));
-      CollectOperator cdop = (CollectOperator) OperatorFactory.getAndMakeChild(
-          cd, sop);
+      CollectOperator cdop = (CollectOperator) OperatorFactory.getAndMakeChild(cd, sop);
 
       op.initialize(new JobConf(TestOperators.class),
           new ObjectInspector[]{r[0].oi});
@@ -287,8 +292,7 @@ public class TestOperators extends TestCase {
       System.out.println("Testing Map Operator");
       // initialize configuration
       JobConf hconf = new JobConf(TestOperators.class);
-      HiveConf.setVar(hconf, HiveConf.ConfVars.HADOOPMAPFILENAME,
-          "hdfs:///testDir/testFile");
+      hconf.set(MRJobConfig.MAP_INPUT_FILE, "hdfs:///testDir/testFile");
       IOContextMap.get(hconf).setInputPath(
           new Path("hdfs:///testDir/testFile"));
 
@@ -296,25 +300,25 @@ public class TestOperators extends TestCase {
       ArrayList<String> aliases = new ArrayList<String>();
       aliases.add("a");
       aliases.add("b");
-      LinkedHashMap<String, ArrayList<String>> pathToAliases =
-        new LinkedHashMap<String, ArrayList<String>>();
-      pathToAliases.put("hdfs:///testDir", aliases);
+      LinkedHashMap<Path, ArrayList<String>> pathToAliases = new LinkedHashMap<>();
+      pathToAliases.put(new Path("hdfs:///testDir"), aliases);
 
       // initialize pathToTableInfo
       // Default: treat the table as a single column "col"
       TableDesc td = Utilities.defaultTd;
       PartitionDesc pd = new PartitionDesc(td, null);
-      LinkedHashMap<String, org.apache.hadoop.hive.ql.plan.PartitionDesc> pathToPartitionInfo =
-        new LinkedHashMap<String, org.apache.hadoop.hive.ql.plan.PartitionDesc>();
-      pathToPartitionInfo.put("hdfs:///testDir", pd);
+      LinkedHashMap<Path, org.apache.hadoop.hive.ql.plan.PartitionDesc> pathToPartitionInfo =
+        new LinkedHashMap<>();
+      pathToPartitionInfo.put(new Path("hdfs:///testDir"), pd);
 
       // initialize aliasToWork
+      CompilationOpContext ctx = new CompilationOpContext();
       CollectDesc cd = new CollectDesc(Integer.valueOf(1));
       CollectOperator cdop1 = (CollectOperator) OperatorFactory
-          .get(CollectDesc.class);
+          .get(ctx, CollectDesc.class);
       cdop1.setConf(cd);
       CollectOperator cdop2 = (CollectOperator) OperatorFactory
-          .get(CollectDesc.class);
+          .get(ctx, CollectDesc.class);
       cdop2.setConf(cd);
       LinkedHashMap<String, Operator<? extends OperatorDesc>> aliasToWork =
         new LinkedHashMap<String, Operator<? extends OperatorDesc>>();
@@ -328,7 +332,7 @@ public class TestOperators extends TestCase {
       mrwork.getMapWork().setAliasToWork(aliasToWork);
 
       // get map operator and initialize it
-      MapOperator mo = new MapOperator();
+      MapOperator mo = new MapOperator(new CompilationOpContext());
       mo.initializeAsRoot(hconf, mrwork.getMapWork());
 
       Text tw = new Text();
@@ -398,6 +402,9 @@ public class TestOperators extends TestCase {
   public void testFetchOperatorContext() throws Exception {
     HiveConf conf = new HiveConf();
     conf.set("hive.support.concurrency", "false");
+    conf.setVar(HiveConf.ConfVars.HIVEMAPREDMODE, "nonstrict");
+    conf.setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
     SessionState.start(conf);
     String cmd = "create table fetchOp (id int, name string) " +
         "partitioned by (state string) " +
@@ -406,31 +413,78 @@ public class TestOperators extends TestCase {
         "inputformat 'org.apache.hadoop.hive.ql.exec.TestOperators$CustomInFmt' " +
         "outputformat 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat' " +
         "tblproperties ('myprop1'='val1', 'myprop2' = 'val2')";
-    Driver driver = new Driver();
-    driver.init();
+    Driver driver = new Driver(conf);
     CommandProcessorResponse response = driver.run(cmd);
     assertEquals(0, response.getResponseCode());
     List<Object> result = new ArrayList<Object>();
 
     cmd = "load data local inpath '../data/files/employee.dat' " +
         "overwrite into table fetchOp partition (state='CA')";
-    driver.init();
     response = driver.run(cmd);
     assertEquals(0, response.getResponseCode());
 
     cmd = "load data local inpath '../data/files/employee2.dat' " +
         "overwrite into table fetchOp partition (state='OR')";
-    driver.init();
     response = driver.run(cmd);
     assertEquals(0, response.getResponseCode());
 
     cmd = "select * from fetchOp";
-    driver.init();
     driver.setMaxRows(500);
     response = driver.run(cmd);
     assertEquals(0, response.getResponseCode());
     driver.getResults(result);
     assertEquals(20, result.size());
     driver.close();
+  }
+
+  @Test
+  public void testNoConditionalTaskSizeForLlap() {
+    ConvertJoinMapJoin convertJoinMapJoin = new ConvertJoinMapJoin();
+    long defaultNoConditionalTaskSize = 1024L * 1024L * 1024L;
+    HiveConf hiveConf = new HiveConf();
+
+    LlapClusterStateForCompile llapInfo = null;
+    if ("llap".equalsIgnoreCase(hiveConf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_MODE))) {
+      llapInfo = LlapClusterStateForCompile.getClusterInfo(hiveConf);
+      llapInfo.initClusterInfo();
+    }
+    // execution mode not set, null is returned
+    assertEquals(defaultNoConditionalTaskSize, convertJoinMapJoin.getMemoryMonitorInfo(defaultNoConditionalTaskSize,
+      hiveConf, llapInfo).getAdjustedNoConditionalTaskSize());
+    hiveConf.set(HiveConf.ConfVars.HIVE_EXECUTION_MODE.varname, "llap");
+
+    if ("llap".equalsIgnoreCase(hiveConf.getVar(HiveConf.ConfVars.HIVE_EXECUTION_MODE))) {
+      llapInfo = LlapClusterStateForCompile.getClusterInfo(hiveConf);
+      llapInfo.initClusterInfo();
+    }
+
+    // default executors is 4, max slots is 3. so 3 * 20% of noconditional task size will be oversubscribed
+    hiveConf.set(HiveConf.ConfVars.LLAP_MAPJOIN_MEMORY_OVERSUBSCRIBE_FACTOR.varname, "0.2");
+    double fraction = hiveConf.getFloatVar(HiveConf.ConfVars.LLAP_MAPJOIN_MEMORY_OVERSUBSCRIBE_FACTOR);
+    int maxSlots = 3;
+    long expectedSize = (long) (defaultNoConditionalTaskSize + (defaultNoConditionalTaskSize * fraction * maxSlots));
+    assertEquals(expectedSize,
+      convertJoinMapJoin.getMemoryMonitorInfo(defaultNoConditionalTaskSize, hiveConf, llapInfo)
+        .getAdjustedNoConditionalTaskSize());
+
+    // num executors is less than max executors per query (which is not expected case), default executors will be
+    // chosen. 4 * 20% of noconditional task size will be oversubscribed
+    int chosenSlots = hiveConf.getIntVar(HiveConf.ConfVars.LLAP_DAEMON_NUM_EXECUTORS);
+    hiveConf.set(HiveConf.ConfVars.LLAP_MEMORY_OVERSUBSCRIPTION_MAX_EXECUTORS_PER_QUERY.varname, "5");
+    expectedSize = (long) (defaultNoConditionalTaskSize + (defaultNoConditionalTaskSize * fraction * chosenSlots));
+    assertEquals(expectedSize,
+      convertJoinMapJoin.getMemoryMonitorInfo(defaultNoConditionalTaskSize, hiveConf, llapInfo)
+        .getAdjustedNoConditionalTaskSize());
+
+    // disable memory checking
+    hiveConf.set(HiveConf.ConfVars.LLAP_MAPJOIN_MEMORY_MONITOR_CHECK_INTERVAL.varname, "0");
+    assertFalse(
+      convertJoinMapJoin.getMemoryMonitorInfo(defaultNoConditionalTaskSize, hiveConf, llapInfo).doMemoryMonitoring());
+
+    // invalid inflation factor
+    hiveConf.set(HiveConf.ConfVars.LLAP_MAPJOIN_MEMORY_MONITOR_CHECK_INTERVAL.varname, "10000");
+    hiveConf.set(HiveConf.ConfVars.HIVE_HASH_TABLE_INFLATION_FACTOR.varname, "0.0f");
+    assertFalse(
+      convertJoinMapJoin.getMemoryMonitorInfo(defaultNoConditionalTaskSize, hiveConf, llapInfo).doMemoryMonitoring());
   }
 }

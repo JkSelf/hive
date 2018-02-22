@@ -17,15 +17,31 @@
 
 package org.apache.hive.spark.client;
 
+import com.google.common.collect.Lists;
+import org.apache.hive.spark.client.JobHandle.Listener;
+
+import org.slf4j.Logger;
+
+import org.slf4j.LoggerFactory;
+
+import org.mockito.invocation.InvocationOnMock;
+
+import org.mockito.stubbing.Answer;
+
+import org.mockito.Mockito;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.io.Serializable;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -53,19 +69,18 @@ public class TestSparkClient {
   private static final long TIMEOUT = 20;
   private static final HiveConf HIVECONF = new HiveConf();
 
-  private Map<String, String> createConf(boolean local) {
+  static {
+    HIVECONF.set("hive.spark.client.connect.timeout", "30000ms");
+  }
+
+  private Map<String, String> createConf() {
     Map<String, String> conf = new HashMap<String, String>();
-    if (local) {
-      conf.put(SparkClientFactory.CONF_KEY_IN_PROCESS, "true");
-      conf.put("spark.master", "local");
-      conf.put("spark.app.name", "SparkClientSuite Local App");
-    } else {
-      String classpath = System.getProperty("java.class.path");
-      conf.put("spark.master", "local");
-      conf.put("spark.app.name", "SparkClientSuite Remote App");
-      conf.put("spark.driver.extraClassPath", classpath);
-      conf.put("spark.executor.extraClassPath", classpath);
-    }
+
+    String classpath = System.getProperty("java.class.path");
+    conf.put("spark.master", "local");
+    conf.put("spark.app.name", "SparkClientSuite Remote App");
+    conf.put("spark.driver.extraClassPath", classpath);
+    conf.put("spark.executor.extraClassPath", classpath);
 
     if (!Strings.isNullOrEmpty(System.getProperty("spark.home"))) {
       conf.put("spark.home", System.getProperty("spark.home"));
@@ -76,12 +91,12 @@ public class TestSparkClient {
 
   @Test
   public void testJobSubmission() throws Exception {
-    runTest(true, new TestFunction() {
+    runTest(new TestFunction() {
       @Override
       public void call(SparkClient client) throws Exception {
         JobHandle.Listener<String> listener = newListener();
-        JobHandle<String> handle = client.submit(new SimpleJob());
-        handle.addListener(listener);
+        List<JobHandle.Listener<String>> listeners = Lists.newArrayList(listener);;
+        JobHandle<String> handle = client.submit(new SimpleJob(), listeners);
         assertEquals("hello", handle.get(TIMEOUT, TimeUnit.SECONDS));
 
         // Try an invalid state transition on the handle. This ensures that the actual state
@@ -89,7 +104,6 @@ public class TestSparkClient {
         // state changes.
         assertFalse(((JobHandleImpl<String>)handle).changeState(JobHandle.State.SENT));
 
-        verify(listener).onJobQueued(handle);
         verify(listener).onJobStarted(handle);
         verify(listener).onJobSucceeded(same(handle), eq(handle.get()));
       }
@@ -98,7 +112,7 @@ public class TestSparkClient {
 
   @Test
   public void testSimpleSparkJob() throws Exception {
-    runTest(true, new TestFunction() {
+    runTest(new TestFunction() {
       @Override
       public void call(SparkClient client) throws Exception {
         JobHandle<Long> handle = client.submit(new SparkJob());
@@ -109,12 +123,12 @@ public class TestSparkClient {
 
   @Test
   public void testErrorJob() throws Exception {
-    runTest(true, new TestFunction() {
+    runTest(new TestFunction() {
       @Override
       public void call(SparkClient client) throws Exception {
         JobHandle.Listener<String> listener = newListener();
-        JobHandle<String> handle = client.submit(new ErrorJob());
-        handle.addListener(listener);
+        List<JobHandle.Listener<String>> listeners = Lists.newArrayList(listener);
+        JobHandle<String> handle = client.submit(new ErrorJob(), listeners);
         try {
           handle.get(TIMEOUT, TimeUnit.SECONDS);
           fail("Should have thrown an exception.");
@@ -137,7 +151,7 @@ public class TestSparkClient {
 
   @Test
   public void testSyncRpc() throws Exception {
-    runTest(true, new TestFunction() {
+    runTest(new TestFunction() {
       @Override
       public void call(SparkClient client) throws Exception {
         Future<String> result = client.run(new SyncRpc());
@@ -147,24 +161,13 @@ public class TestSparkClient {
   }
 
   @Test
-  public void testRemoteClient() throws Exception {
-    runTest(false, new TestFunction() {
-      @Override
-      public void call(SparkClient client) throws Exception {
-        JobHandle<Long> handle = client.submit(new SparkJob());
-        assertEquals(Long.valueOf(5L), handle.get(TIMEOUT, TimeUnit.SECONDS));
-      }
-    });
-  }
-
-  @Test
   public void testMetricsCollection() throws Exception {
-    runTest(true, new TestFunction() {
+    runTest(new TestFunction() {
       @Override
       public void call(SparkClient client) throws Exception {
         JobHandle.Listener<Integer> listener = newListener();
-        JobHandle<Integer> future = client.submit(new AsyncSparkJob());
-        future.addListener(listener);
+        List<JobHandle.Listener<Integer>> listeners = Lists.newArrayList(listener);
+        JobHandle<Integer> future = client.submit(new AsyncSparkJob(), listeners);
         future.get(TIMEOUT, TimeUnit.SECONDS);
         MetricsCollection metrics = future.getMetrics();
         assertEquals(1, metrics.getJobIds().size());
@@ -173,8 +176,8 @@ public class TestSparkClient {
           eq(metrics.getJobIds().iterator().next()));
 
         JobHandle.Listener<Integer> listener2 = newListener();
-        JobHandle<Integer> future2 = client.submit(new AsyncSparkJob());
-        future2.addListener(listener2);
+        List<JobHandle.Listener<Integer>> listeners2 = Lists.newArrayList(listener2);
+        JobHandle<Integer> future2 = client.submit(new AsyncSparkJob(), listeners2);
         future2.get(TIMEOUT, TimeUnit.SECONDS);
         MetricsCollection metrics2 = future2.getMetrics();
         assertEquals(1, metrics2.getJobIds().size());
@@ -188,7 +191,7 @@ public class TestSparkClient {
 
   @Test
   public void testAddJarsAndFiles() throws Exception {
-    runTest(true, new TestFunction() {
+    runTest(new TestFunction() {
       @Override
       public void call(SparkClient client) throws Exception {
         File jar = null;
@@ -242,7 +245,7 @@ public class TestSparkClient {
 
   @Test
   public void testCounters() throws Exception {
-    runTest(true, new TestFunction() {
+    runTest(new TestFunction() {
       @Override
       public void call(SparkClient client) throws Exception {
         JobHandle<?> job = client.submit(new CounterIncrementJob());
@@ -258,20 +261,49 @@ public class TestSparkClient {
     });
   }
 
+  private static final Logger LOG = LoggerFactory.getLogger(TestSparkClient.class);
+
   private <T extends Serializable> JobHandle.Listener<T> newListener() {
     @SuppressWarnings("unchecked")
-    JobHandle.Listener<T> listener =
-      (JobHandle.Listener<T>) mock(JobHandle.Listener.class);
+    JobHandle.Listener<T> listener = mock(JobHandle.Listener.class);
+    answerWhen(listener, "cancelled").onJobCancelled(Mockito.<JobHandle<T>>any());
+    answerWhen(listener, "queued").onJobQueued(Mockito.<JobHandle<T>>any());
+    answerWhen(listener, "started").onJobStarted(Mockito.<JobHandle<T>>any());
+    answerWhen(listener, "succeeded").onJobSucceeded(
+        Mockito.<JobHandle<T>>any(), Mockito.<T>any());
+    answerWhen(listener, "job started").onSparkJobStarted(
+        Mockito.<JobHandle<T>>any(), Mockito.anyInt());
+    Mockito.doAnswer(new Answer<Void>() {
+      public Void answer(InvocationOnMock invocation) throws Throwable {
+        @SuppressWarnings("rawtypes")
+        JobHandleImpl arg = ((JobHandleImpl)invocation.getArguments()[0]);
+        LOG.info("Job failed " + arg.getClientJobId(),
+            (Throwable)invocation.getArguments()[1]);
+        return null;
+      };
+    }).when(listener).onJobFailed(Mockito.<JobHandle<T>>any(), Mockito.<Throwable>any());
     return listener;
   }
 
-  private void runTest(boolean local, TestFunction test) throws Exception {
-    Map<String, String> conf = createConf(local);
+  protected <T extends Serializable> Listener<T> answerWhen(
+      Listener<T> listener, final String logStr) {
+    return Mockito.doAnswer(new Answer<Void>() {
+      public Void answer(InvocationOnMock invocation) throws Throwable {
+        @SuppressWarnings("rawtypes")
+        JobHandleImpl arg = ((JobHandleImpl)invocation.getArguments()[0]);
+        LOG.info("Job " + logStr + " " + arg.getClientJobId());
+        return null;
+      };
+    }).when(listener);
+  }
+
+  private void runTest(TestFunction test) throws Exception {
+    Map<String, String> conf = createConf();
     SparkClientFactory.initialize(conf);
     SparkClient client = null;
     try {
       test.config(conf);
-      client = SparkClientFactory.createClient(conf, HIVECONF);
+      client = SparkClientFactory.createClient(conf, HIVECONF, UUID.randomUUID().toString());
       test.call(client);
     } finally {
       if (client != null) {

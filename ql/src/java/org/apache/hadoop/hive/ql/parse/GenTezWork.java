@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,8 +25,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Stack;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.CommonMergeJoinOperator;
 import org.apache.hadoop.hive.ql.exec.DummyStoreOperator;
@@ -51,6 +49,8 @@ import org.apache.hadoop.hive.ql.plan.TezEdgeProperty.EdgeType;
 import org.apache.hadoop.hive.ql.plan.TezWork;
 import org.apache.hadoop.hive.ql.plan.TezWork.VertexType;
 import org.apache.hadoop.hive.ql.plan.UnionWork;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * GenTezWork separates the operator tree into tez tasks.
@@ -60,7 +60,7 @@ import org.apache.hadoop.hive.ql.plan.UnionWork;
  */
 public class GenTezWork implements NodeProcessor {
 
-  static final private Log LOG = LogFactory.getLog(GenTezWork.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(GenTezWork.class.getName());
 
   private final GenTezUtils utils;
 
@@ -168,7 +168,8 @@ public class GenTezWork implements NodeProcessor {
           getParentFromStack(context.currentMergeJoinOperator, stack);
       // Set the big table position. Both the reduce work and merge join operator
       // should be set with the same value.
-      int pos = context.currentMergeJoinOperator.getTagForOperator(parentOp);
+//      int pos = context.currentMergeJoinOperator.getTagForOperator(parentOp);
+      int pos = context.currentMergeJoinOperator.getConf().getBigTablePosition();
       work.setTag(pos);
       context.currentMergeJoinOperator.getConf().setBigTablePosition(pos);
       tezWork.setVertexType(work, VertexType.MULTI_INPUT_UNINITIALIZED_EDGES);
@@ -268,7 +269,11 @@ public class GenTezWork implements NodeProcessor {
         if (context.linkOpWithWorkMap.containsKey(mj)) {
           Map<BaseWork,TezEdgeProperty> linkWorkMap = context.linkOpWithWorkMap.get(mj);
           if (linkWorkMap != null) {
+             // Note: it's not quite clear why this is done inside this if. Seems like it should be on the top level.
             if (context.linkChildOpWithDummyOp.containsKey(mj)) {
+               if (LOG.isDebugEnabled()) {
+                LOG.debug("Adding dummy ops to work: " + work.getName() + ": " + context.linkChildOpWithDummyOp.get(mj));
+               }
               for (Operator<?> dummy: context.linkChildOpWithDummyOp.get(mj)) {
                 work.addDummyOp((HashTableDummyOperator) dummy);
               }
@@ -286,13 +291,18 @@ public class GenTezWork implements NodeProcessor {
               // of the downstream work
               for (ReduceSinkOperator r:
                      context.linkWorkWithReduceSinkMap.get(parentWork)) {
+                if (!context.mapJoinParentMap.get(mj).contains(r)) {
+                  // We might be visiting twice because of reutilization of intermediary results.
+                  // If that is the case, we do not need to do anything because either we have
+                  // already connected this RS operator or we will connect it at subsequent pass.
+                  continue;
+                }
                 if (r.getConf().getOutputName() != null) {
-                  LOG.debug("Cloning reduce sink for multi-child broadcast edge");
+                  LOG.debug("Cloning reduce sink " + r + " for multi-child broadcast edge");
                   // we've already set this one up. Need to clone for the next work.
                   r = (ReduceSinkOperator) OperatorFactory.getAndMakeChild(
-                      (ReduceSinkDesc)r.getConf().clone(),
-                      new RowSchema(r.getSchema()),
-                      r.getParentOperators());
+                      r.getCompilationOpContext(), (ReduceSinkDesc)r.getConf().clone(),
+                      new RowSchema(r.getSchema()), r.getParentOperators());
                   context.clonedReduceSinks.add(r);
                 }
                 r.getConf().setOutputName(work.getName());
@@ -337,7 +347,7 @@ public class GenTezWork implements NodeProcessor {
         unionWork = context.rootUnionWorkMap.get(root);
         if (unionWork == null) {
           // if unionWork is null, it means it is the first time. we need to
-          // create a union work object and add this work to it. Subsequent 
+          // create a union work object and add this work to it. Subsequent
           // work should reference the union and not the actual work.
           unionWork = GenTezUtils.createUnionWork(context, root, operator, tezWork);
           // finally connect the union work with work
@@ -366,7 +376,7 @@ public class GenTezWork implements NodeProcessor {
       long bytesPerReducer = context.conf.getLongVar(HiveConf.ConfVars.BYTESPERREDUCER);
 
       LOG.debug("Second pass. Leaf operator: "+operator
-        +" has common downstream work:"+followingWork);
+        +" has common downstream work: "+followingWork);
 
       if (operator instanceof DummyStoreOperator) {
         // this is the small table side.
@@ -448,13 +458,14 @@ public class GenTezWork implements NodeProcessor {
         if (!context.connectedReduceSinks.contains(rs)) {
           // add dependency between the two work items
           TezEdgeProperty edgeProp;
-          EdgeType edgeType = utils.determineEdgeType(work, followingWork);
+          EdgeType edgeType = GenTezUtils.determineEdgeType(work, followingWork, rs);
           if (rWork.isAutoReduceParallelism()) {
             edgeProp =
-                new TezEdgeProperty(context.conf, edgeType, true,
+                new TezEdgeProperty(context.conf, edgeType, true, rWork.isSlowStart(),
                     rWork.getMinReduceTasks(), rWork.getMaxReduceTasks(), bytesPerReducer);
           } else {
             edgeProp = new TezEdgeProperty(edgeType);
+            edgeProp.setSlowStart(rWork.isSlowStart());
           }
           tezWork.connect(work, followingWork, edgeProp);
           context.connectedReduceSinks.add(rs);
@@ -495,7 +506,7 @@ public class GenTezWork implements NodeProcessor {
     int pos = stack.indexOf(currentMergeJoinOperator);
     return (Operator<? extends OperatorDesc>) stack.get(pos - 1);
   }
-  
+
   private void connectUnionWorkWithWork(UnionWork unionWork, BaseWork work, TezWork tezWork,
       GenTezProcContext context) {
     LOG.debug("Connecting union work (" + unionWork + ") with work (" + work + ")");

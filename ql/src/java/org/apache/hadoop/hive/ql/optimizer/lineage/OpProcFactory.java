@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 
+import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.ColumnInfo;
@@ -202,6 +203,9 @@ public class OpProcFactory {
    * Processor for Join Operator.
    */
   public static class JoinLineage extends DefaultLineage implements NodeProcessor {
+
+    private final HashMap<Node, Object> outputMap = new HashMap<Node, Object>();
+
     @Override
     public Object process(Node nd, Stack<Node> stack, NodeProcessorCtx procCtx,
         Object... nodeOutputs) throws SemanticException {
@@ -237,7 +241,7 @@ public class OpProcFactory {
 
         // Otherwise look up the expression corresponding to this ci
         ExprNodeDesc expr = exprs.get(cnt++);
-        Dependency dependency = ExprProcFactory.getExprDependency(lCtx, inpOp, expr);
+        Dependency dependency = ExprProcFactory.getExprDependency(lCtx, inpOp, expr, outputMap);
         lCtx.getIndex().mergeDependency(op, ci, dependency);
       }
 
@@ -324,26 +328,19 @@ public class OpProcFactory {
       }
 
       // Dirty hack!!
-      // For the select path the columns are the ones at the end of the
+      // For the select path the columns are the ones at the beginning of the
       // current operators schema and for the udtf path the columns are
-      // at the beginning of the operator schema.
+      // at the end of the operator schema.
       ArrayList<ColumnInfo> out_cols = op.getSchema().getSignature();
       int out_cols_size = out_cols.size();
       int cols_size = cols.size();
-      if (isUdtfPath) {
-        int cnt = 0;
-        while (cnt < cols_size) {
-          lCtx.getIndex().mergeDependency(op, out_cols.get(cnt),
-              lCtx.getIndex().getDependency(inpOp, cols.get(cnt)));
-          cnt++;
-        }
-      }
-      else {
-        int cnt = cols_size - 1;
-        while (cnt >= 0) {
-          lCtx.getIndex().mergeDependency(op, out_cols.get(out_cols_size - cols_size + cnt),
-              lCtx.getIndex().getDependency(inpOp, cols.get(cnt)));
-          cnt--;
+      int outColOffset = isUdtfPath ? out_cols_size - cols_size : 0;
+      for (int cnt = 0; cnt < cols_size; cnt++) {
+        ColumnInfo outCol = out_cols.get(outColOffset + cnt);
+        if (!outCol.isHiddenVirtualCol()) {
+          ColumnInfo col = cols.get(cnt);
+          lCtx.getIndex().mergeDependency(op, outCol,
+            lCtx.getIndex().getDependency(inpOp, col));
         }
       }
       return null;
@@ -355,6 +352,9 @@ public class OpProcFactory {
    * Processor for Select operator.
    */
   public static class SelectLineage extends DefaultLineage implements NodeProcessor {
+
+    private final HashMap<Node, Object> outputMap = new HashMap<Node, Object>();
+
     @Override
     public Object process(Node nd, Stack<Node> stack, NodeProcessorCtx procCtx,
         Object... nodeOutputs) throws SemanticException {
@@ -379,7 +379,7 @@ public class OpProcFactory {
       ArrayList<ColumnInfo> col_infos = rs.getSignature();
       int cnt = 0;
       for(ExprNodeDesc expr : sop.getConf().getColList()) {
-        Dependency dep = ExprProcFactory.getExprDependency(lctx, inpOp, expr);
+        Dependency dep = ExprProcFactory.getExprDependency(lctx, inpOp, expr, outputMap);
         if (dep != null && dep.getExpr() == null && (dep.getBaseCols().isEmpty()
             || dep.getType() != LineageInfo.DependencyType.SIMPLE)) {
           dep.setExpr(ExprProcFactory.getExprString(rs, expr, lctx, inpOp, null));
@@ -408,6 +408,9 @@ public class OpProcFactory {
    * Processor for GroupBy operator.
    */
   public static class GroupByLineage extends DefaultLineage implements NodeProcessor {
+
+    private final HashMap<Node, Object> outputMap = new HashMap<Node, Object>();
+
     @Override
     public Object process(Node nd, Stack<Node> stack, NodeProcessorCtx procCtx,
         Object... nodeOutputs) throws SemanticException {
@@ -421,7 +424,7 @@ public class OpProcFactory {
 
       for(ExprNodeDesc expr : gop.getConf().getKeys()) {
         lctx.getIndex().putDependency(gop, col_infos.get(cnt++),
-            ExprProcFactory.getExprDependency(lctx, inpOp, expr));
+            ExprProcFactory.getExprDependency(lctx, inpOp, expr, outputMap));
       }
 
       // If this is a reduce side GroupBy operator, check if there is
@@ -445,7 +448,7 @@ public class OpProcFactory {
           } else {
             sb.append(", ");
           }
-          Dependency expr_dep = ExprProcFactory.getExprDependency(lctx, inpOp, expr);
+          Dependency expr_dep = ExprProcFactory.getExprDependency(lctx, inpOp, expr, outputMap);
           if (expr_dep != null && !expr_dep.getBaseCols().isEmpty()) {
             new_type = LineageCtx.getNewDependencyType(expr_dep.getType(), new_type);
             bci_set.addAll(expr_dep.getBaseCols());
@@ -453,7 +456,7 @@ public class OpProcFactory {
               BaseColumnInfo col = expr_dep.getBaseCols().iterator().next();
               Table t = col.getTabAlias().getTable();
               if (t != null) {
-                sb.append(t.getDbName()).append(".").append(t.getTableName()).append(".");
+                sb.append(Warehouse.getQualifiedName(t)).append(".");
               }
               sb.append(col.getColumn().getName());
             }
@@ -549,10 +552,13 @@ public class OpProcFactory {
       lCtx.getIndex().copyPredicates(inpOp, op);
       RowSchema rs = op.getSchema();
       ArrayList<ColumnInfo> inp_cols = inpOp.getSchema().getSignature();
-      int cnt = 0;
-      for(ColumnInfo ci : rs.getSignature()) {
-        Dependency inp_dep = lCtx.getIndex().getDependency(inpOp, inp_cols.get(cnt++));
+
+      // check only for input cols
+      for(ColumnInfo input : inp_cols) {
+        Dependency inp_dep = lCtx.getIndex().getDependency(inpOp, input);
         if (inp_dep != null) {
+          //merge it with rs colInfo
+          ColumnInfo ci = rs.getColumnInfo(input.getInternalName());
           lCtx.getIndex().mergeDependency(op, ci, inp_dep);
         }
       }
@@ -564,6 +570,8 @@ public class OpProcFactory {
    * ReduceSink processor.
    */
   public static class ReduceSinkLineage implements NodeProcessor {
+
+    private final HashMap<Node, Object> outputMap = new HashMap<Node, Object>();
 
     @Override
     public Object process(Node nd, Stack<Node> stack, NodeProcessorCtx procCtx,
@@ -591,11 +599,11 @@ public class OpProcFactory {
         ArrayList<ColumnInfo> col_infos = rop.getSchema().getSignature();
         for(ExprNodeDesc expr : rop.getConf().getKeyCols()) {
           lCtx.getIndex().putDependency(rop, col_infos.get(cnt++),
-              ExprProcFactory.getExprDependency(lCtx, inpOp, expr));
+              ExprProcFactory.getExprDependency(lCtx, inpOp, expr, outputMap));
         }
         for(ExprNodeDesc expr : rop.getConf().getValueCols()) {
           lCtx.getIndex().putDependency(rop, col_infos.get(cnt++),
-              ExprProcFactory.getExprDependency(lCtx, inpOp, expr));
+              ExprProcFactory.getExprDependency(lCtx, inpOp, expr, outputMap));
         }
       } else {
         RowSchema schema = rop.getSchema();
@@ -609,7 +617,7 @@ public class OpProcFactory {
             continue;   // key in values
           }
           lCtx.getIndex().putDependency(rop, column,
-              ExprProcFactory.getExprDependency(lCtx, inpOp, keyCols.get(i)));
+              ExprProcFactory.getExprDependency(lCtx, inpOp, keyCols.get(i), outputMap));
         }
         List<ExprNodeDesc> valCols = desc.getValueCols();
         ArrayList<String> valColNames = desc.getOutputValueColumnNames();
@@ -621,7 +629,7 @@ public class OpProcFactory {
             column = schema.getColumnInfo(Utilities.ReduceField.VALUE + "." + valColNames.get(i));
           }
           lCtx.getIndex().putDependency(rop, column,
-              ExprProcFactory.getExprDependency(lCtx, inpOp, valCols.get(i)));
+              ExprProcFactory.getExprDependency(lCtx, inpOp, valCols.get(i), outputMap));
         }
       }
 

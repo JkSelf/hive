@@ -1,6 +1,4 @@
-PREHOOK: query: -- SORT_QUERY_RESULTS
-
-EXPLAIN EXTENDED
+PREHOOK: query: EXPLAIN EXTENDED
  FROM 
   src a
  RIGHT OUTER JOIN 
@@ -9,9 +7,7 @@ EXPLAIN EXTENDED
  SELECT a.key, a.value, b.key, b.value
  WHERE a.key > 10 AND a.key < 20 AND b.key > 15 AND b.key < 25
 PREHOOK: type: QUERY
-POSTHOOK: query: -- SORT_QUERY_RESULTS
-
-EXPLAIN EXTENDED
+POSTHOOK: query: EXPLAIN EXTENDED
  FROM 
   src a
  RIGHT OUTER JOIN 
@@ -20,90 +16,6 @@ EXPLAIN EXTENDED
  SELECT a.key, a.value, b.key, b.value
  WHERE a.key > 10 AND a.key < 20 AND b.key > 15 AND b.key < 25
 POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_RIGHTOUTERJOIN
-         TOK_TABREF
-            TOK_TABNAME
-               src
-            a
-         TOK_TABREF
-            TOK_TABNAME
-               srcpart
-            b
-         AND
-            =
-               .
-                  TOK_TABLE_OR_COL
-                     a
-                  key
-               .
-                  TOK_TABLE_OR_COL
-                     b
-                  key
-            =
-               .
-                  TOK_TABLE_OR_COL
-                     b
-                  ds
-               '2008-04-08'
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  a
-               key
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  a
-               value
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  b
-               key
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  b
-               value
-      TOK_WHERE
-         AND
-            AND
-               AND
-                  >
-                     .
-                        TOK_TABLE_OR_COL
-                           a
-                        key
-                     10
-                  <
-                     .
-                        TOK_TABLE_OR_COL
-                           a
-                        key
-                     20
-               >
-                  .
-                     TOK_TABLE_OR_COL
-                        b
-                     key
-                  15
-            <
-               .
-                  TOK_TABLE_OR_COL
-                     b
-                  key
-               25
-
-
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
   Stage-0 depends on stages: Stage-1
@@ -118,7 +30,7 @@ STAGE PLANS:
             GatherStats: false
             Filter Operator
               isSamplingPred: false
-              predicate: ((UDFToDouble(key) > 15.0) and (UDFToDouble(key) < 25.0)) (type: boolean)
+              predicate: ((UDFToDouble(key) < 20.0) and (UDFToDouble(key) > 15.0)) (type: boolean)
               Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
               Select Operator
                 expressions: key (type: string), value (type: string)
@@ -126,6 +38,7 @@ STAGE PLANS:
                 Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                 Reduce Output Operator
                   key expressions: _col0 (type: string)
+                  null sort order: a
                   sort order: +
                   Map-reduce partition columns: _col0 (type: string)
                   Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
@@ -134,23 +47,24 @@ STAGE PLANS:
                   auto parallelism: false
           TableScan
             alias: b
-            Statistics: Num rows: 2000 Data size: 21248 Basic stats: COMPLETE Column stats: NONE
+            Statistics: Num rows: 1000 Data size: 10624 Basic stats: COMPLETE Column stats: NONE
             GatherStats: false
             Filter Operator
               isSamplingPred: false
-              predicate: ((UDFToDouble(key) > 15.0) and (UDFToDouble(key) < 25.0)) (type: boolean)
-              Statistics: Num rows: 222 Data size: 2358 Basic stats: COMPLETE Column stats: NONE
+              predicate: ((UDFToDouble(key) < 20.0) and (UDFToDouble(key) > 15.0)) (type: boolean)
+              Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
               Select Operator
-                expressions: key (type: string), value (type: string), ds (type: string)
-                outputColumnNames: _col0, _col1, _col2
-                Statistics: Num rows: 222 Data size: 2358 Basic stats: COMPLETE Column stats: NONE
+                expressions: key (type: string), value (type: string)
+                outputColumnNames: _col0, _col1
+                Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
                 Reduce Output Operator
                   key expressions: _col0 (type: string)
+                  null sort order: a
                   sort order: +
                   Map-reduce partition columns: _col0 (type: string)
-                  Statistics: Num rows: 222 Data size: 2358 Basic stats: COMPLETE Column stats: NONE
+                  Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
                   tag: 1
-                  value expressions: _col1 (type: string), _col2 (type: string)
+                  value expressions: _col1 (type: string)
                   auto parallelism: false
       Path -> Alias:
 #### A masked pattern was here ####
@@ -161,8 +75,9 @@ STAGE PLANS:
             input format: org.apache.hadoop.mapred.TextInputFormat
             output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -181,8 +96,9 @@ STAGE PLANS:
               input format: org.apache.hadoop.mapred.TextInputFormat
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
-                COLUMN_STATS_ACCURATE true
+                COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -208,8 +124,9 @@ STAGE PLANS:
               ds 2008-04-08
               hr 11
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -231,6 +148,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -254,8 +172,9 @@ STAGE PLANS:
               ds 2008-04-08
               hr 12
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -277,98 +196,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
                 bucket_count -1
-                columns key,value
-                columns.comments 'default','default'
-                columns.types string:string
-#### A masked pattern was here ####
-                name default.srcpart
-                partition_columns ds/hr
-                partition_columns.types string:string
-                serialization.ddl struct srcpart { string key, string value}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-              name: default.srcpart
-            name: default.srcpart
-#### A masked pattern was here ####
-          Partition
-            base file name: hr=11
-            input format: org.apache.hadoop.mapred.TextInputFormat
-            output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-            partition values:
-              ds 2008-04-09
-              hr 11
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns key,value
-              columns.comments 'default','default'
-              columns.types string:string
-#### A masked pattern was here ####
-              name default.srcpart
-              numFiles 1
-              numRows 500
-              partition_columns ds/hr
-              partition_columns.types string:string
-              rawDataSize 5312
-              serialization.ddl struct srcpart { string key, string value}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-              totalSize 5812
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-          
-              input format: org.apache.hadoop.mapred.TextInputFormat
-              output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-              properties:
-                bucket_count -1
-                columns key,value
-                columns.comments 'default','default'
-                columns.types string:string
-#### A masked pattern was here ####
-                name default.srcpart
-                partition_columns ds/hr
-                partition_columns.types string:string
-                serialization.ddl struct srcpart { string key, string value}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-              name: default.srcpart
-            name: default.srcpart
-#### A masked pattern was here ####
-          Partition
-            base file name: hr=12
-            input format: org.apache.hadoop.mapred.TextInputFormat
-            output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-            partition values:
-              ds 2008-04-09
-              hr 12
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns key,value
-              columns.comments 'default','default'
-              columns.types string:string
-#### A masked pattern was here ####
-              name default.srcpart
-              numFiles 1
-              numRows 500
-              partition_columns ds/hr
-              partition_columns.types string:string
-              rawDataSize 5312
-              serialization.ddl struct srcpart { string key, string value}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-              totalSize 5812
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-          
-              input format: org.apache.hadoop.mapred.TextInputFormat
-              output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-              properties:
-                bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -387,48 +215,38 @@ STAGE PLANS:
         /src [$hdt$_0:a]
         /srcpart/ds=2008-04-08/hr=11 [$hdt$_1:b]
         /srcpart/ds=2008-04-08/hr=12 [$hdt$_1:b]
-        /srcpart/ds=2008-04-09/hr=11 [$hdt$_1:b]
-        /srcpart/ds=2008-04-09/hr=12 [$hdt$_1:b]
       Needs Tagging: true
       Reduce Operator Tree:
         Join Operator
           condition map:
-               Right Outer Join0 to 1
-          filter mappings:
-            1 [0, 1]
-          filter predicates:
-            0 
-            1 {(VALUE._col1 = '2008-04-08')}
+               Inner Join 0 to 1
           keys:
             0 _col0 (type: string)
             1 _col0 (type: string)
           outputColumnNames: _col0, _col1, _col2, _col3
-          Statistics: Num rows: 244 Data size: 2593 Basic stats: COMPLETE Column stats: NONE
-          Filter Operator
-            isSamplingPred: false
-            predicate: ((UDFToDouble(_col0) > 10.0) and (UDFToDouble(_col0) < 20.0)) (type: boolean)
-            Statistics: Num rows: 27 Data size: 286 Basic stats: COMPLETE Column stats: NONE
-            File Output Operator
-              compressed: false
-              GlobalTableId: 0
+          Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
+          File Output Operator
+            compressed: false
+            GlobalTableId: 0
 #### A masked pattern was here ####
-              NumFilesPerFileSink: 1
-              Statistics: Num rows: 27 Data size: 286 Basic stats: COMPLETE Column stats: NONE
+            NumFilesPerFileSink: 1
+            Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
 #### A masked pattern was here ####
-              table:
-                  input format: org.apache.hadoop.mapred.TextInputFormat
-                  output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-                  properties:
-                    columns _col0,_col1,_col2,_col3
-                    columns.types string:string:string:string
-                    escape.delim \
-                    hive.serialization.extend.additional.nesting.levels true
-                    serialization.format 1
-                    serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-                  serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-              TotalFiles: 1
-              GatherStats: false
-              MultiFileSpray: false
+            table:
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                properties:
+                  columns _col0,_col1,_col2,_col3
+                  columns.types string:string:string:string
+                  escape.delim \
+                  hive.serialization.extend.additional.nesting.levels true
+                  serialization.escape.crlf true
+                  serialization.format 1
+                  serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+                serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+            TotalFiles: 1
+            GatherStats: false
+            MultiFileSpray: false
 
   Stage: Stage-0
     Fetch Operator
@@ -448,8 +266,6 @@ PREHOOK: Input: default@src
 PREHOOK: Input: default@srcpart
 PREHOOK: Input: default@srcpart@ds=2008-04-08/hr=11
 PREHOOK: Input: default@srcpart@ds=2008-04-08/hr=12
-PREHOOK: Input: default@srcpart@ds=2008-04-09/hr=11
-PREHOOK: Input: default@srcpart@ds=2008-04-09/hr=12
 #### A masked pattern was here ####
 POSTHOOK: query: FROM 
   src a
@@ -463,8 +279,6 @@ POSTHOOK: Input: default@src
 POSTHOOK: Input: default@srcpart
 POSTHOOK: Input: default@srcpart@ds=2008-04-08/hr=11
 POSTHOOK: Input: default@srcpart@ds=2008-04-08/hr=12
-POSTHOOK: Input: default@srcpart@ds=2008-04-09/hr=11
-POSTHOOK: Input: default@srcpart@ds=2008-04-09/hr=12
 #### A masked pattern was here ####
 17	val_17	17	val_17
 17	val_17	17	val_17
@@ -496,90 +310,6 @@ POSTHOOK: query: EXPLAIN EXTENDED
  SELECT a.key, a.value, b.key, b.value
  WHERE a.key > 10 AND a.key < 20 AND b.key > 15 AND b.key < 25
 POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_RIGHTOUTERJOIN
-         TOK_TABREF
-            TOK_TABNAME
-               srcpart
-            a
-         TOK_TABREF
-            TOK_TABNAME
-               src
-            b
-         AND
-            =
-               .
-                  TOK_TABLE_OR_COL
-                     a
-                  key
-               .
-                  TOK_TABLE_OR_COL
-                     b
-                  key
-            =
-               .
-                  TOK_TABLE_OR_COL
-                     a
-                  ds
-               '2008-04-08'
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  a
-               key
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  a
-               value
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  b
-               key
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  b
-               value
-      TOK_WHERE
-         AND
-            AND
-               AND
-                  >
-                     .
-                        TOK_TABLE_OR_COL
-                           a
-                        key
-                     10
-                  <
-                     .
-                        TOK_TABLE_OR_COL
-                           a
-                        key
-                     20
-               >
-                  .
-                     TOK_TABLE_OR_COL
-                        b
-                     key
-                  15
-            <
-               .
-                  TOK_TABLE_OR_COL
-                     b
-                  key
-               25
-
-
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
   Stage-0 depends on stages: Stage-1
@@ -594,7 +324,7 @@ STAGE PLANS:
             GatherStats: false
             Filter Operator
               isSamplingPred: false
-              predicate: ((UDFToDouble(key) > 15.0) and (UDFToDouble(key) < 25.0)) (type: boolean)
+              predicate: ((UDFToDouble(key) < 20.0) and (UDFToDouble(key) > 15.0)) (type: boolean)
               Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
               Select Operator
                 expressions: key (type: string), value (type: string)
@@ -602,6 +332,7 @@ STAGE PLANS:
                 Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
                 Reduce Output Operator
                   key expressions: _col0 (type: string)
+                  null sort order: a
                   sort order: +
                   Map-reduce partition columns: _col0 (type: string)
                   Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
@@ -614,7 +345,7 @@ STAGE PLANS:
             GatherStats: false
             Filter Operator
               isSamplingPred: false
-              predicate: ((UDFToDouble(key) > 15.0) and (UDFToDouble(key) < 25.0)) (type: boolean)
+              predicate: ((UDFToDouble(key) < 20.0) and (UDFToDouble(key) > 15.0)) (type: boolean)
               Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
               Select Operator
                 expressions: key (type: string), value (type: string)
@@ -622,6 +353,7 @@ STAGE PLANS:
                 Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                 Reduce Output Operator
                   key expressions: _col0 (type: string)
+                  null sort order: a
                   sort order: +
                   Map-reduce partition columns: _col0 (type: string)
                   Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
@@ -637,8 +369,9 @@ STAGE PLANS:
             input format: org.apache.hadoop.mapred.TextInputFormat
             output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -657,8 +390,9 @@ STAGE PLANS:
               input format: org.apache.hadoop.mapred.TextInputFormat
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
-                COLUMN_STATS_ACCURATE true
+                COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -684,8 +418,9 @@ STAGE PLANS:
               ds 2008-04-08
               hr 11
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -707,6 +442,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -730,8 +466,9 @@ STAGE PLANS:
               ds 2008-04-08
               hr 12
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -753,6 +490,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -769,47 +507,44 @@ STAGE PLANS:
             name: default.srcpart
       Truncated Path -> Alias:
         /src [$hdt$_1:b]
-        /srcpart/ds=2008-04-08/hr=11 [$hdt$_0:$hdt$_0:a]
-        /srcpart/ds=2008-04-08/hr=12 [$hdt$_0:$hdt$_0:a]
+        /srcpart/ds=2008-04-08/hr=11 [$hdt$_0:a]
+        /srcpart/ds=2008-04-08/hr=12 [$hdt$_0:a]
       Needs Tagging: true
       Reduce Operator Tree:
         Join Operator
           condition map:
-               Right Outer Join0 to 1
+               Inner Join 0 to 1
           keys:
             0 _col0 (type: string)
             1 _col0 (type: string)
           outputColumnNames: _col0, _col1, _col3, _col4
           Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
-          Filter Operator
-            isSamplingPred: false
-            predicate: ((UDFToDouble(_col0) > 10.0) and (UDFToDouble(_col0) < 20.0)) (type: boolean)
-            Statistics: Num rows: 13 Data size: 138 Basic stats: COMPLETE Column stats: NONE
-            Select Operator
-              expressions: _col0 (type: string), _col1 (type: string), _col3 (type: string), _col4 (type: string)
-              outputColumnNames: _col0, _col1, _col2, _col3
-              Statistics: Num rows: 13 Data size: 138 Basic stats: COMPLETE Column stats: NONE
-              File Output Operator
-                compressed: false
-                GlobalTableId: 0
+          Select Operator
+            expressions: _col0 (type: string), _col1 (type: string), _col3 (type: string), _col4 (type: string)
+            outputColumnNames: _col0, _col1, _col2, _col3
+            Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
+            File Output Operator
+              compressed: false
+              GlobalTableId: 0
 #### A masked pattern was here ####
-                NumFilesPerFileSink: 1
-                Statistics: Num rows: 13 Data size: 138 Basic stats: COMPLETE Column stats: NONE
+              NumFilesPerFileSink: 1
+              Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
 #### A masked pattern was here ####
-                table:
-                    input format: org.apache.hadoop.mapred.TextInputFormat
-                    output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-                    properties:
-                      columns _col0,_col1,_col2,_col3
-                      columns.types string:string:string:string
-                      escape.delim \
-                      hive.serialization.extend.additional.nesting.levels true
-                      serialization.format 1
-                      serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-                    serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-                TotalFiles: 1
-                GatherStats: false
-                MultiFileSpray: false
+              table:
+                  input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                  output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                  properties:
+                    columns _col0,_col1,_col2,_col3
+                    columns.types string:string:string:string
+                    escape.delim \
+                    hive.serialization.extend.additional.nesting.levels true
+                    serialization.escape.crlf true
+                    serialization.format 1
+                    serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+                  serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+              TotalFiles: 1
+              GatherStats: false
+              MultiFileSpray: false
 
   Stage: Stage-0
     Fetch Operator
@@ -873,90 +608,6 @@ POSTHOOK: query: EXPLAIN EXTENDED
  SELECT a.key, a.value, b.key, b.value
  WHERE a.key > 10 AND a.key < 20 AND b.key > 15 AND b.key < 25 AND b.ds = '2008-04-08'
 POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_RIGHTOUTERJOIN
-         TOK_TABREF
-            TOK_TABNAME
-               src
-            a
-         TOK_TABREF
-            TOK_TABNAME
-               srcpart
-            b
-         =
-            .
-               TOK_TABLE_OR_COL
-                  a
-               key
-            .
-               TOK_TABLE_OR_COL
-                  b
-               key
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  a
-               key
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  a
-               value
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  b
-               key
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  b
-               value
-      TOK_WHERE
-         AND
-            AND
-               AND
-                  AND
-                     >
-                        .
-                           TOK_TABLE_OR_COL
-                              a
-                           key
-                        10
-                     <
-                        .
-                           TOK_TABLE_OR_COL
-                              a
-                           key
-                        20
-                  >
-                     .
-                        TOK_TABLE_OR_COL
-                           b
-                        key
-                     15
-               <
-                  .
-                     TOK_TABLE_OR_COL
-                        b
-                     key
-                  25
-            =
-               .
-                  TOK_TABLE_OR_COL
-                     b
-                  ds
-               '2008-04-08'
-
-
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
   Stage-0 depends on stages: Stage-1
@@ -971,7 +622,7 @@ STAGE PLANS:
             GatherStats: false
             Filter Operator
               isSamplingPred: false
-              predicate: ((UDFToDouble(key) > 15.0) and (UDFToDouble(key) < 25.0)) (type: boolean)
+              predicate: ((UDFToDouble(key) < 20.0) and (UDFToDouble(key) > 15.0)) (type: boolean)
               Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
               Select Operator
                 expressions: key (type: string), value (type: string)
@@ -979,6 +630,7 @@ STAGE PLANS:
                 Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                 Reduce Output Operator
                   key expressions: _col0 (type: string)
+                  null sort order: a
                   sort order: +
                   Map-reduce partition columns: _col0 (type: string)
                   Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
@@ -991,7 +643,7 @@ STAGE PLANS:
             GatherStats: false
             Filter Operator
               isSamplingPred: false
-              predicate: ((UDFToDouble(key) > 15.0) and (UDFToDouble(key) < 25.0)) (type: boolean)
+              predicate: ((UDFToDouble(key) < 20.0) and (UDFToDouble(key) > 15.0)) (type: boolean)
               Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
               Select Operator
                 expressions: key (type: string), value (type: string)
@@ -999,6 +651,7 @@ STAGE PLANS:
                 Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
                 Reduce Output Operator
                   key expressions: _col0 (type: string)
+                  null sort order: a
                   sort order: +
                   Map-reduce partition columns: _col0 (type: string)
                   Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
@@ -1014,8 +667,9 @@ STAGE PLANS:
             input format: org.apache.hadoop.mapred.TextInputFormat
             output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -1034,8 +688,9 @@ STAGE PLANS:
               input format: org.apache.hadoop.mapred.TextInputFormat
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
-                COLUMN_STATS_ACCURATE true
+                COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -1061,8 +716,9 @@ STAGE PLANS:
               ds 2008-04-08
               hr 11
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -1084,6 +740,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -1107,8 +764,9 @@ STAGE PLANS:
               ds 2008-04-08
               hr 12
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -1130,6 +788,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -1152,37 +811,34 @@ STAGE PLANS:
       Reduce Operator Tree:
         Join Operator
           condition map:
-               Right Outer Join0 to 1
+               Inner Join 0 to 1
           keys:
             0 _col0 (type: string)
             1 _col0 (type: string)
           outputColumnNames: _col0, _col1, _col2, _col3
           Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
-          Filter Operator
-            isSamplingPred: false
-            predicate: ((UDFToDouble(_col0) > 10.0) and (UDFToDouble(_col0) < 20.0)) (type: boolean)
-            Statistics: Num rows: 13 Data size: 138 Basic stats: COMPLETE Column stats: NONE
-            File Output Operator
-              compressed: false
-              GlobalTableId: 0
+          File Output Operator
+            compressed: false
+            GlobalTableId: 0
 #### A masked pattern was here ####
-              NumFilesPerFileSink: 1
-              Statistics: Num rows: 13 Data size: 138 Basic stats: COMPLETE Column stats: NONE
+            NumFilesPerFileSink: 1
+            Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
 #### A masked pattern was here ####
-              table:
-                  input format: org.apache.hadoop.mapred.TextInputFormat
-                  output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-                  properties:
-                    columns _col0,_col1,_col2,_col3
-                    columns.types string:string:string:string
-                    escape.delim \
-                    hive.serialization.extend.additional.nesting.levels true
-                    serialization.format 1
-                    serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-                  serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-              TotalFiles: 1
-              GatherStats: false
-              MultiFileSpray: false
+            table:
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                properties:
+                  columns _col0,_col1,_col2,_col3
+                  columns.types string:string:string:string
+                  escape.delim \
+                  hive.serialization.extend.additional.nesting.levels true
+                  serialization.escape.crlf true
+                  serialization.format 1
+                  serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+                serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+            TotalFiles: 1
+            GatherStats: false
+            MultiFileSpray: false
 
   Stage: Stage-0
     Fetch Operator
@@ -1246,90 +902,6 @@ POSTHOOK: query: EXPLAIN EXTENDED
  SELECT a.key, a.value, b.key, b.value
  WHERE a.key > 10 AND a.key < 20 AND b.key > 15 AND b.key < 25 AND a.ds = '2008-04-08'
 POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_RIGHTOUTERJOIN
-         TOK_TABREF
-            TOK_TABNAME
-               srcpart
-            a
-         TOK_TABREF
-            TOK_TABNAME
-               src
-            b
-         =
-            .
-               TOK_TABLE_OR_COL
-                  a
-               key
-            .
-               TOK_TABLE_OR_COL
-                  b
-               key
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  a
-               key
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  a
-               value
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  b
-               key
-         TOK_SELEXPR
-            .
-               TOK_TABLE_OR_COL
-                  b
-               value
-      TOK_WHERE
-         AND
-            AND
-               AND
-                  AND
-                     >
-                        .
-                           TOK_TABLE_OR_COL
-                              a
-                           key
-                        10
-                     <
-                        .
-                           TOK_TABLE_OR_COL
-                              a
-                           key
-                        20
-                  >
-                     .
-                        TOK_TABLE_OR_COL
-                           b
-                        key
-                     15
-               <
-                  .
-                     TOK_TABLE_OR_COL
-                        b
-                     key
-                  25
-            =
-               .
-                  TOK_TABLE_OR_COL
-                     a
-                  ds
-               '2008-04-08'
-
-
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
   Stage-0 depends on stages: Stage-1
@@ -1344,17 +916,18 @@ STAGE PLANS:
             GatherStats: false
             Filter Operator
               isSamplingPred: false
-              predicate: (((((UDFToDouble(key) > 10.0) and (UDFToDouble(key) < 20.0)) and (UDFToDouble(key) > 15.0)) and (UDFToDouble(key) < 25.0)) and key is not null) (type: boolean)
-              Statistics: Num rows: 6 Data size: 63 Basic stats: COMPLETE Column stats: NONE
+              predicate: ((UDFToDouble(key) < 20.0) and (UDFToDouble(key) > 15.0)) (type: boolean)
+              Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
               Select Operator
                 expressions: key (type: string), value (type: string)
                 outputColumnNames: _col0, _col1
-                Statistics: Num rows: 6 Data size: 63 Basic stats: COMPLETE Column stats: NONE
+                Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
                 Reduce Output Operator
                   key expressions: _col0 (type: string)
+                  null sort order: a
                   sort order: +
                   Map-reduce partition columns: _col0 (type: string)
-                  Statistics: Num rows: 6 Data size: 63 Basic stats: COMPLETE Column stats: NONE
+                  Statistics: Num rows: 111 Data size: 1179 Basic stats: COMPLETE Column stats: NONE
                   tag: 0
                   value expressions: _col1 (type: string)
                   auto parallelism: false
@@ -1364,17 +937,18 @@ STAGE PLANS:
             GatherStats: false
             Filter Operator
               isSamplingPred: false
-              predicate: (((((UDFToDouble(key) > 15.0) and (UDFToDouble(key) < 25.0)) and (UDFToDouble(key) > 10.0)) and (UDFToDouble(key) < 20.0)) and key is not null) (type: boolean)
-              Statistics: Num rows: 3 Data size: 31 Basic stats: COMPLETE Column stats: NONE
+              predicate: ((UDFToDouble(key) < 20.0) and (UDFToDouble(key) > 15.0)) (type: boolean)
+              Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
               Select Operator
                 expressions: key (type: string), value (type: string)
                 outputColumnNames: _col0, _col1
-                Statistics: Num rows: 3 Data size: 31 Basic stats: COMPLETE Column stats: NONE
+                Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                 Reduce Output Operator
                   key expressions: _col0 (type: string)
+                  null sort order: a
                   sort order: +
                   Map-reduce partition columns: _col0 (type: string)
-                  Statistics: Num rows: 3 Data size: 31 Basic stats: COMPLETE Column stats: NONE
+                  Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                   tag: 1
                   value expressions: _col1 (type: string)
                   auto parallelism: false
@@ -1387,8 +961,9 @@ STAGE PLANS:
             input format: org.apache.hadoop.mapred.TextInputFormat
             output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -1407,8 +982,9 @@ STAGE PLANS:
               input format: org.apache.hadoop.mapred.TextInputFormat
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
-                COLUMN_STATS_ACCURATE true
+                COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -1434,8 +1010,9 @@ STAGE PLANS:
               ds 2008-04-08
               hr 11
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -1457,6 +1034,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -1480,8 +1058,9 @@ STAGE PLANS:
               ds 2008-04-08
               hr 12
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"key":"true","value":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns key,value
               columns.comments 'default','default'
               columns.types string:string
@@ -1503,6 +1082,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns key,value
                 columns.comments 'default','default'
                 columns.types string:string
@@ -1518,9 +1098,9 @@ STAGE PLANS:
               name: default.srcpart
             name: default.srcpart
       Truncated Path -> Alias:
-        /src [$hdt$_1:$hdt$_1:b]
-        /srcpart/ds=2008-04-08/hr=11 [$hdt$_0:$hdt$_0:a]
-        /srcpart/ds=2008-04-08/hr=12 [$hdt$_0:$hdt$_0:a]
+        /src [$hdt$_1:b]
+        /srcpart/ds=2008-04-08/hr=11 [$hdt$_0:a]
+        /srcpart/ds=2008-04-08/hr=12 [$hdt$_0:a]
       Needs Tagging: true
       Reduce Operator Tree:
         Join Operator
@@ -1530,26 +1110,27 @@ STAGE PLANS:
             0 _col0 (type: string)
             1 _col0 (type: string)
           outputColumnNames: _col0, _col1, _col3, _col4
-          Statistics: Num rows: 6 Data size: 69 Basic stats: COMPLETE Column stats: NONE
+          Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
           Select Operator
             expressions: _col0 (type: string), _col1 (type: string), _col3 (type: string), _col4 (type: string)
             outputColumnNames: _col0, _col1, _col2, _col3
-            Statistics: Num rows: 6 Data size: 69 Basic stats: COMPLETE Column stats: NONE
+            Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
             File Output Operator
               compressed: false
               GlobalTableId: 0
 #### A masked pattern was here ####
               NumFilesPerFileSink: 1
-              Statistics: Num rows: 6 Data size: 69 Basic stats: COMPLETE Column stats: NONE
+              Statistics: Num rows: 122 Data size: 1296 Basic stats: COMPLETE Column stats: NONE
 #### A masked pattern was here ####
               table:
-                  input format: org.apache.hadoop.mapred.TextInputFormat
-                  output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                  input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                  output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                   properties:
                     columns _col0,_col1,_col2,_col3
                     columns.types string:string:string:string
                     escape.delim \
                     hive.serialization.extend.additional.nesting.levels true
+                    serialization.escape.crlf true
                     serialization.format 1
                     serialization.lib org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                   serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe

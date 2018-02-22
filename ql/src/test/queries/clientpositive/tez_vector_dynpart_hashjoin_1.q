@@ -1,7 +1,9 @@
+set hive.mapred.mode=nonstrict;
 
 set hive.explain.user=false;
 set hive.auto.convert.join=false;
 set hive.optimize.dynamic.partition.hashjoin=false;
+set hive.llap.memory.oversubscription.max.executors.per.query=0;
 
 -- First try with regular mergejoin
 explain
@@ -54,7 +56,7 @@ set hive.optimize.dynamic.partition.hashjoin=true;
 set hive.auto.convert.join.noconditionaltask.size=200000;
 set hive.exec.reducers.bytes.per.reducer=200000;
 set hive.vectorized.execution.enabled=true;
-
+set hive.stats.fetch.column.stats=false;
 -- Try with dynamically partitioned hashjoin
 explain
 select

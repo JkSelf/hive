@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,7 +19,9 @@ package org.apache.hadoop.hive.shims;
 
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.net.URI;
 import java.security.AccessControlException;
@@ -29,8 +31,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 import org.apache.commons.lang.ArrayUtils;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.DefaultFileAccess;
 import org.apache.hadoop.fs.FileStatus;
@@ -40,6 +42,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.hive.io.HiveIOExceptionHandlerUtil;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapred.ClusterStatus;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputSplit;
@@ -57,7 +60,7 @@ import org.apache.hadoop.util.Progressable;
  */
 public abstract class HadoopShimsSecure implements HadoopShims {
 
-  static final Log LOG = LogFactory.getLog(HadoopShimsSecure.class);
+  static final Logger LOG = LoggerFactory.getLogger(HadoopShimsSecure.class);
 
   public static class InputSplitShim extends CombineFileSplit {
     long shrinkedLength;
@@ -115,7 +118,8 @@ public abstract class HadoopShimsSecure implements HadoopShims {
         InputSplit.class,
         Configuration.class,
         Reporter.class,
-        Integer.class
+        Integer.class,
+        RecordReader.class
         };
 
     protected CombineFileSplit split;
@@ -234,6 +238,7 @@ public abstract class HadoopShimsSecure implements HadoopShims {
      */
     protected boolean initNextRecordReader(K key) throws IOException {
 
+      RecordReader preReader = curReader; //it is OK, curReader is closed, for we only need footer buffer info from preReader.
       if (curReader != null) {
         curReader.close();
         curReader = null;
@@ -250,7 +255,7 @@ public abstract class HadoopShimsSecure implements HadoopShims {
       // get a record reader for the idx-th chunk
       try {
         curReader = rrConstructor.newInstance(new Object[]
-            {split, jc, reporter, Integer.valueOf(idx)});
+            {split, jc, reporter, Integer.valueOf(idx), preReader});
 
         // change the key if need be
         if (key != null) {
@@ -291,18 +296,25 @@ public abstract class HadoopShimsSecure implements HadoopShims {
 
     @Override
     public CombineFileSplit[] getSplits(JobConf job, int numSplits) throws IOException {
-      long minSize = job.getLong(ShimLoader.getHadoopShims().getHadoopConfNames().get("MAPREDMINSPLITSIZE"), 0);
+
+      long minSize =
+          job.getLong(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.SPLIT_MINSIZE, 0);
 
       // For backward compatibility, let the above parameter be used
-      if (job.getLong(ShimLoader.getHadoopShims().getHadoopConfNames().get("MAPREDMINSPLITSIZEPERNODE"), 0) == 0) {
+      if (job.getLong(
+          org.apache.hadoop.mapreduce.lib.input.CombineFileInputFormat.SPLIT_MINSIZE_PERNODE,
+          0) == 0) {
         super.setMinSplitSizeNode(minSize);
       }
 
-      if (job.getLong(ShimLoader.getHadoopShims().getHadoopConfNames().get("MAPREDMINSPLITSIZEPERRACK"), 0) == 0) {
+      if (job.getLong(
+          org.apache.hadoop.mapreduce.lib.input.CombineFileInputFormat.SPLIT_MINSIZE_PERRACK,
+          0) == 0) {
         super.setMinSplitSizeRack(minSize);
       }
 
-      if (job.getLong(ShimLoader.getHadoopShims().getHadoopConfNames().get("MAPREDMAXSPLITSIZE"), 0) == 0) {
+      if (job.getLong(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.SPLIT_MAXSIZE,
+          0) == 0) {
         super.setMaxSplitSize(minSize);
       }
 
@@ -363,20 +375,10 @@ public abstract class HadoopShimsSecure implements HadoopShims {
   abstract public long getDefaultBlockSize(FileSystem fs, Path path);
 
   @Override
-  abstract public boolean moveToAppropriateTrash(FileSystem fs, Path path, Configuration conf)
-      throws IOException;
-
-  @Override
   abstract public FileSystem createProxyFileSystem(FileSystem fs, URI uri);
 
   @Override
   abstract public FileSystem getNonCachedFileSystem(URI uri, Configuration conf) throws IOException;
-
-  protected void run(FsShell shell, String[] command) throws Exception {
-    LOG.debug(ArrayUtils.toString(command));
-    int retval = shell.run(command);
-    LOG.debug("Return value is :" + retval);
-  }
 
   private static String[] dedup(String[] locations) throws IOException {
     Set<String> dedup = new HashSet<String>();

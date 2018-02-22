@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,10 +20,10 @@ package org.apache.hadoop.hive.ql.security.authorization.plugin;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.conf.Configuration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.common.classification.InterfaceAudience.Private;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.DefaultMetaStoreFilterHookImpl;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.ql.security.authorization.plugin.HivePrivilegeObject.HivePrivilegeObjectType;
@@ -36,9 +36,9 @@ import org.apache.hadoop.hive.ql.session.SessionState;
 @Private
 public class AuthorizationMetaStoreFilterHook extends DefaultMetaStoreFilterHookImpl {
 
-  public static final Log LOG = LogFactory.getLog(AuthorizationMetaStoreFilterHook.class);
+  public static final Logger LOG = LoggerFactory.getLogger(AuthorizationMetaStoreFilterHook.class);
 
-  public AuthorizationMetaStoreFilterHook(HiveConf conf) {
+  public AuthorizationMetaStoreFilterHook(Configuration conf) {
     super(conf);
   }
 
@@ -75,16 +75,17 @@ public class AuthorizationMetaStoreFilterHook extends DefaultMetaStoreFilterHook
     SessionState ss = SessionState.get();
     HiveAuthzContext.Builder authzContextBuilder = new HiveAuthzContext.Builder();
     authzContextBuilder.setUserIpAddress(ss.getUserIpAddress());
+    authzContextBuilder.setForwardedAddresses(ss.getForwardedAddresses());
     try {
       return ss.getAuthorizerV2().filterListCmdObjects(listObjs, authzContextBuilder.build());
     } catch (HiveAuthzPluginException e) {
-      LOG.error(e);
+      LOG.error("Authorization error", e);
       throw new MetaException(e.getMessage());
     } catch (HiveAccessControlException e) {
       // authorization error is not really expected in a filter call
       // the impl should have just filtered out everything. A checkPrivileges call
       // would have already been made to authorize this action
-      LOG.error(e);
+      LOG.error("AccessControlException", e);
       throw new MetaException(e.getMessage());
     }
   }

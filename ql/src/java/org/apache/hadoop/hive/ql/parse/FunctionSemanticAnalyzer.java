@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,14 +20,15 @@ package org.apache.hadoop.hive.ql.parse;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.ResourceType;
 import org.apache.hadoop.hive.metastore.api.ResourceUri;
 import org.apache.hadoop.hive.ql.ErrorMsg;
+import org.apache.hadoop.hive.ql.QueryState;
 import org.apache.hadoop.hive.ql.exec.FunctionInfo;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.exec.FunctionUtils;
@@ -46,11 +47,11 @@ import org.apache.hadoop.hive.ql.plan.PlanUtils;
  *
  */
 public class FunctionSemanticAnalyzer extends BaseSemanticAnalyzer {
-  private static final Log LOG = LogFactory
-      .getLog(FunctionSemanticAnalyzer.class);
+  private static final Logger LOG = LoggerFactory.getLogger(FunctionSemanticAnalyzer.class);
+  private static final Logger SESISON_STATE_LOG= LoggerFactory.getLogger("SessionState");
 
-  public FunctionSemanticAnalyzer(HiveConf conf) throws SemanticException {
-    super(conf);
+  public FunctionSemanticAnalyzer(QueryState queryState) throws SemanticException {
+    super(queryState);
   }
 
   @Override
@@ -79,12 +80,15 @@ public class FunctionSemanticAnalyzer extends BaseSemanticAnalyzer {
 
     // find any referenced resources
     List<ResourceUri> resources = getResourceList(ast);
+    if (!isTemporaryFunction && resources == null) {
+      SESISON_STATE_LOG.warn("permanent functions created without USING  clause will not be replicated.");
+    }
 
     CreateFunctionDesc desc =
-        new CreateFunctionDesc(functionName, isTemporaryFunction, className, resources);
+        new CreateFunctionDesc(functionName, isTemporaryFunction, className, resources, null);
     rootTasks.add(TaskFactory.get(new FunctionWork(desc), conf));
 
-    addEntities(functionName, isTemporaryFunction, resources);
+    addEntities(functionName, className, isTemporaryFunction, resources);
   }
 
   private void analyzeDropFunction(ASTNode ast) throws SemanticException {
@@ -109,10 +113,10 @@ public class FunctionSemanticAnalyzer extends BaseSemanticAnalyzer {
     }
 
     boolean isTemporaryFunction = (ast.getFirstChildWithType(HiveParser.TOK_TEMPORARY) != null);
-    DropFunctionDesc desc = new DropFunctionDesc(functionName, isTemporaryFunction);
+    DropFunctionDesc desc = new DropFunctionDesc(functionName, isTemporaryFunction, null);
     rootTasks.add(TaskFactory.get(new FunctionWork(desc), conf));
 
-    addEntities(functionName, isTemporaryFunction, null);
+    addEntities(functionName, info.getClassName(), isTemporaryFunction, null);
   }
 
   private ResourceType getResourceType(ASTNode token) throws SemanticException {
@@ -158,7 +162,7 @@ public class FunctionSemanticAnalyzer extends BaseSemanticAnalyzer {
   /**
    * Add write entities to the semantic analyzer to restrict function creation to privileged users.
    */
-  private void addEntities(String functionName, boolean isTemporaryFunction,
+  private void addEntities(String functionName, String className, boolean isTemporaryFunction,
       List<ResourceUri> resources) throws SemanticException {
     // If the function is being added under a database 'namespace', then add an entity representing
     // the database (only applicable to permanent/metastore functions).
@@ -178,7 +182,7 @@ public class FunctionSemanticAnalyzer extends BaseSemanticAnalyzer {
         functionName = qualifiedNameParts[1];
         database = getDatabase(dbName);
       } catch (HiveException e) {
-        LOG.error(e);
+        LOG.error("Failed to get database ", e);
         throw new SemanticException(e);
       }
     }
@@ -187,7 +191,7 @@ public class FunctionSemanticAnalyzer extends BaseSemanticAnalyzer {
     }
 
     // Add the function name as a WriteEntity
-    outputs.add(new WriteEntity(database, functionName, Type.FUNCTION,
+    outputs.add(new WriteEntity(database, functionName, className, Type.FUNCTION,
         WriteEntity.WriteType.DDL_NO_LOCK));
 
     if (resources != null) {

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,14 +20,12 @@ package org.apache.hadoop.hive.ql.optimizer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.optimizer.calcite.translator.HiveOpConverterPostProc;
 import org.apache.hadoop.hive.ql.optimizer.correlation.CorrelationOptimizer;
 import org.apache.hadoop.hive.ql.optimizer.correlation.ReduceSinkDeDuplication;
-import org.apache.hadoop.hive.ql.optimizer.index.RewriteGBUsingIndex;
 import org.apache.hadoop.hive.ql.optimizer.lineage.Generator;
 import org.apache.hadoop.hive.ql.optimizer.listbucketingpruner.ListBucketingPruner;
 import org.apache.hadoop.hive.ql.optimizer.metainfo.annotation.AnnotateWithOpTraits;
@@ -39,7 +37,14 @@ import org.apache.hadoop.hive.ql.parse.ParseContext;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.ppd.PredicatePushDown;
 import org.apache.hadoop.hive.ql.ppd.PredicateTransitivePropagate;
+import org.apache.hadoop.hive.ql.ppd.SimplePredicatePushDown;
 import org.apache.hadoop.hive.ql.ppd.SyntheticJoinPredicate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
 
 /**
  * Implementation of the optimizer.
@@ -47,7 +52,7 @@ import org.apache.hadoop.hive.ql.ppd.SyntheticJoinPredicate;
 public class Optimizer {
   private ParseContext pctx;
   private List<Transform> transformations;
-  private static final Log LOG = LogFactory.getLog(Optimizer.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(Optimizer.class.getName());
 
   /**
    * Create the list of transformations.
@@ -67,25 +72,57 @@ public class Optimizer {
     transformations.add(new HiveOpConverterPostProc());
 
     // Add the transformation that computes the lineage information.
-    transformations.add(new Generator());
-    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTPPD)) {
+    Set<String> postExecHooks = Sets.newHashSet(
+      Splitter.on(",").trimResults().omitEmptyStrings().split(
+        Strings.nullToEmpty(HiveConf.getVar(hiveConf, HiveConf.ConfVars.POSTEXECHOOKS))));
+    if (postExecHooks.contains("org.apache.hadoop.hive.ql.hooks.PostExecutePrinter")
+        || postExecHooks.contains("org.apache.hadoop.hive.ql.hooks.LineageLogger")
+        || postExecHooks.contains("org.apache.atlas.hive.hook.HiveHook")) {
+      transformations.add(new Generator(postExecHooks));
+    }
+
+    // Try to transform OR predicates in Filter into simpler IN clauses first
+    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEPOINTLOOKUPOPTIMIZER) &&
+            !pctx.getContext().isCboSucceeded()) {
+      final int min = HiveConf.getIntVar(hiveConf,
+          HiveConf.ConfVars.HIVEPOINTLOOKUPOPTIMIZERMIN);
+      transformations.add(new PointLookupOptimizer(min));
+    }
+
+    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEPARTITIONCOLUMNSEPARATOR)) {
+        transformations.add(new PartitionColumnsSeparator());
+    }
+
+    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTPPD) &&
+            !pctx.getContext().isCboSucceeded()) {
       transformations.add(new PredicateTransitivePropagate());
       if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTCONSTANTPROPAGATION)) {
         transformations.add(new ConstantPropagate());
       }
       transformations.add(new SyntheticJoinPredicate());
       transformations.add(new PredicatePushDown());
-    }
-    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTCONSTANTPROPAGATION)) {
-      // We run constant propagation twice because after predicate pushdown, filter expressions
-      // are combined and may become eligible for reduction (like is not null filter).
-        transformations.add(new ConstantPropagate());
+    } else if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTPPD) &&
+            pctx.getContext().isCboSucceeded()) {
+      transformations.add(new SyntheticJoinPredicate());
+      transformations.add(new SimplePredicatePushDown());
+      transformations.add(new RedundantDynamicPruningConditionsRemoval());
     }
 
-    // Try to transform OR predicates in Filter into IN clauses.
-    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEPOINTLOOKUPOPTIMIZER)) {
-      transformations.add(new PointLookupOptimizer());
+    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTCONSTANTPROPAGATION) &&
+            !pctx.getContext().isCboSucceeded()) {
+      // We run constant propagation twice because after predicate pushdown, filter expressions
+      // are combined and may become eligible for reduction (like is not null filter).
+      transformations.add(new ConstantPropagate());
     }
+
+    if(HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.DYNAMICPARTITIONING) &&
+        HiveConf.getVar(hiveConf, HiveConf.ConfVars.DYNAMICPARTITIONINGMODE).equals("nonstrict") &&
+        HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTSORTDYNAMICPARTITION) &&
+        !HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTLISTBUCKETING)) {
+      transformations.add(new SortedDynPartitionOptimizer());
+    }
+
+    transformations.add(new SortedDynPartitionTimeGranularityOptimizer());
 
     if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTPPD)) {
       transformations.add(new PartitionPruner());
@@ -94,7 +131,8 @@ public class Optimizer {
         /* Add list bucketing pruner. */
         transformations.add(new ListBucketingPruner());
       }
-      if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTCONSTANTPROPAGATION)) {
+      if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTCONSTANTPROPAGATION) &&
+              !pctx.getContext().isCboSucceeded()) {
         // PartitionPruner may create more folding opportunities, run ConstantPropagate again.
         transformations.add(new ConstantPropagate());
       }
@@ -105,15 +143,16 @@ public class Optimizer {
       transformations.add(new GroupByOptimizer());
     }
     transformations.add(new ColumnPruner());
+    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVECOUNTDISTINCTOPTIMIZER)
+        && (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVE_IN_TEST) || isTezExecEngine)) {
+      transformations.add(new CountDistinctRewriteProc());
+    }
     if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVE_OPTIMIZE_SKEWJOIN_COMPILETIME)) {
       if (!isTezExecEngine) {
         transformations.add(new SkewJoinOptimizer());
       } else {
         LOG.warn("Skew join is currently not supported in tez! Disabling the skew join optimization.");
       }
-    }
-    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTGBYUSINGINDEX)) {
-      transformations.add(new RewriteGBUsingIndex());
     }
     transformations.add(new SamplePruner());
 
@@ -148,13 +187,16 @@ public class Optimizer {
       transformations.add(new JoinReorder());
     }
 
-    if(HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.DYNAMICPARTITIONING) &&
-        HiveConf.getVar(hiveConf, HiveConf.ConfVars.DYNAMICPARTITIONINGMODE).equals("nonstrict") &&
-        HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTSORTDYNAMICPARTITION) &&
-        !HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTLISTBUCKETING)) {
-      transformations.add(new SortedDynPartitionOptimizer());
+    if (HiveConf.getBoolVar(hiveConf,
+        HiveConf.ConfVars.TEZ_OPTIMIZE_BUCKET_PRUNING)
+        && HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTPPD)
+        && HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTINDEXFILTER)) {
+      final boolean compatMode =
+          HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.TEZ_OPTIMIZE_BUCKET_PRUNING_COMPAT);
+      transformations.add(new FixedBucketPruningOptimizer(compatMode));
     }
-    if(HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTREDUCEDEDUPLICATION)) {
+
+    if(HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTREDUCEDEDUPLICATION) || pctx.hasAcidWrite()) {
       transformations.add(new ReduceSinkDeDuplication());
     }
     transformations.add(new NonBlockingOpDeDupProc());
@@ -168,7 +210,7 @@ public class Optimizer {
     if(HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTCORRELATION) &&
         !HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEGROUPBYSKEW) &&
         !HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVE_OPTIMIZE_SKEWJOIN_COMPILETIME) &&
-        !isTezExecEngine) {
+        !isTezExecEngine && !isSparkExecEngine) {
       transformations.add(new CorrelationOptimizer());
     }
     if (HiveConf.getFloatVar(hiveConf, HiveConf.ConfVars.HIVELIMITPUSHDOWNMEMORYUSAGE) > 0) {
@@ -177,7 +219,7 @@ public class Optimizer {
     if(HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEOPTIMIZEMETADATAQUERIES)) {
       transformations.add(new StatsOptimizer());
     }
-    if (pctx.getContext().getExplain() && !isTezExecEngine && !isSparkExecEngine) {
+    if (pctx.getContext().isExplainSkipExecution() && !isTezExecEngine && !isSparkExecEngine) {
       transformations.add(new AnnotateWithStatistics());
       transformations.add(new AnnotateWithOpTraits());
     }
@@ -189,6 +231,11 @@ public class Optimizer {
     if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVEFETCHTASKAGGR)) {
       transformations.add(new SimpleFetchAggregation());
     }
+
+    if (HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVE_OPTIMIZE_TABLE_PROPERTIES_FROM_SERDE)) {
+      transformations.add(new TablePropertyEnrichmentOptimizer());
+    }
+
   }
 
   /**
@@ -199,7 +246,9 @@ public class Optimizer {
    */
   public ParseContext optimize() throws SemanticException {
     for (Transform t : transformations) {
-        pctx = t.transform(pctx);
+      t.beginPerfLogging();
+      pctx = t.transform(pctx);
+      t.endPerfLogging(t.toString());
     }
     return pctx;
   }

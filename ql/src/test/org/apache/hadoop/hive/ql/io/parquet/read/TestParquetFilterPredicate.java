@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -33,19 +33,113 @@ public class TestParquetFilterPredicate {
   public void testFilterColumnsThatDoNoExistOnSchema() {
     MessageType schema = MessageTypeParser.parseMessageType("message test { required int32 a; required binary stinger; }");
     SearchArgument sarg = SearchArgumentFactory.newBuilder()
-        .startNot()
+            .startNot()
+            .startOr()
+            .isNull("a", PredicateLeaf.Type.LONG)
+            .between("y", PredicateLeaf.Type.LONG, 10L, 20L) // Column will be removed from filter
+            .in("z", PredicateLeaf.Type.LONG, 1L, 2L, 3L) // Column will be removed from filter
+            .nullSafeEquals("a", PredicateLeaf.Type.STRING, "stinger")
+            .end()
+            .end()
+            .build();
+
+    FilterPredicate p = ParquetFilterPredicateConverter.toFilterPredicate(sarg, schema);
+
+    String expected = "and(not(eq(a, null)), not(eq(a, Binary{\"stinger\"})))";
+    assertEquals(expected, p.toString());
+  }
+
+  @Test
+  public void testFilterColumnsThatDoNoExistOnSchemaHighOrder1() {
+    MessageType schema = MessageTypeParser.parseMessageType("message test { required int32 a; required int32 b; }");
+    SearchArgument sarg = SearchArgumentFactory.newBuilder()
         .startOr()
-        .isNull("a", PredicateLeaf.Type.INTEGER)
-        .between("y", PredicateLeaf.Type.INTEGER, 10, 20) // Column will be removed from filter
-        .in("z", PredicateLeaf.Type.INTEGER, 1, 2, 3) // Column will be removed from filter
-        .nullSafeEquals("a", PredicateLeaf.Type.STRING, "stinger")
+        .startAnd()
+        .equals("a", PredicateLeaf.Type.LONG, 1L)
+        .equals("none", PredicateLeaf.Type.LONG, 1L)
+        .end()
+        .startAnd()
+        .equals("a", PredicateLeaf.Type.LONG, 999L)
+        .equals("none", PredicateLeaf.Type.LONG, 999L)
         .end()
         .end()
         .build();
 
     FilterPredicate p = ParquetFilterPredicateConverter.toFilterPredicate(sarg, schema);
 
-    String expected = "and(not(eq(a, null)), not(eq(a, Binary{\"stinger\"})))";
+    String expected = "or(eq(a, 1), eq(a, 999))";
+    assertEquals(expected, p.toString());
+  }
+
+  @Test
+  public void testFilterColumnsThatDoNoExistOnSchemaHighOrder2() {
+    MessageType schema = MessageTypeParser.parseMessageType("message test { required int32 a; required int32 b; }");
+    SearchArgument sarg = SearchArgumentFactory.newBuilder()
+        .startAnd()
+        .startOr()
+        .equals("a", PredicateLeaf.Type.LONG, 1L)
+        .equals("b", PredicateLeaf.Type.LONG, 1L)
+        .end()
+        .startOr()
+        .equals("a", PredicateLeaf.Type.LONG, 999L)
+        .equals("none", PredicateLeaf.Type.LONG, 999L)
+        .end()
+        .end()
+        .build();
+
+    FilterPredicate p = ParquetFilterPredicateConverter.toFilterPredicate(sarg, schema);
+
+    String expected = "or(eq(a, 1), eq(b, 1))";
+    assertEquals(expected, p.toString());
+  }
+
+  @Test
+  public void testFilterFloatColumns() {
+    MessageType schema =
+        MessageTypeParser.parseMessageType("message test {  required float a; required int32 b; }");
+    SearchArgument sarg = SearchArgumentFactory.newBuilder()
+        .startNot()
+        .startOr()
+        .isNull("a", PredicateLeaf.Type.FLOAT)
+        .between("a", PredicateLeaf.Type.FLOAT, 10.2, 20.3)
+        .in("b", PredicateLeaf.Type.LONG, 1L, 2L, 3L)
+        .end()
+        .end()
+        .build();
+
+    FilterPredicate p = ParquetFilterPredicateConverter.toFilterPredicate(sarg, schema);
+
+    String expected =
+        "and(and(not(eq(a, null)), not(and(lteq(a, 20.3), not(lt(a, 10.2))))), not(or(or(eq(b, 1), eq(b, 2)), eq(b, 3))))";
+    assertEquals(expected, p.toString());
+  }
+
+  @Test
+  public void testFilterBetween() {
+    MessageType schema =
+        MessageTypeParser.parseMessageType("message test {  required int32 bCol; }");
+    SearchArgument sarg = SearchArgumentFactory.newBuilder()
+        .between("bCol", PredicateLeaf.Type.LONG, 1L, 5L)
+        .build();
+    FilterPredicate p = ParquetFilterPredicateConverter.toFilterPredicate(sarg, schema);
+    String expected =
+        "and(lteq(bCol, 5), not(lt(bCol, 1)))";
+    assertEquals(expected, p.toString());
+
+    sarg = SearchArgumentFactory.newBuilder()
+            .between("bCol", PredicateLeaf.Type.LONG, 5L, 1L)
+            .build();
+    p = ParquetFilterPredicateConverter.toFilterPredicate(sarg, schema);
+    expected =
+            "and(lteq(bCol, 1), not(lt(bCol, 5)))";
+    assertEquals(expected, p.toString());
+
+    sarg = SearchArgumentFactory.newBuilder()
+            .between("bCol", PredicateLeaf.Type.LONG, 1L, 1L)
+            .build();
+    p = ParquetFilterPredicateConverter.toFilterPredicate(sarg, schema);
+    expected =
+            "and(lteq(bCol, 1), not(lt(bCol, 1)))";
     assertEquals(expected, p.toString());
   }
 }

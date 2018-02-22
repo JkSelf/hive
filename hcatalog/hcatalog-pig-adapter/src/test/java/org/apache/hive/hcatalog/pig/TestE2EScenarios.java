@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -29,8 +29,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.hive.cli.CliSessionState;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.ql.CommandNeedRetryException;
-import org.apache.hadoop.hive.ql.Driver;
+import org.apache.hadoop.hive.ql.DriverFactory;
+import org.apache.hadoop.hive.ql.IDriver;
 import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.mapreduce.InputSplit;
@@ -62,12 +62,12 @@ import org.junit.Test;
 
 public class TestE2EScenarios {
   private static final String TEST_DATA_DIR = System.getProperty("java.io.tmpdir") + File.separator
-      + TestHCatLoader.class.getCanonicalName() + "-" + System.currentTimeMillis();
+      + TestE2EScenarios.class.getCanonicalName() + "-" + System.currentTimeMillis();
   private static final String TEST_WAREHOUSE_DIR = TEST_DATA_DIR + "/warehouse";
 
   private static final String TEXTFILE_LOCN = TEST_DATA_DIR + "/textfile";
 
-  private static Driver driver;
+  private static IDriver driver;
 
   protected String storageFormat() {
     return "orc";
@@ -88,7 +88,10 @@ public class TestE2EScenarios {
     hiveConf.set(HiveConf.ConfVars.POSTEXECHOOKS.varname, "");
     hiveConf.set(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY.varname, "false");
     hiveConf.set(HiveConf.ConfVars.METASTOREWAREHOUSE.varname, TEST_WAREHOUSE_DIR);
-    driver = new Driver(hiveConf);
+    hiveConf
+    .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
+    driver = DriverFactory.newDriver(hiveConf);
     SessionState.start(new CliSessionState(hiveConf));
 
   }
@@ -104,23 +107,16 @@ public class TestE2EScenarios {
     }
   }
 
-  private void dropTable(String tablename) throws IOException, CommandNeedRetryException {
+  private void dropTable(String tablename) throws Exception {
     driver.run("drop table " + tablename);
   }
 
-  private void createTable(String tablename, String schema, String partitionedBy, String storageFormat) throws IOException, CommandNeedRetryException {
-    String createTable;
-    createTable = "create table " + tablename + "(" + schema + ") ";
-    if ((partitionedBy != null) && (!partitionedBy.trim().isEmpty())) {
-      createTable = createTable + "partitioned by (" + partitionedBy + ") ";
-    }
-    if (storageFormat != null){
-      createTable = createTable + "stored as " +storageFormat;
-    }
-    driverRun(createTable);
+  private void createTable(String tablename, String schema, String partitionedBy, String storageFormat)
+      throws Exception {
+   AbstractHCatLoaderTest.createTable(tablename, schema, partitionedBy, driver, storageFormat);
   }
 
-  private void driverRun(String cmd) throws IOException, CommandNeedRetryException {
+  private void driverRun(String cmd) throws Exception {
     int retCode = driver.run(cmd).getResponseCode();
     if (retCode != 0) {
       throw new IOException("Failed to run ["

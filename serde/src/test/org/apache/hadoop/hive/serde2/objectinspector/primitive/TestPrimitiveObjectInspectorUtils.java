@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,7 +27,6 @@ import java.util.TimeZone;
 import org.apache.hadoop.hive.common.type.HiveChar;
 import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.common.type.HiveVarchar;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector.PrimitiveCategory;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorUtils.PrimitiveGrouping;
@@ -216,5 +215,32 @@ public class TestPrimitiveObjectInspectorUtils extends TestCase {
     PrimitiveObjectInspector timestampOI = PrimitiveObjectInspectorFactory
         .getPrimitiveJavaObjectInspector(PrimitiveCategory.TIMESTAMP);
     assertEquals("2015-02-07 15:01:22.123", gmtDateFormat.format(PrimitiveObjectInspectorUtils.getTimestamp(new Timestamp(1423321282123L), timestampOI, true)));
+  }
+
+  @Test
+  public void testGetTimestampFromString() {
+    DateFormat localDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+    assertEquals("2015-02-07 00:00:00.000", localDateFormat.format(PrimitiveObjectInspectorUtils.getTimestampFromString("2015-02-07")));
+  }
+
+  @Test
+  public void testGetBoolean() {
+    String mustEvaluateToTrue[] = { "yes", "Yes", "ON", "on", "True", "1", "ANYTHING?" };
+    String mustEvaluateToFalse[] = { "", "No", "OFF", "FaLsE", "0" };
+
+    for (String falseStr : mustEvaluateToFalse) {
+      assertFalse(falseStr, PrimitiveObjectInspectorUtils.getBoolean(falseStr,
+          PrimitiveObjectInspectorFactory.javaStringObjectInspector));
+
+      byte[] b1 = ("asd"+falseStr).getBytes();
+      assertFalse(falseStr, PrimitiveObjectInspectorUtils.parseBoolean(b1, 3, falseStr.length()));
+
+    }
+    for (String trueStr : mustEvaluateToTrue) {
+      assertTrue(trueStr, PrimitiveObjectInspectorUtils.getBoolean(trueStr,
+          PrimitiveObjectInspectorFactory.javaStringObjectInspector));
+      byte[] b1 = ("asd"+trueStr).getBytes();
+      assertTrue(trueStr, PrimitiveObjectInspectorUtils.parseBoolean(b1, 3, trueStr.length()));
+    }
   }
 }

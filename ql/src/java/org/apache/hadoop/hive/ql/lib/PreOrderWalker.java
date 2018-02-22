@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -51,7 +51,7 @@ public class PreOrderWalker extends DefaultGraphWalker {
    * @throws SemanticException
    */
   @Override
-  public void walk(Node nd) throws SemanticException {
+  protected void walk(Node nd) throws SemanticException {
     opStack.push(nd);
     dispatch(nd, opStack);
 

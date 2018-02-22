@@ -1,6 +1,7 @@
+set hive.mapred.mode=nonstrict;
 set hive.explain.user=false;
-set hive.enforce.bucketing = true;
-set hive.enforce.sorting = true;
+;
+
 set hive.exec.reducers.max = 1;
 
 CREATE TABLE tbl1(key int, value string) CLUSTERED BY (key) SORTED BY (key) INTO 2 BUCKETS;
@@ -16,6 +17,8 @@ set hive.auto.convert.sortmerge.join=true;
 set hive.optimize.bucketmapjoin = true;
 set hive.optimize.bucketmapjoin.sortedmerge = true;
 set hive.auto.convert.join=true;
+-- disable hash joins
+set hive.auto.convert.join.noconditionaltask.size=10;
 
 explain
 select count(*) FROM tbl1 a LEFT OUTER JOIN tbl2 b ON a.key = b.key;

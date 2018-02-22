@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -130,6 +130,9 @@ public class GenericUDFAbs extends GenericUDF {
     case STRING:
     case DOUBLE:
       valObject = inputConverter.convert(valObject);
+      if (valObject == null) {
+        return null;
+      }
       resultDouble.set(Math.abs(((DoubleWritable) valObject).get()));
       return resultDouble;
     case DECIMAL:
@@ -138,7 +141,8 @@ public class GenericUDFAbs extends GenericUDF {
       HiveDecimalWritable val = decimalOI.getPrimitiveWritableObject(valObject);
 
       if (val != null) {
-        resultDecimal.set(val.getHiveDecimal().abs());
+        resultDecimal.set(val);
+        resultDecimal.mutateAbs();
         val = resultDecimal;
       }
       return val;

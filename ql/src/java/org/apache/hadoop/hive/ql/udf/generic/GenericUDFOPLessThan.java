@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,6 +20,10 @@ package org.apache.hadoop.hive.ql.udf.generic;
 
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedExpressions;
+import org.apache.hadoop.hive.ql.exec.vector.VectorizedExpressionsSupportDecimal64;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongColLessLongColumn;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongColLessLongScalar;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongScalarLessLongColumn;
 import org.apache.hadoop.hive.ql.exec.vector.expressions.gen.*;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils;
@@ -35,6 +39,7 @@ import org.apache.hadoop.io.Text;
     DoubleColLessLongScalar.class, DoubleColLessDoubleScalar.class,
     LongScalarLessLongColumn.class, LongScalarLessDoubleColumn.class,
     DoubleScalarLessLongColumn.class, DoubleScalarLessDoubleColumn.class,
+
     StringGroupColLessStringGroupColumn.class, FilterStringGroupColLessStringGroupColumn.class,
     StringGroupColLessStringScalar.class,
     StringGroupColLessVarCharScalar.class, StringGroupColLessCharScalar.class,
@@ -43,27 +48,54 @@ import org.apache.hadoop.io.Text;
     FilterStringGroupColLessStringScalar.class, FilterStringScalarLessStringGroupColumn.class,
     FilterStringGroupColLessVarCharScalar.class, FilterVarCharScalarLessStringGroupColumn.class,
     FilterStringGroupColLessCharScalar.class, FilterCharScalarLessStringGroupColumn.class,
+
     FilterLongColLessLongColumn.class, FilterLongColLessDoubleColumn.class,
     FilterDoubleColLessLongColumn.class, FilterDoubleColLessDoubleColumn.class,
     FilterLongColLessLongScalar.class, FilterLongColLessDoubleScalar.class,
     FilterDoubleColLessLongScalar.class, FilterDoubleColLessDoubleScalar.class,
     FilterLongScalarLessLongColumn.class, FilterLongScalarLessDoubleColumn.class,
     FilterDoubleScalarLessLongColumn.class, FilterDoubleScalarLessDoubleColumn.class,
+
     FilterDecimalColLessDecimalColumn.class, FilterDecimalColLessDecimalScalar.class,
     FilterDecimalScalarLessDecimalColumn.class,
+
+    FilterDecimal64ColLessDecimal64Column.class, FilterDecimal64ColLessDecimal64Scalar.class,
+    FilterDecimal64ScalarLessDecimal64Column.class,
+
+    TimestampColLessTimestampColumn.class,
     TimestampColLessTimestampScalar.class, TimestampScalarLessTimestampColumn.class,
+    TimestampColLessLongColumn.class,
+    TimestampColLessLongScalar.class, TimestampScalarLessLongColumn.class,
+    TimestampColLessDoubleColumn.class,
+    TimestampColLessDoubleScalar.class, TimestampScalarLessDoubleColumn.class,
+    LongColLessTimestampColumn.class,
+    LongColLessTimestampScalar.class, LongScalarLessTimestampColumn.class,
+    DoubleColLessTimestampColumn.class,
+    DoubleColLessTimestampScalar.class, DoubleScalarLessTimestampColumn.class,
+
+    FilterTimestampColLessTimestampColumn.class,
     FilterTimestampColLessTimestampScalar.class, FilterTimestampScalarLessTimestampColumn.class,
-    TimestampColLessLongScalar.class, LongScalarLessTimestampColumn.class,
-    FilterTimestampColLessLongScalar.class, FilterLongScalarLessTimestampColumn.class,
-    TimestampColLessDoubleScalar.class, DoubleScalarLessTimestampColumn.class,
-    FilterTimestampColLessDoubleScalar.class, FilterDoubleScalarLessTimestampColumn.class,
+    FilterTimestampColLessLongColumn.class,
+    FilterTimestampColLessLongScalar.class, FilterTimestampScalarLessLongColumn.class,
+    FilterTimestampColLessDoubleColumn.class,
+    FilterTimestampColLessDoubleScalar.class, FilterTimestampScalarLessDoubleColumn.class,
+    FilterLongColLessTimestampColumn.class,
+    FilterLongColLessTimestampScalar.class, FilterLongScalarLessTimestampColumn.class,
+    FilterDoubleColLessTimestampColumn.class,
+    FilterDoubleColLessTimestampScalar.class, FilterDoubleScalarLessTimestampColumn.class,
+
     IntervalYearMonthScalarLessIntervalYearMonthColumn.class, FilterIntervalYearMonthScalarLessIntervalYearMonthColumn.class,
     IntervalYearMonthColLessIntervalYearMonthScalar.class, FilterIntervalYearMonthColLessIntervalYearMonthScalar.class,
+
+    IntervalDayTimeColLessIntervalDayTimeColumn.class, FilterIntervalDayTimeColLessIntervalDayTimeColumn.class,
     IntervalDayTimeScalarLessIntervalDayTimeColumn.class, FilterIntervalDayTimeScalarLessIntervalDayTimeColumn.class,
     IntervalDayTimeColLessIntervalDayTimeScalar.class, FilterIntervalDayTimeColLessIntervalDayTimeScalar.class,
+
     DateColLessDateScalar.class,FilterDateColLessDateScalar.class,
     DateScalarLessDateColumn.class,FilterDateScalarLessDateColumn.class,
     })
+@VectorizedExpressionsSupportDecimal64()
+@NDV(maxNdv = 2)
 public class GenericUDFOPLessThan extends GenericUDFBaseCompare {
   public GenericUDFOPLessThan(){
     this.opName = "LESS THAN";

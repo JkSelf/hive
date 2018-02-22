@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,9 +19,8 @@ package org.apache.hadoop.hive.ql.parse.authorization;
 
 import java.util.HashMap;
 
-import junit.framework.Assert;
-
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.QueryState;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.Partition;
 import org.apache.hadoop.hive.ql.metadata.Table;
@@ -33,18 +32,22 @@ import org.mockito.Mockito;
 
 public class TestPrivilegesV1 extends PrivilegesTestBase{
 
-  private HiveConf conf;
+  private QueryState queryState;
   private Hive db;
   private Table table;
   private Partition partition;
 
   @Before
   public void setup() throws Exception {
-    conf = new HiveConf();
+    queryState = new QueryState.Builder().build();
     db = Mockito.mock(Hive.class);
     table = new Table(DB, TABLE);
     partition = new Partition(table);
-    SessionState.start(conf);
+    HiveConf hiveConf = queryState.getConf();
+    hiveConf
+    .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
+    SessionState.start(hiveConf);
     Mockito.when(db.getTable(DB, TABLE, false)).thenReturn(table);
     Mockito.when(db.getTable(TABLE_QNAME, false)).thenReturn(table);
     Mockito.when(db.getPartition(table, new HashMap<String, String>(), false))
@@ -63,7 +66,6 @@ public class TestPrivilegesV1 extends PrivilegesTestBase{
     grantUserTable("alter", PrivilegeType.ALTER_METADATA);
     grantUserTable("create", PrivilegeType.CREATE);
     grantUserTable("drop", PrivilegeType.DROP);
-    grantUserTable("index", PrivilegeType.INDEX);
     grantUserTable("lock", PrivilegeType.LOCK);
     grantUserTable("select", PrivilegeType.SELECT);
     grantUserTable("show_database", PrivilegeType.SHOW_DATABASE);
@@ -76,20 +78,11 @@ public class TestPrivilegesV1 extends PrivilegesTestBase{
    */
   @Test
   public void testPrivInGrantNotAccepted() throws Exception{
-    grantUserTableFail("insert");
-    grantUserTableFail("delete");
-  }
-
-  private void grantUserTableFail(String privName) {
-    try{
-      grantUserTable(privName, PrivilegeType.UNKNOWN);
-      Assert.fail("Exception expected");
-    }catch(Exception e){
-
-    }
+    grantUserTable("insert", PrivilegeType.INSERT);
+    grantUserTable("delete", PrivilegeType.DELETE);
   }
 
   private void grantUserTable(String privName, PrivilegeType privType) throws Exception {
-    grantUserTable(privName, privType, conf, db);
+    grantUserTable(privName, privType, queryState, db);
   }
 }

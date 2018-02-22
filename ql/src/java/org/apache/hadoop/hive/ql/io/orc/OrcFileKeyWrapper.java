@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,10 +21,11 @@ package org.apache.hadoop.hive.ql.io.orc;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.WritableComparable;
+import org.apache.orc.CompressionKind;
+import org.apache.orc.TypeDescription;
 
 /**
  * Key for OrcFileMergeMapper task. Contains orc file related information that
@@ -34,10 +35,11 @@ public class OrcFileKeyWrapper implements WritableComparable<OrcFileKeyWrapper> 
 
   private Path inputPath;
   private CompressionKind compression;
-  private long compressBufferSize;
-  private List<OrcProto.Type> types;
+  private int compressBufferSize;
+  private TypeDescription fileSchema;
   private int rowIndexStride;
-  private OrcFile.Version version;
+  private OrcFile.Version fileVersion;
+  private OrcFile.WriterVersion writerVersion;
   private boolean isIncompatFile;
 
   public boolean isIncompatFile() {
@@ -48,27 +50,35 @@ public class OrcFileKeyWrapper implements WritableComparable<OrcFileKeyWrapper> 
     this.isIncompatFile = isIncompatFile;
   }
 
-  public OrcFile.Version getVersion() {
-    return version;
-  }
-
-  public void setVersion(OrcFile.Version version) {
-    this.version = version;
-  }
-
   public int getRowIndexStride() {
     return rowIndexStride;
+  }
+
+  public OrcFile.Version getFileVersion() {
+    return fileVersion;
+  }
+
+  public void setFileVersion(final OrcFile.Version fileVersion) {
+    this.fileVersion = fileVersion;
+  }
+
+  public OrcFile.WriterVersion getWriterVersion() {
+    return writerVersion;
+  }
+
+  public void setWriterVersion(final OrcFile.WriterVersion writerVersion) {
+    this.writerVersion = writerVersion;
   }
 
   public void setRowIndexStride(int rowIndexStride) {
     this.rowIndexStride = rowIndexStride;
   }
 
-  public long getCompressBufferSize() {
+  public int getCompressBufferSize() {
     return compressBufferSize;
   }
 
-  public void setCompressBufferSize(long compressBufferSize) {
+  public void setCompressBufferSize(int compressBufferSize) {
     this.compressBufferSize = compressBufferSize;
   }
 
@@ -80,12 +90,12 @@ public class OrcFileKeyWrapper implements WritableComparable<OrcFileKeyWrapper> 
     this.compression = compression;
   }
 
-  public List<OrcProto.Type> getTypes() {
-    return types;
+  public TypeDescription getFileSchema() {
+    return fileSchema;
   }
 
-  public void setTypes(List<OrcProto.Type> types) {
-    this.types = types;
+  public void setFileSchema(final TypeDescription fileSchema) {
+    this.fileSchema = fileSchema;
   }
 
   public Path getInputPath() {

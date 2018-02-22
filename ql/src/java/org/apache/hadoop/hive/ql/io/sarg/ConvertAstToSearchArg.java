@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,16 +21,18 @@ package org.apache.hadoop.hive.ql.io.sarg;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.type.HiveChar;
-import org.apache.hadoop.hive.ql.exec.Utilities;
+import org.apache.hadoop.hive.common.type.HiveDecimal;
+import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
+import org.apache.hadoop.hive.ql.plan.ExprNodeDynamicValueDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.ql.plan.TableScanDesc;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDFBetween;
@@ -51,20 +53,47 @@ import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 
 public class ConvertAstToSearchArg {
-  private static final Log LOG = LogFactory.getLog(ConvertAstToSearchArg.class);
-  private final SearchArgument.Builder builder =
-      SearchArgumentFactory.newBuilder();
+  private static final Logger LOG = LoggerFactory.getLogger(ConvertAstToSearchArg.class);
+  private final SearchArgument.Builder builder;
+  private final Configuration conf;
+
+  /*
+   * Create a new type for handling precision conversions from Decimal -> Double/Float
+   * 
+   * The type is only relevant to boxLiteral and all other functions treat it identically.
+   */
+  private static enum BoxType {
+    LONG(PredicateLeaf.Type.LONG),      // all of the integer types
+    FLOAT(PredicateLeaf.Type.FLOAT),   // float
+    DOUBLE(PredicateLeaf.Type.FLOAT),   // double
+    STRING(PredicateLeaf.Type.STRING),  // string, char, varchar
+    DATE(PredicateLeaf.Type.DATE),
+    DECIMAL(PredicateLeaf.Type.DECIMAL),
+    TIMESTAMP(PredicateLeaf.Type.TIMESTAMP),
+    BOOLEAN(PredicateLeaf.Type.BOOLEAN);
+
+    public final PredicateLeaf.Type type;
+    BoxType(PredicateLeaf.Type type) {
+      this.type = type;
+    }
+  }
 
   /**
    * Builds the expression and leaf list from the original predicate.
    * @param expression the expression to translate.
    */
-  ConvertAstToSearchArg(ExprNodeGenericFuncDesc expression) {
+  ConvertAstToSearchArg(Configuration conf, ExprNodeGenericFuncDesc expression) {
+    this.conf = conf;
+    builder = SearchArgumentFactory.newBuilder(conf);
     parse(expression);
   }
 
@@ -81,31 +110,31 @@ public class ConvertAstToSearchArg {
    * @param expr the expression to get the type of
    * @return int, string, or float or null if we don't know the type
    */
-  private static PredicateLeaf.Type getType(ExprNodeDesc expr) {
+  private static BoxType getType(ExprNodeDesc expr) {
     TypeInfo type = expr.getTypeInfo();
     if (type.getCategory() == ObjectInspector.Category.PRIMITIVE) {
       switch (((PrimitiveTypeInfo) type).getPrimitiveCategory()) {
         case BYTE:
         case SHORT:
         case INT:
-          return PredicateLeaf.Type.INTEGER;
         case LONG:
-          return PredicateLeaf.Type.LONG;
+          return BoxType.LONG;
         case CHAR:
         case VARCHAR:
         case STRING:
-          return PredicateLeaf.Type.STRING;
+          return BoxType.STRING;
         case FLOAT:
+          return BoxType.FLOAT;
         case DOUBLE:
-          return PredicateLeaf.Type.FLOAT;
+          return BoxType.DOUBLE;
         case DATE:
-          return PredicateLeaf.Type.DATE;
+          return BoxType.DATE;
         case TIMESTAMP:
-          return PredicateLeaf.Type.TIMESTAMP;
+          return BoxType.TIMESTAMP;
         case DECIMAL:
-          return PredicateLeaf.Type.DECIMAL;
+          return BoxType.DECIMAL;
         case BOOLEAN:
-          return PredicateLeaf.Type.BOOLEAN;
+          return BoxType.BOOLEAN;
         default:
       }
     }
@@ -133,15 +162,20 @@ public class ConvertAstToSearchArg {
   }
 
   private static Object boxLiteral(ExprNodeConstantDesc constantDesc,
-                                   PredicateLeaf.Type type) {
+                                   BoxType boxType) {
     Object lit = constantDesc.getValue();
     if (lit == null) {
       return null;
     }
-    switch (type) {
-      case INTEGER:
-        return ((Number) lit).intValue();
+    switch (boxType) {
       case LONG:
+        if (lit instanceof HiveDecimal) {
+          HiveDecimal dec = (HiveDecimal) lit;
+          if (!dec.isLong()) {
+            throw new ArithmeticException("Overflow");
+          }
+          return dec.longValue();
+        }
         return ((Number) lit).longValue();
       case STRING:
         if (lit instanceof HiveChar) {
@@ -151,50 +185,72 @@ public class ConvertAstToSearchArg {
         } else {
           return lit.toString();
         }
-      case FLOAT:
-        if (lit instanceof Float) {
-          // converting a float directly to a double causes annoying conversion
-          // problems
-          return Double.parseDouble(lit.toString());
+      case DOUBLE:
+        final Number dbl;
+        if (lit instanceof HiveDecimal) {
+          // HiveDecimal -> Number -> Double
+          dbl = ((HiveDecimal) lit).doubleValue();
         } else {
-          return ((Number) lit).doubleValue();
+          dbl = ((Number) lit);
         }
+        return dbl.doubleValue();
+      case FLOAT:
+        final Number fl;
+        if (lit instanceof HiveDecimal) {
+          // HiveDecimal -> Float -> Number
+          fl = ((Number)((HiveDecimal) lit).floatValue());
+        } else {
+          fl = ((Number) lit);
+        }
+        return fl.doubleValue();
       case TIMESTAMP:
         return Timestamp.valueOf(lit.toString());
       case DATE:
         return Date.valueOf(lit.toString());
       case DECIMAL:
-        LOG.warn("boxing " + lit);
         return new HiveDecimalWritable(lit.toString());
       case BOOLEAN:
         return lit;
       default:
-        throw new IllegalArgumentException("Unknown literal " + type);
+        throw new IllegalArgumentException("Unknown literal " + boxType);
     }
   }
 
   /**
    * Find the child that is the literal.
    * @param expr the parent node to check
-   * @param type the type of the expression
+   * @param boxType the type of the expression
    * @return the literal boxed if found or null
    */
-  private static Object findLiteral(ExprNodeGenericFuncDesc expr,
-                                    PredicateLeaf.Type type) {
+  private static Object findLiteral(Configuration conf, ExprNodeGenericFuncDesc expr,
+                                    final BoxType boxType) {
     List<ExprNodeDesc> children = expr.getChildren();
     if (children.size() != 2) {
       return null;
     }
     Object result = null;
     for(ExprNodeDesc child: children) {
-      if (child instanceof ExprNodeConstantDesc) {
+      Object currentResult = getLiteral(conf, child, boxType);
+      if (currentResult != null) {
+        // Both children in the expression should not be literal
         if (result != null) {
           return null;
         }
-        result = boxLiteral((ExprNodeConstantDesc) child, type);
+        result = currentResult;
       }
     }
     return result;
+  }
+
+  private static Object getLiteral(Configuration conf, ExprNodeDesc child, BoxType boxType) {
+    if (child instanceof ExprNodeConstantDesc) {
+      return boxLiteral((ExprNodeConstantDesc) child, boxType);
+    } else if (child instanceof ExprNodeDynamicValueDesc) {
+      LiteralDelegate value = ((ExprNodeDynamicValueDesc) child).getDynamicValue();
+      value.setConf(conf);
+      return value;
+    }
+    return null;
   }
 
   /**
@@ -204,19 +260,16 @@ public class ConvertAstToSearchArg {
    * @param position the child position to check
    * @return the boxed literal if found otherwise null
    */
-  private static Object getLiteral(ExprNodeGenericFuncDesc expr,
-                                   PredicateLeaf.Type type,
+  private static Object getLiteral(Configuration conf, ExprNodeGenericFuncDesc expr,
+                                   BoxType boxType,
                                    int position) {
     List<ExprNodeDesc> children = expr.getChildren();
-    Object child = children.get(position);
-    if (child instanceof ExprNodeConstantDesc) {
-      return boxLiteral((ExprNodeConstantDesc) child, type);
-    }
-    return null;
+    ExprNodeDesc child = children.get(position);
+    return getLiteral(conf, child, boxType);
   }
 
   private static Object[] getLiteralList(ExprNodeGenericFuncDesc expr,
-                                         PredicateLeaf.Type type,
+                                         BoxType boxType,
                                          int start) {
     List<ExprNodeDesc> children = expr.getChildren();
     Object[] result = new Object[children.size() - start];
@@ -225,7 +278,7 @@ public class ConvertAstToSearchArg {
     int posn = 0;
     for(ExprNodeDesc child: children.subList(start, children.size())) {
       if (child instanceof ExprNodeConstantDesc) {
-        result[posn++] = boxLiteral((ExprNodeConstantDesc) child, type);
+        result[posn++] = boxLiteral((ExprNodeConstantDesc) child, boxType);
       } else {
         // if we get some non-literals, we need to punt
         return null;
@@ -242,8 +295,8 @@ public class ConvertAstToSearchArg {
       builder.literal(SearchArgument.TruthValue.YES_NO_NULL);
       return;
     }
-    PredicateLeaf.Type type = getType(expression.getChildren().get(variable));
-    if (type == null) {
+    BoxType boxType = getType(expression.getChildren().get(variable));
+    if (boxType == null) {
       builder.literal(SearchArgument.TruthValue.YES_NO_NULL);
       return;
     }
@@ -263,31 +316,37 @@ public class ConvertAstToSearchArg {
       builder.startNot();
     }
 
-    switch (operator) {
-      case IS_NULL:
-        builder.isNull(columnName, type);
-        break;
-      case EQUALS:
-        builder.equals(columnName, type, findLiteral(expression, type));
-        break;
-      case NULL_SAFE_EQUALS:
-        builder.nullSafeEquals(columnName, type, findLiteral(expression, type));
-        break;
-      case LESS_THAN:
-        builder.lessThan(columnName, type, findLiteral(expression, type));
-        break;
-      case LESS_THAN_EQUALS:
-        builder.lessThanEquals(columnName, type, findLiteral(expression, type));
-        break;
-      case IN:
-        builder.in(columnName, type,
-            getLiteralList(expression, type, variable + 1));
-        break;
-      case BETWEEN:
-        builder.between(columnName, type,
-            getLiteral(expression, type, variable + 1),
-            getLiteral(expression, type, variable + 2));
-        break;
+    try {
+      switch (operator) {
+        case IS_NULL:
+          builder.isNull(columnName, boxType.type);
+          break;
+        case EQUALS:
+          builder.equals(columnName, boxType.type, findLiteral(conf, expression, boxType));
+          break;
+        case NULL_SAFE_EQUALS:
+          builder.nullSafeEquals(columnName, boxType.type, findLiteral(conf, expression, boxType));
+          break;
+        case LESS_THAN:
+          builder.lessThan(columnName, boxType.type, findLiteral(conf, expression, boxType));
+          break;
+        case LESS_THAN_EQUALS:
+          builder.lessThanEquals(columnName, boxType.type, findLiteral(conf, expression, boxType));
+          break;
+        case IN:
+          builder.in(columnName, boxType.type,
+              getLiteralList(expression, boxType, variable + 1));
+          break;
+        case BETWEEN:
+          builder.between(columnName, boxType.type,
+              getLiteral(conf, expression, boxType, variable + 1),
+              getLiteral(conf, expression, boxType, variable + 2));
+          break;
+      }
+    } catch (Exception e) {
+      LOG.warn("Exception thrown during SARG creation. Returning YES_NO_NULL." +
+          " Exception: " + e.getMessage());
+      builder.literal(SearchArgument.TruthValue.YES_NO_NULL);
     }
 
     if (needSwap) {
@@ -413,27 +472,84 @@ public class ConvertAstToSearchArg {
     }
   }
 
-
   public static final String SARG_PUSHDOWN = "sarg.pushdown";
 
-  public static SearchArgument create(ExprNodeGenericFuncDesc expression) {
-    return new ConvertAstToSearchArg(expression).buildSearchArgument();
+  private static volatile Cache<String, SearchArgument> sargsCache = null;
+
+  private static synchronized Cache<String, SearchArgument> initializeAndGetSargsCache(Configuration conf) {
+    if (sargsCache == null) {
+      sargsCache = CacheBuilder.newBuilder()
+            .weigher((String key, SearchArgument value) -> key.length())
+            .maximumWeight(
+                HiveConf.getIntVar(conf,
+                                   HiveConf.ConfVars.HIVE_IO_SARG_CACHE_MAX_WEIGHT_MB) * 1024 *1024
+            )
+            .build(); // Can't use CacheLoader because SearchArguments may be built either from Kryo strings,
+                      // or from expressions.
+    }
+    return sargsCache;
   }
 
+  private static Cache<String, SearchArgument> getSargsCache(Configuration conf) {
+    return sargsCache == null? initializeAndGetSargsCache(conf) : sargsCache;
+  }
+
+  private static boolean isSargsCacheEnabled(Configuration conf) {
+    return HiveConf.getIntVar(conf, HiveConf.ConfVars.HIVE_IO_SARG_CACHE_MAX_WEIGHT_MB) > 0;
+  }
+
+  private static SearchArgument getSearchArgumentFromString(Configuration conf, String sargString) {
+
+    try {
+      return isSargsCacheEnabled(conf)? getSargsCache(conf).get(sargString, () -> create(sargString))
+                                      : create(sargString);
+    }
+    catch (ExecutionException exception) {
+      throw new RuntimeException(exception);
+    }
+  }
+
+  private static SearchArgument getSearchArgumentFromExpression(Configuration conf, String sargString) {
+
+    try {
+      return isSargsCacheEnabled(conf)?
+              getSargsCache(conf).get(sargString,
+                                      () -> create(conf, SerializationUtilities.deserializeExpression(sargString)))
+              : create(conf, SerializationUtilities.deserializeExpression(sargString));
+    }
+    catch (ExecutionException exception) {
+      throw new RuntimeException(exception);
+    }
+  }
+
+  public static SearchArgument create(Configuration conf, ExprNodeGenericFuncDesc expression) {
+    return new ConvertAstToSearchArg(conf, expression).buildSearchArgument();
+  }
+
+  private final static ThreadLocal<Kryo> kryo = new ThreadLocal<Kryo>() {
+    protected Kryo initialValue() { return new Kryo(); }
+  };
 
   public static SearchArgument create(String kryo) {
-    Input input = new Input(Base64.decodeBase64(kryo));
-    return new Kryo().readObject(input, SearchArgumentImpl.class);
+    return create(Base64.decodeBase64(kryo));
+  }
+
+  public static SearchArgument create(byte[] kryoBytes) {
+    return kryo.get().readObject(new Input(kryoBytes), SearchArgumentImpl.class);
   }
 
   public static SearchArgument createFromConf(Configuration conf) {
     String sargString;
     if ((sargString = conf.get(TableScanDesc.FILTER_EXPR_CONF_STR)) != null) {
-      return create(Utilities.deserializeExpression(sargString));
+      return getSearchArgumentFromExpression(conf, sargString);
     } else if ((sargString = conf.get(SARG_PUSHDOWN)) != null) {
-      return create(sargString);
+      return getSearchArgumentFromString(conf, sargString);
     }
     return null;
+  }
+
+  public static boolean canCreateFromConf(Configuration conf) {
+    return conf.get(TableScanDesc.FILTER_EXPR_CONF_STR) != null || conf.get(SARG_PUSHDOWN) != null;
   }
 
 }

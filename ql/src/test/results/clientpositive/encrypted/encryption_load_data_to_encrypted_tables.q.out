@@ -4,23 +4,21 @@ POSTHOOK: query: DROP TABLE IF EXISTS encrypted_table PURGE
 POSTHOOK: type: DROPTABLE
 #### A masked pattern was here ####
 PREHOOK: type: CREATETABLE
-#### A masked pattern was here ####
+PREHOOK: Input: hdfs://### HDFS PATH ###
 PREHOOK: Output: database:default
 PREHOOK: Output: default@encrypted_table
 #### A masked pattern was here ####
 POSTHOOK: type: CREATETABLE
-#### A masked pattern was here ####
+POSTHOOK: Input: hdfs://### HDFS PATH ###
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@encrypted_table
 Encryption key created: 'key1'
 Encryption zone created: '/build/ql/test/data/warehouse/encrypted_table' using key: 'key1'
-PREHOOK: query: -- Test loading data from the local filesystem;
-LOAD DATA LOCAL INPATH '../../data/files/kv1.txt' OVERWRITE INTO TABLE encrypted_table
+PREHOOK: query: LOAD DATA LOCAL INPATH '../../data/files/kv1.txt' OVERWRITE INTO TABLE encrypted_table
 PREHOOK: type: LOAD
 #### A masked pattern was here ####
 PREHOOK: Output: default@encrypted_table
-POSTHOOK: query: -- Test loading data from the local filesystem;
-LOAD DATA LOCAL INPATH '../../data/files/kv1.txt' OVERWRITE INTO TABLE encrypted_table
+POSTHOOK: query: LOAD DATA LOCAL INPATH '../../data/files/kv1.txt' OVERWRITE INTO TABLE encrypted_table
 POSTHOOK: type: LOAD
 #### A masked pattern was here ####
 POSTHOOK: Output: default@encrypted_table
@@ -534,11 +532,11 @@ POSTHOOK: Input: default@encrypted_table
 97	val_97
 #### A masked pattern was here ####
 PREHOOK: type: LOAD
-#### A masked pattern was here ####
+PREHOOK: Input: hdfs://### HDFS PATH ###
 PREHOOK: Output: default@encrypted_table
 #### A masked pattern was here ####
 POSTHOOK: type: LOAD
-#### A masked pattern was here ####
+POSTHOOK: Input: hdfs://### HDFS PATH ###
 POSTHOOK: Output: default@encrypted_table
 PREHOOK: query: SELECT * FROM encrypted_table
 PREHOOK: type: QUERY

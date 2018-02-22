@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -29,13 +31,14 @@ import java.util.Map;
 import java.util.Properties;
 
 import org.apache.commons.lang3.StringEscapeUtils;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configurable;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.FileUtils;
+import org.apache.hadoop.hive.common.ValidReadTxnList;
+import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.mr.ExecMapperContext;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
@@ -60,7 +63,6 @@ import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.mapred.InputFormat;
@@ -69,18 +71,22 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.JobConfigurable;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hive.common.util.AnnotationUtils;
 import org.apache.hive.common.util.ReflectionUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Lists;
 
 /**
  * FetchTask implementation.
  **/
 public class FetchOperator implements Serializable {
 
-  static final Log LOG = LogFactory.getLog(FetchOperator.class.getName());
+  static final Logger LOG = LoggerFactory.getLogger(FetchOperator.class.getName());
   static final LogHelper console = new LogHelper(LOG);
 
   public static final String FETCH_OPERATOR_DIRECTORY_LIST =
@@ -104,7 +110,7 @@ public class FetchOperator implements Serializable {
 
   private transient Iterator<Path> iterPath;
   private transient Iterator<PartitionDesc> iterPartDesc;
-  private transient Iterator<FetchInputFormatSplit> iterSplits = Iterators.emptyIterator();
+  private transient Iterator<FetchInputFormatSplit> iterSplits = Collections.emptyIterator();
 
   private transient Path currPath;
   private transient PartitionDesc currDesc;
@@ -133,6 +139,10 @@ public class FetchOperator implements Serializable {
     this.job = job;
     this.work = work;
     this.operator = operator;
+    if (operator instanceof TableScanOperator) {
+      Utilities.addTableSchemaToConf(job,
+          (TableScanOperator) operator);
+    }
     this.vcCols = vcCols;
     this.hasVC = vcCols != null && !vcCols.isEmpty();
     this.isStatReader = work.getTblDesc() == null;
@@ -141,6 +151,9 @@ public class FetchOperator implements Serializable {
     initialize();
   }
 
+  public void setValidTxnList(String txnStr) {
+    job.set(ValidTxnList.VALID_TXNS_KEY, txnStr);
+  }
   private void initialize() throws HiveException {
     if (isStatReader) {
       outputOI = work.getStatRowOI();
@@ -200,12 +213,13 @@ public class FetchOperator implements Serializable {
   private static final Map<String, InputFormat> inputFormats = new HashMap<String, InputFormat>();
 
   @SuppressWarnings("unchecked")
-  static InputFormat getInputFormatFromCache(Class<? extends InputFormat> inputFormatClass,
-       JobConf conf) throws IOException {
+  static InputFormat getInputFormatFromCache(
+    Class<? extends InputFormat> inputFormatClass, JobConf conf) throws IOException {
     if (Configurable.class.isAssignableFrom(inputFormatClass) ||
         JobConfigurable.class.isAssignableFrom(inputFormatClass)) {
       return ReflectionUtil.newInstance(inputFormatClass, conf);
     }
+    // TODO: why is this copy-pasted from HiveInputFormat?
     InputFormat format = inputFormats.get(inputFormatClass.getName());
     if (format == null) {
       try {
@@ -260,6 +274,10 @@ public class FetchOperator implements Serializable {
       }
       FileSystem fs = currPath.getFileSystem(job);
       if (fs.exists(currPath)) {
+        if (extractValidTxnList() != null &&
+            AcidUtils.isInsertOnlyTable(currDesc.getTableDesc().getProperties())) {
+          return true;
+        }
         for (FileStatus fStat : listStatusUnderPath(fs, currPath)) {
           if (fStat.getLen() > 0) {
             return true;
@@ -296,6 +314,7 @@ public class FetchOperator implements Serializable {
       if (splits == null) {
         return null;
       }
+
       if (!isPartitioned || convertedOI == null) {
         currSerDe = tableSerDe;
         ObjectConverter = null;
@@ -359,6 +378,12 @@ public class FetchOperator implements Serializable {
       Class<? extends InputFormat> formatter = currDesc.getInputFileFormatClass();
       Utilities.copyTableJobPropertiesToConf(currDesc.getTableDesc(), job);
       InputFormat inputFormat = getInputFormatFromCache(formatter, job);
+      String inputs = processCurrPathForMmWriteIds(inputFormat);
+      if (Utilities.FILE_OP_LOGGER.isTraceEnabled()) {
+        Utilities.FILE_OP_LOGGER.trace("Setting fetch inputs to " + inputs);
+      }
+      if (inputs == null) return null;
+      job.set("mapred.input.dir", inputs);
 
       InputSplit[] splits = inputFormat.getSplits(job, 1);
       FetchInputFormatSplit[] inputSplits = new FetchInputFormatSplit[splits.length];
@@ -369,10 +394,46 @@ public class FetchOperator implements Serializable {
         inputSplits = splitSampling(work.getSplitSample(), inputSplits);
       }
       if (inputSplits.length > 0) {
+        if (HiveConf.getBoolVar(job, HiveConf.ConfVars.HIVE_IN_TEST)) {
+          Arrays.sort(inputSplits, new FetchInputFormatSplitComparator());
+        }
         return inputSplits;
       }
     }
     return null;
+  }
+
+  private String processCurrPathForMmWriteIds(InputFormat inputFormat) throws IOException {
+    if (inputFormat instanceof HiveInputFormat) {
+      return StringUtils.escapeString(currPath.toString()); // No need to process here.
+    }
+    ValidTxnList validTxnList;
+    if (AcidUtils.isInsertOnlyTable(currDesc.getTableDesc().getProperties())) {
+      validTxnList = extractValidTxnList();
+    } else {
+      validTxnList = null;  // non-MM case
+    }
+    if (validTxnList != null) {
+      Utilities.FILE_OP_LOGGER.info("Processing " + currDesc.getTableName() + " for MM paths");
+    }
+
+    Path[] dirs = HiveInputFormat.processPathsForMmRead(Lists.newArrayList(currPath), job, validTxnList);
+    if (dirs == null || dirs.length == 0) {
+      return null; // No valid inputs. This condition is logged inside the call.
+    }
+    StringBuffer str = new StringBuffer(StringUtils.escapeString(dirs[0].toString()));
+    for(int i = 1; i < dirs.length;i++) {
+      str.append(",").append(StringUtils.escapeString(dirs[i].toString()));
+    }
+    return str.toString();
+  }
+
+  private ValidTxnList extractValidTxnList() {
+    if (currDesc.getTableName() == null || !org.apache.commons.lang.StringUtils.isBlank(currDesc.getTableName())) {
+      String txnString = job.get(ValidTxnList.VALID_TXNS_KEY);
+      return txnString == null ? new ValidReadTxnList() : new ValidReadTxnList(txnString);
+    }
+    return null;  // not fetching from a table directly but from a temp location
   }
 
   private FetchInputFormatSplit[] splitSampling(SplitSample splitSample,
@@ -405,6 +466,10 @@ public class FetchOperator implements Serializable {
    * Currently only used by FetchTask.
    **/
   public boolean pushRow() throws IOException, HiveException {
+    if (operator == null) {
+      return false;
+    }
+
     if (work.getRowsComputedUsingStats() != null) {
       for (List<Object> row : work.getRowsComputedUsingStats()) {
         operator.process(row, 0);
@@ -519,10 +584,7 @@ public class FetchOperator implements Serializable {
         currRecReader.close();
         currRecReader = null;
       }
-      if (operator != null) {
-        operator.close(false);
-        operator = null;
-      }
+      closeOperator();
       if (context != null) {
         context.clear();
         context = null;
@@ -530,10 +592,17 @@ public class FetchOperator implements Serializable {
       this.currPath = null;
       this.iterPath = null;
       this.iterPartDesc = null;
-      this.iterSplits = Iterators.emptyIterator();
+      this.iterSplits = Collections.emptyIterator();
     } catch (Exception e) {
       throw new HiveException("Failed with exception " + e.getMessage()
           + StringUtils.stringifyException(e));
+    }
+  }
+
+  public void closeOperator() throws HiveException {
+    if (operator != null) {
+      operator.close(false);
+      operator = null;
     }
   }
 
@@ -599,6 +668,10 @@ public class FetchOperator implements Serializable {
   }
 
   private boolean needConversion(PartitionDesc partitionDesc) {
+    boolean isAcid = AcidUtils.isTablePropertyTransactional(partitionDesc.getTableDesc().getProperties());
+    if (Utilities.isSchemaEvolutionEnabled(job, isAcid) && Utilities.isInputFileFormatSelfDescribing(partitionDesc)) {
+      return false;
+    }
     return needConversion(partitionDesc.getTableDesc(), Arrays.asList(partitionDesc));
   }
 
@@ -641,7 +714,7 @@ public class FetchOperator implements Serializable {
    * @return list of file status entries
    */
   private FileStatus[] listStatusUnderPath(FileSystem fs, Path p) throws IOException {
-    boolean recursive = HiveConf.getBoolVar(job, HiveConf.ConfVars.HADOOPMAPREDINPUTDIRRECURSIVE);
+    boolean recursive = job.getBoolean(FileInputFormat.INPUT_DIR_RECURSIVE, false);
     // If this is in acid format always read it recursively regardless of what the jobconf says.
     if (!recursive && !AcidUtils.isAcid(p, job)) {
       return fs.listStatus(p, FileUtils.HIDDEN_FILES_PATH_FILTER);
@@ -673,5 +746,21 @@ public class FetchOperator implements Serializable {
     public RecordReader<WritableComparable, Writable> getRecordReader(JobConf job) throws IOException {
       return inputFormat.getRecordReader(getInputSplit(), job, Reporter.NULL);
     }
+  }
+
+  private static class FetchInputFormatSplitComparator implements Comparator<FetchInputFormatSplit> {
+    @Override
+    public int compare(FetchInputFormatSplit a, FetchInputFormatSplit b) {
+      final Path ap = a.getPath();
+      final Path bp = b.getPath();
+      if (ap != null) {
+        return (ap.compareTo(bp));
+      }
+      return Long.signum(a.getLength() - b.getLength());
+    }
+  }
+
+  public Configuration getJobConf() {
+    return job;
   }
 }

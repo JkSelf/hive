@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -26,14 +26,15 @@ import junit.framework.TestCase;
 import org.apache.hadoop.hive.cli.CliSessionState;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
+import org.apache.hadoop.hive.metastore.MetaStoreTestUtils;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.ql.Driver;
+import org.apache.hadoop.hive.metastore.security.HadoopThriftAuthBridge;
+import org.apache.hadoop.hive.ql.DriverFactory;
+import org.apache.hadoop.hive.ql.IDriver;
 import org.apache.hadoop.hive.ql.processors.CommandProcessorResponse;
 import org.apache.hadoop.hive.ql.security.authorization.DefaultHiveAuthorizationProvider;
 import org.apache.hadoop.hive.ql.session.SessionState;
-import org.apache.hadoop.hive.shims.ShimLoader;
 import org.apache.hadoop.hive.shims.Utils;
 import org.apache.hadoop.security.UserGroupInformation;
 
@@ -44,7 +45,7 @@ import org.apache.hadoop.security.UserGroupInformation;
 public class TestClientSideAuthorizationProvider extends TestCase {
   protected HiveConf clientHiveConf;
   protected HiveMetaStoreClient msc;
-  protected Driver driver;
+  protected IDriver driver;
   protected UserGroupInformation ugi;
 
 
@@ -58,13 +59,11 @@ public class TestClientSideAuthorizationProvider extends TestCase {
 
     super.setUp();
 
-    int port = MetaStoreUtils.findFreePort();
-
     // Turn off metastore-side authorization
     System.setProperty(HiveConf.ConfVars.METASTORE_PRE_EVENT_LISTENERS.varname,
         "");
 
-    MetaStoreUtils.startMetaStore(port, ShimLoader.getHadoopThriftAuthBridge());
+    int port = MetaStoreTestUtils.startMetaStoreWithRetry();
 
     clientHiveConf = new HiveConf(this.getClass());
 
@@ -75,7 +74,7 @@ public class TestClientSideAuthorizationProvider extends TestCase {
     clientHiveConf.set(HiveConf.ConfVars.HIVE_AUTHENTICATOR_MANAGER.varname,
         InjectableDummyAuthenticator.class.getName());
     clientHiveConf.set(HiveConf.ConfVars.HIVE_AUTHORIZATION_TABLE_OWNER_GRANTS.varname, "");
-
+    clientHiveConf.setVar(HiveConf.ConfVars.HIVEMAPREDMODE, "nonstrict");
     clientHiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, "thrift://localhost:" + port);
     clientHiveConf.setIntVar(HiveConf.ConfVars.METASTORETHRIFTCONNECTIONRETRIES, 3);
     clientHiveConf.set(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY.varname, "false");
@@ -86,8 +85,8 @@ public class TestClientSideAuthorizationProvider extends TestCase {
     ugi = Utils.getUGI();
 
     SessionState.start(new CliSessionState(clientHiveConf));
-    msc = new HiveMetaStoreClient(clientHiveConf, null);
-    driver = new Driver(clientHiveConf);
+    msc = new HiveMetaStoreClient(clientHiveConf);
+    driver = DriverFactory.newDriver(clientHiveConf);
   }
 
   @Override
@@ -157,6 +156,10 @@ public class TestClientSideAuthorizationProvider extends TestCase {
     InjectableDummyAuthenticator.injectGroupNames(fakeGroupNames);
     InjectableDummyAuthenticator.injectMode(true);
 
+    allowSelectOnTable(tbl.getTableName(), fakeUser, tbl.getSd().getLocation());
+    ret = driver.run(String.format("select * from %s limit 10", tblName));
+    assertEquals(0,ret.getResponseCode());
+
     ret = driver.run(
         String.format("create table %s (a string) partitioned by (b string)", tblName+"mal"));
 
@@ -216,6 +219,11 @@ public class TestClientSideAuthorizationProvider extends TestCase {
   protected void allowDropOnDb(String dbName, String userName, String location)
       throws Exception {
     driver.run("grant drop on database "+dbName+" to user "+userName);
+  }
+
+  protected void allowSelectOnTable(String tblName, String userName, String location)
+      throws Exception {
+    driver.run("grant select on table "+tblName+" to user "+userName);
   }
 
   protected void assertNoPrivileges(CommandProcessorResponse ret){

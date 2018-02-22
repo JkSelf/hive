@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -354,6 +354,7 @@ public class ColumnMappings implements Iterable<ColumnMappings.ColumnMapping> {
     String mappingSpec;
     String qualifierPrefix;
     byte[] qualifierPrefixBytes;
+    boolean doPrefixCut;
 
     public String getColumnName() {
       return columnName;
@@ -397,6 +398,10 @@ public class ColumnMappings implements Iterable<ColumnMappings.ColumnMapping> {
 
     public byte[] getQualifierPrefixBytes() {
       return qualifierPrefixBytes;
+    }
+
+    public boolean isDoPrefixCut(){
+      return doPrefixCut;
     }
 
     public boolean isCategory(ObjectInspector.Category category) {

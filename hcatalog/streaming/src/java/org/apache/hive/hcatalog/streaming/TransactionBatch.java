@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -24,12 +24,26 @@ import java.util.Collection;
 /**
  * Represents a set of Transactions returned by Hive. Supports opening, writing to
  * and commiting/aborting each transaction. The interface is designed to ensure
- * transactions in a batch are used up sequentially. Multiple transaction batches can be
- * used (initialized with separate RecordWriters) for concurrent streaming
+ * transactions in a batch are used up sequentially. To stream to the same HiveEndPoint
+ * concurrently, create separate StreamingConnections.
+ *
+ * Note on thread safety: At most 2 threads can run through a given TransactionBatch at the same
+ * time.  One thread may call {@link #heartbeat()} and the other all other methods.
+ * Violating this may result in "out of sequence response".
  *
  */
 public interface TransactionBatch  {
-  public enum TxnState {INACTIVE, OPEN, COMMITTED, ABORTED }
+  enum TxnState {
+    INACTIVE("I"), OPEN("O"), COMMITTED("C"), ABORTED("A");
+
+    private final String code;
+    TxnState(String code) {
+      this.code = code;
+    };
+    public String toString() {
+      return code;
+    }
+  }
 
   /**
    * Activate the next available transaction in the current transaction batch
@@ -100,4 +114,5 @@ public interface TransactionBatch  {
    * @throws InterruptedException if call in interrupted
    */
   public void close() throws StreamingException, InterruptedException;
+  public boolean isClosed();
 }

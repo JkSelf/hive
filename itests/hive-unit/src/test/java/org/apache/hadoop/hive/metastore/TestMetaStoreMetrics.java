@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -17,29 +17,16 @@
  */
 package org.apache.hadoop.hive.metastore;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import junit.framework.TestCase;
 import org.apache.hadoop.hive.cli.CliSessionState;
-import org.apache.hadoop.hive.common.metrics.metrics2.MetricsReporting;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.ql.Driver;
-import org.apache.hadoop.hive.ql.metadata.Hive;
+import org.apache.hadoop.hive.metastore.metrics.Metrics;
+import org.apache.hadoop.hive.metastore.metrics.MetricsConstants;
+import org.apache.hadoop.hive.ql.DriverFactory;
+import org.apache.hadoop.hive.ql.IDriver;
 import org.apache.hadoop.hive.ql.session.SessionState;
-import org.apache.hadoop.hive.shims.ShimLoader;
-import org.apache.hive.service.server.HiveServer2;
-import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.Map;
 
 /**
  * Tests Hive Metastore Metrics.
@@ -47,100 +34,127 @@ import java.util.Map;
  */
 public class TestMetaStoreMetrics {
 
-  private static File workDir = new File(System.getProperty("test.tmp.dir"));
-  private static File jsonReportFile;
 
   private static HiveConf hiveConf;
-  private static Driver driver;
+  private static IDriver driver;
 
   @BeforeClass
   public static void before() throws Exception {
-
-    int port = MetaStoreUtils.findFreePort();
-
-    jsonReportFile = new File(workDir, "json_reporting");
-    jsonReportFile.delete();
-
     hiveConf = new HiveConf(TestMetaStoreMetrics.class);
-    hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, "thrift://localhost:" + port);
     hiveConf.setIntVar(HiveConf.ConfVars.METASTORETHRIFTCONNECTIONRETRIES, 3);
     hiveConf.setBoolVar(HiveConf.ConfVars.METASTORE_METRICS, true);
     hiveConf.setBoolVar(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY, false);
-    hiveConf.setVar(HiveConf.ConfVars.HIVE_METRICS_REPORTER, MetricsReporting.JSON_FILE.name() + "," + MetricsReporting.JMX.name());
-    hiveConf.setVar(HiveConf.ConfVars.HIVE_METRICS_JSON_FILE_LOCATION, jsonReportFile.toString());
-    hiveConf.setVar(HiveConf.ConfVars.HIVE_METRICS_JSON_FILE_INTERVAL, "100ms");
+    hiveConf
+        .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+            "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
 
-    MetaStoreUtils.startMetaStore(port, ShimLoader.getHadoopThriftAuthBridge(), hiveConf);
+    //Increments one HMS connection
+    int port = MetaStoreTestUtils.startMetaStoreWithRetry(hiveConf);
 
+    hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, "thrift://localhost:" + port);
+
+    //Increments one HMS connection (Hive.get())
     SessionState.start(new CliSessionState(hiveConf));
-    driver = new Driver(hiveConf);
+    driver = DriverFactory.newDriver(hiveConf);
+  }
+
+
+  @Test
+  public void testMethodCounts() throws Exception {
+    driver.run("show databases");
+
+    //one call by init, one called here.
+    Assert.assertEquals(2, Metrics.getRegistry().getTimers().get("api_get_all_databases").getCount());
   }
 
   @Test
-  public void testMetricsFile() throws Exception {
-    driver.run("show databases");
+  public void testMetaDataCounts() throws Exception {
+    int initDbCount =
+        (Integer)Metrics.getRegistry().getGauges().get(MetricsConstants.TOTAL_DATABASES).getValue();
+    int initTblCount =
+        (Integer)Metrics.getRegistry().getGauges().get(MetricsConstants.TOTAL_TABLES).getValue();
+    int initPartCount =
+        (Integer)Metrics.getRegistry().getGauges().get(MetricsConstants.TOTAL_PARTITIONS).getValue();
 
-    //give timer thread a chance to print the metrics
-    Thread.sleep(2000);
+    //1 databases created
+    driver.run("create database testdb1");
 
-    //As the file is being written, try a few times.
-    //This can be replaced by CodahaleMetrics's JsonServlet reporter once it is exposed.
-    byte[] jsonData = Files.readAllBytes(Paths.get(jsonReportFile.getAbsolutePath()));
-    ObjectMapper objectMapper = new ObjectMapper();
+    //4 tables
+    driver.run("create table testtbl1 (key string)");
+    driver.run("create table testtblpart (key string) partitioned by (partkey string)");
+    driver.run("use testdb1");
+    driver.run("create table testtbl2 (key string)");
+    driver.run("create table testtblpart2 (key string) partitioned by (partkey string)");
 
-    JsonNode rootNode = objectMapper.readTree(jsonData);
-    JsonNode timersNode = rootNode.path("timers");
-    JsonNode methodCounterNode = timersNode.path("api_get_all_databases");
-    JsonNode methodCountNode = methodCounterNode.path("count");
-    Assert.assertTrue(methodCountNode.asInt() > 0);
+    //6 partitions
+    driver.run("alter table default.testtblpart add partition (partkey='a')");
+    driver.run("alter table default.testtblpart add partition (partkey='b')");
+    driver.run("alter table default.testtblpart add partition (partkey='c')");
+    driver.run("alter table testdb1.testtblpart2 add partition (partkey='a')");
+    driver.run("alter table testdb1.testtblpart2 add partition (partkey='b')");
+    driver.run("alter table testdb1.testtblpart2 add partition (partkey='c')");
 
-    JsonNode countersNode = rootNode.path("counters");
-    JsonNode committedJdoTxNode = countersNode.path("committed_jdo_transactions");
-    JsonNode committedCountNode = committedJdoTxNode.path("count");
-    Assert.assertTrue(committedCountNode.asInt() > 0);
+
+    //create and drop some additional metadata, to test drop counts.
+    driver.run("create database tempdb");
+    driver.run("use tempdb");
+
+    driver.run("create table delete_by_table (key string) partitioned by (partkey string)");
+    driver.run("alter table delete_by_table add partition (partkey='temp')");
+    driver.run("drop table delete_by_table");
+
+    driver.run("create table delete_by_part (key string) partitioned by (partkey string)");
+    driver.run("alter table delete_by_part add partition (partkey='temp')");
+    driver.run("alter table delete_by_part drop partition (partkey='temp')");
+
+    driver.run("create table delete_by_db (key string) partitioned by (partkey string)");
+    driver.run("alter table delete_by_db add partition (partkey='temp')");
+    driver.run("use default");
+    driver.run("drop database tempdb cascade");
+
+    Assert.assertEquals(2, Metrics.getRegistry().getCounters().get(MetricsConstants.CREATE_TOTAL_DATABASES).getCount());
+    Assert.assertEquals(7, Metrics.getRegistry().getCounters().get(MetricsConstants.CREATE_TOTAL_TABLES).getCount());
+    Assert.assertEquals(9, Metrics.getRegistry().getCounters().get(MetricsConstants.CREATE_TOTAL_PARTITIONS).getCount());
+
+    Assert.assertEquals(1, Metrics.getRegistry().getCounters().get(MetricsConstants.DELETE_TOTAL_DATABASES).getCount());
+    Assert.assertEquals(3, Metrics.getRegistry().getCounters().get(MetricsConstants.DELETE_TOTAL_TABLES).getCount());
+    Assert.assertEquals(3, Metrics.getRegistry().getCounters().get(MetricsConstants.DELETE_TOTAL_PARTITIONS).getCount());
+
+    //to test initial metadata count metrics.
+    Assert.assertEquals(initDbCount + 1,
+        Metrics.getRegistry().getGauges().get(MetricsConstants.TOTAL_DATABASES).getValue());
+    Assert.assertEquals(initTblCount + 4,
+        Metrics.getRegistry().getGauges().get(MetricsConstants.TOTAL_TABLES).getValue());
+    Assert.assertEquals(initPartCount + 6,
+        Metrics.getRegistry().getGauges().get(MetricsConstants.TOTAL_PARTITIONS).getValue());
+
   }
 
 
   @Test
   public void testConnections() throws Exception {
-    byte[] jsonData = Files.readAllBytes(Paths.get(jsonReportFile.getAbsolutePath()));
-    ObjectMapper objectMapper = new ObjectMapper();
-    JsonNode rootNode = objectMapper.readTree(jsonData);
-    JsonNode countersNode = rootNode.path("counters");
-    JsonNode openCnxNode = countersNode.path("open_connections");
-    JsonNode openCnxCountNode = openCnxNode.path("count");
-    Assert.assertTrue(openCnxCountNode.asInt() == 1);
 
-    //create a second connection
+    //initial state is one connection
+    int initialCount =
+        (Integer)Metrics.getRegistry().getGauges().get(MetricsConstants.OPEN_CONNECTIONS).getValue();
+
+    //create two connections
     HiveMetaStoreClient msc = new HiveMetaStoreClient(hiveConf);
     HiveMetaStoreClient msc2 = new HiveMetaStoreClient(hiveConf);
-    Thread.sleep(2000);
 
-    jsonData = Files.readAllBytes(Paths.get(jsonReportFile.getAbsolutePath()));
-    rootNode = objectMapper.readTree(jsonData);
-    countersNode = rootNode.path("counters");
-    openCnxNode = countersNode.path("open_connections");
-    openCnxCountNode = openCnxNode.path("count");
-    Assert.assertTrue(openCnxCountNode.asInt() == 3);
+    Assert.assertEquals(initialCount + 2,
+        Metrics.getRegistry().getGauges().get(MetricsConstants.OPEN_CONNECTIONS).getValue());
 
+    //close one connection, verify still two left
     msc.close();
-    Thread.sleep(2000);
+    Thread.sleep(500);  // TODO Evil!  Need to figure out a way to remove this sleep.
+    Assert.assertEquals(initialCount + 1,
+        Metrics.getRegistry().getGauges().get(MetricsConstants.OPEN_CONNECTIONS).getValue());
 
-    jsonData = Files.readAllBytes(Paths.get(jsonReportFile.getAbsolutePath()));
-    rootNode = objectMapper.readTree(jsonData);
-    countersNode = rootNode.path("counters");
-    openCnxNode = countersNode.path("open_connections");
-    openCnxCountNode = openCnxNode.path("count");
-    Assert.assertTrue(openCnxCountNode.asInt() == 2);
-
+    //close one connection, verify still one left
     msc2.close();
-    Thread.sleep(2000);
-
-    jsonData = Files.readAllBytes(Paths.get(jsonReportFile.getAbsolutePath()));
-    rootNode = objectMapper.readTree(jsonData);
-    countersNode = rootNode.path("counters");
-    openCnxNode = countersNode.path("open_connections");
-    openCnxCountNode = openCnxNode.path("count");
-    Assert.assertTrue(openCnxCountNode.asInt() == 1);
+    Thread.sleep(500);  // TODO Evil!  Need to figure out a way to remove this sleep.
+    Assert.assertEquals(initialCount,
+        Metrics.getRegistry().getGauges().get(MetricsConstants.OPEN_CONNECTIONS).getValue());
   }
 }

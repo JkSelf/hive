@@ -1,9 +1,10 @@
+set hive.mapred.mode=nonstrict;
 set hive.auto.convert.join=true;
 set hive.auto.convert.sortmerge.join=true;
 set hive.optimize.bucketmapjoin = true;
 set hive.optimize.bucketmapjoin.sortedmerge = true;
-set hive.enforce.bucketing=true;
-set hive.enforce.sorting=true;
+
+
 set hive.exec.reducers.max = 1;
 set hive.merge.mapfiles=false;
 set hive.merge.mapredfiles=false; 
@@ -27,6 +28,7 @@ INSERT OVERWRITE TABLE test_table2 PARTITION (ds = '1') SELECT key, key+1, value
 
 -- Insert data into the bucketed table by selecting from another bucketed table
 -- This should be a map-only operation, since the sort-order matches
+set hive.auto.convert.join.noconditionaltask.size=800;
 EXPLAIN
 INSERT OVERWRITE TABLE test_table3 PARTITION (ds = '1')
 SELECT a.key, a.key2, concat(a.value, b.value) 

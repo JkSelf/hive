@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,8 +18,8 @@
 
 package org.apache.hadoop.hive.ql.hooks;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.ql.metadata.DummyPartition;
@@ -35,9 +35,10 @@ import java.io.Serializable;
  */
 public class WriteEntity extends Entity implements Serializable {
 
-  private static final Log LOG = LogFactory.getLog(WriteEntity.class);
+  private static final Logger LOG = LoggerFactory.getLogger(WriteEntity.class);
 
   private boolean isTempURI = false;
+  private transient boolean isDynamicPartitionWrite = false;
 
   public static enum WriteType {
     DDL_EXCLUSIVE, // for use in DDL statements that require an exclusive lock,
@@ -86,11 +87,12 @@ public class WriteEntity extends Entity implements Serializable {
    * Currently applicable only for function names.
    * @param db
    * @param objName
+   * @param className
    * @param type
    * @param writeType
    */
-  public WriteEntity(Database db, String objName, Type type, WriteType writeType) {
-    super(db, objName, type);
+  public WriteEntity(Database db, String objName, String className, Type type, WriteType writeType) {
+    super(db, objName, className, type);
     this.writeType = writeType;
   }
 
@@ -138,6 +140,11 @@ public class WriteEntity extends Entity implements Serializable {
     this.writeType = WriteType.PATH_WRITE;
   }
 
+  public WriteEntity(String name, Type t) {
+    super(name, t);
+    this.writeType = WriteType.DDL_NO_LOCK;
+  }
+
   /**
    * Determine which type of write this is.  This is needed by the lock
    * manager so it can understand what kind of lock to acquire.
@@ -168,10 +175,14 @@ public class WriteEntity extends Entity implements Serializable {
 
     if (o instanceof WriteEntity) {
       WriteEntity ore = (WriteEntity) o;
-      return (toString().equalsIgnoreCase(ore.toString()));
+      return (getName().equalsIgnoreCase(ore.getName())) && this.writeType == ore.writeType;
     } else {
       return false;
     }
+  }
+
+  public String toStringDetail() {
+    return "WriteEntity(" + toString() + ") Type=" + getType() + " WriteType=" + getWriteType();
   }
 
   public boolean isTempURI() {
@@ -203,11 +214,13 @@ public class WriteEntity extends Entity implements Serializable {
       case ADDCOLS:
       case RENAME:
       case TRUNCATE:
-      case MERGEFILES: return WriteType.DDL_EXCLUSIVE;
+      case MERGEFILES:
+      case DROPCONSTRAINT: return WriteType.DDL_EXCLUSIVE;
 
       case ADDPARTITION:
       case ADDSERDEPROPS:
-      case ADDPROPS: return WriteType.DDL_SHARED;
+      case ADDPROPS:
+        return WriteType.DDL_SHARED;
 
       case COMPACT:
       case TOUCH: return WriteType.DDL_NO_LOCK;
@@ -215,6 +228,15 @@ public class WriteEntity extends Entity implements Serializable {
       default:
         throw new RuntimeException("Unknown operation " + op.toString());
     }
+  }
+  public boolean isDynamicPartitionWrite() {
+    return isDynamicPartitionWrite;
+  }
+  public void setDynamicPartitionWrite(boolean t) {
+    isDynamicPartitionWrite = t;
+  }
+  public String toDetailedString() {
+    return toString() + " Type=" + getTyp() + " WriteType=" + getWriteType() + " isDP=" + isDynamicPartitionWrite();
   }
 
 }

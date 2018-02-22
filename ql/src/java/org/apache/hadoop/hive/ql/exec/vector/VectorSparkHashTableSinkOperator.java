@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,14 +19,16 @@
 package org.apache.hadoop.hive.ql.exec.vector;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.SparkHashTableSinkOperator;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 import org.apache.hadoop.hive.ql.plan.SparkHashTableSinkDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorSparkHashTableSinkDesc;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 
-import java.util.Collection;
-import java.util.concurrent.Future;
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * Vectorized version of SparkHashTableSinkOperator
@@ -34,11 +36,13 @@ import java.util.concurrent.Future;
  *
  * Copied from VectorFileSinkOperator
  */
-public class VectorSparkHashTableSinkOperator extends SparkHashTableSinkOperator {
+public class VectorSparkHashTableSinkOperator extends SparkHashTableSinkOperator
+    implements VectorizationOperator {
 
   private static final long serialVersionUID = 1L;
 
   private VectorizationContext vContext;
+  private VectorSparkHashTableSinkDesc vectorDesc;
 
   // The above members are initialized by the constructor and must not be
   // transient.
@@ -46,30 +50,42 @@ public class VectorSparkHashTableSinkOperator extends SparkHashTableSinkOperator
 
   private transient boolean firstBatch;
 
-  private transient VectorExtractRowDynBatch vectorExtractRowDynBatch;
+  private transient VectorExtractRow vectorExtractRow;
 
   protected transient Object[] singleRow;
 
+  /** Kryo ctor. */
+  @VisibleForTesting
   public VectorSparkHashTableSinkOperator() {
+    super();
   }
 
-  public VectorSparkHashTableSinkOperator(VectorizationContext vContext, OperatorDesc conf) {
-    super();
-    this.vContext = vContext;
+  public VectorSparkHashTableSinkOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorSparkHashTableSinkOperator(
+      CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) {
+    this(ctx);
     this.conf = (SparkHashTableSinkDesc) conf;
+    this.vContext = vContext;
+    this.vectorDesc = (VectorSparkHashTableSinkDesc) vectorDesc;
   }
 
   @Override
-  protected Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
+  public VectorizationContext getInputVectorizationContext() {
+    return vContext;
+  }
+
+  @Override
+  protected void initializeOp(Configuration hconf) throws HiveException {
     inputObjInspectors[0] =
         VectorizedBatchUtil.convertToStandardStructObjectInspector((StructObjectInspector) inputObjInspectors[0]);
 
-    Collection<Future<?>> result = super.initializeOp(hconf);
-    assert result.isEmpty();
+    super.initializeOp(hconf);
 
     firstBatch = true;
-
-    return result;
   }
 
   @Override
@@ -77,28 +93,31 @@ public class VectorSparkHashTableSinkOperator extends SparkHashTableSinkOperator
     VectorizedRowBatch batch = (VectorizedRowBatch) row;
 
     if (firstBatch) {
-      vectorExtractRowDynBatch = new VectorExtractRowDynBatch();
-      vectorExtractRowDynBatch.init((StructObjectInspector) inputObjInspectors[0], vContext.getProjectedColumns());
+      vectorExtractRow = new VectorExtractRow();
+      vectorExtractRow.init((StructObjectInspector) inputObjInspectors[0], vContext.getProjectedColumns());
 
-      singleRow = new Object[vectorExtractRowDynBatch.getCount()];
+      singleRow = new Object[vectorExtractRow.getCount()];
 
       firstBatch = false;
     }
-    vectorExtractRowDynBatch.setBatchOnEntry(batch);
+
     if (batch.selectedInUse) {
       int selected[] = batch.selected;
       for (int logical = 0 ; logical < batch.size; logical++) {
         int batchIndex = selected[logical];
-        vectorExtractRowDynBatch.extractRow(batchIndex, singleRow);
+        vectorExtractRow.extractRow(batch, batchIndex, singleRow);
         super.process(singleRow, tag);
       }
     } else {
       for (int batchIndex = 0 ; batchIndex < batch.size; batchIndex++) {
-        vectorExtractRowDynBatch.extractRow(batchIndex, singleRow);
+        vectorExtractRow.extractRow(batch, batchIndex, singleRow);
         super.process(singleRow, tag);
       }
     }
+  }
 
-    vectorExtractRowDynBatch.forgetBatchOnExit();
+  @Override
+  public VectorDesc getVectorDesc() {
+    return vectorDesc;
   }
 }

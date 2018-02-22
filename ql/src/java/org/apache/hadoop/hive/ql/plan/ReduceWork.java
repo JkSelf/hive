@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,27 +19,21 @@
 package org.apache.hadoop.hive.ql.plan;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.FileSinkOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.OperatorUtils;
-import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
-import org.apache.hadoop.hive.serde2.Deserializer;
-import org.apache.hadoop.hive.serde2.SerDeUtils;
+import org.apache.hadoop.hive.ql.plan.Explain.Vectorization;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
-import org.apache.hadoop.hive.serde2.objectinspector.StructField;
-import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.mapred.JobConf;
-import org.apache.hive.common.util.ReflectionUtil;
 
 /**
  * ReduceWork represents all the information used to run a reduce task on the cluster.
@@ -63,8 +57,6 @@ public class ReduceWork extends BaseWork {
     super(name);
   }
 
-  private static transient final Log LOG = LogFactory.getLog(ReduceWork.class);
-
   // schema of the map-reduce 'key' object - this is homogeneous
   private TableDesc keyDesc;
 
@@ -86,6 +78,11 @@ public class ReduceWork extends BaseWork {
 
   // boolean that says whether tez auto reduce parallelism should be used
   private boolean isAutoReduceParallelism;
+  // boolean that says whether the data distribution is uniform hash (not java HashCode)
+  private transient boolean isUniformDistribution = false;
+
+  // boolean that says whether to slow start or not
+  private boolean isSlowStart = true;
 
   // for auto reduce parallelism - minimum reducers requested
   private int minReduceTasks;
@@ -95,6 +92,14 @@ public class ReduceWork extends BaseWork {
 
   private ObjectInspector keyObjectInspector = null;
   private ObjectInspector valueObjectInspector = null;
+
+  private boolean reduceVectorizationEnabled;
+  private String vectorReduceEngine;
+
+  private String vectorReduceColumnSortOrder;
+  private String vectorReduceColumnNullOrder;
+
+  private transient TezEdgeProperty edgeProp;
 
   /**
    * If the plan has a reducer and correspondingly a reduce-sink, then store the TableDesc pointing
@@ -110,37 +115,6 @@ public class ReduceWork extends BaseWork {
      return keyDesc;
   }
 
-  private ObjectInspector getObjectInspector(TableDesc desc) {
-    ObjectInspector objectInspector;
-    try {
-      Deserializer deserializer = ReflectionUtil.newInstance(desc
-                .getDeserializerClass(), null);
-      SerDeUtils.initializeSerDe(deserializer, null, desc.getProperties(), null);
-      objectInspector = deserializer.getObjectInspector();
-    } catch (Exception e) {
-      return null;
-    }
-    return objectInspector;
-  }
-
-  public ObjectInspector getKeyObjectInspector() {
-    if (keyObjectInspector == null) {
-      keyObjectInspector = getObjectInspector(keyDesc);
-    }
-    return keyObjectInspector;
-  }
-
-  // Only works when not tagging.
-  public ObjectInspector getValueObjectInspector() {
-    if (needsTagging) {
-      return null;
-    }
-    if (valueObjectInspector == null) {
-      valueObjectInspector = getObjectInspector(tagToValueDesc.get(tag));
-    }
-    return valueObjectInspector;
-  }
-
   public List<TableDesc> getTagToValueDesc() {
     return tagToValueDesc;
   }
@@ -149,12 +123,27 @@ public class ReduceWork extends BaseWork {
     this.tagToValueDesc = tagToValueDesc;
   }
 
-  @Explain(displayName = "Execution mode")
-  public String getVectorModeOn() {
-    return vectorMode ? "vectorized" : null;
+  @Explain(displayName = "Execution mode", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED },
+      vectorization = Vectorization.SUMMARY_PATH)
+  public String getExecutionMode() {
+    if (vectorMode) {
+      if (llapMode) {
+	if (uberMode) {
+	  return "vectorized, uber";
+	} else {
+	  return "vectorized, llap";
+	}
+      } else {
+	return "vectorized";
+      }
+    } else if (llapMode) {
+      return uberMode? "uber" : "llap";
+    }
+    return null;
   }
 
-  @Explain(displayName = "Reduce Operator Tree", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "Reduce Operator Tree", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED },
+      vectorization = Vectorization.OPERATOR_PATH)
   public Operator<?> getReducer() {
     return reducer;
   }
@@ -176,6 +165,7 @@ public class ReduceWork extends BaseWork {
     this.tagToInput = tagToInput;
   }
 
+  @Explain(displayName = "tagToInput", explainLevels = { Level.USER })
   public Map<Integer, String> getTagToInput() {
     return tagToInput;
   }
@@ -190,6 +180,11 @@ public class ReduceWork extends BaseWork {
     Set<Operator<?>> opSet = new LinkedHashSet<Operator<?>>();
     opSet.add(getReducer());
     return opSet;
+  }
+
+  @Override
+  public Operator<? extends OperatorDesc> getAnyRootOperator() {
+    return getReducer();
   }
 
   /**
@@ -225,6 +220,23 @@ public class ReduceWork extends BaseWork {
     return isAutoReduceParallelism;
   }
 
+  public boolean isSlowStart() {
+    return isSlowStart;
+  }
+
+  public void setSlowStart(boolean isSlowStart) {
+    this.isSlowStart = isSlowStart;
+  }
+
+  // ReducerTraits.UNIFORM
+  public void setUniformDistribution(boolean isUniformDistribution) {
+    this.isUniformDistribution = isUniformDistribution;
+  }
+
+  public boolean isUniformDistribution() {
+    return this.isUniformDistribution;
+  }
+
   public void setMinReduceTasks(int minReduceTasks) {
     this.minReduceTasks = minReduceTasks;
   }
@@ -239,5 +251,122 @@ public class ReduceWork extends BaseWork {
 
   public void setMaxReduceTasks(int maxReduceTasks) {
     this.maxReduceTasks = maxReduceTasks;
+  }
+
+  public void setReduceVectorizationEnabled(boolean reduceVectorizationEnabled) {
+    this.reduceVectorizationEnabled = reduceVectorizationEnabled;
+  }
+
+  public boolean getReduceVectorizationEnabled() {
+    return reduceVectorizationEnabled;
+  }
+
+  public void setVectorReduceEngine(String vectorReduceEngine) {
+    this.vectorReduceEngine = vectorReduceEngine;
+  }
+
+  public String getVectorReduceEngine() {
+    return vectorReduceEngine;
+  }
+
+  public void setVectorReduceColumnSortOrder(String vectorReduceColumnSortOrder) {
+    this.vectorReduceColumnSortOrder = vectorReduceColumnSortOrder;
+  }
+
+  public String getVectorReduceColumnSortOrder() {
+    return vectorReduceColumnSortOrder;
+  }
+
+  public void setVectorReduceColumnNullOrder(String vectorReduceColumnNullOrder) {
+    this.vectorReduceColumnNullOrder = vectorReduceColumnNullOrder;
+  }
+
+  public String getVectorReduceColumnNullOrder() {
+    return vectorReduceColumnNullOrder;
+  }
+
+  // Use LinkedHashSet to give predictable display order.
+  private static Set<String> reduceVectorizableEngines =
+      new LinkedHashSet<String>(Arrays.asList("tez", "spark"));
+
+  public class ReduceExplainVectorization extends BaseExplainVectorization {
+
+    private final ReduceWork reduceWork;
+
+    private VectorizationCondition[] reduceVectorizationConditions;
+
+    public ReduceExplainVectorization(ReduceWork reduceWork) {
+      super(reduceWork);
+      this.reduceWork = reduceWork;
+    }
+
+    private VectorizationCondition[] createReduceExplainVectorizationConditions() {
+
+      boolean enabled = reduceWork.getReduceVectorizationEnabled();
+
+      String engine = reduceWork.getVectorReduceEngine();
+      String engineInSupportedCondName =
+          HiveConf.ConfVars.HIVE_EXECUTION_ENGINE.varname + " " + engine + " IN " + reduceVectorizableEngines;
+
+      boolean engineInSupported = reduceVectorizableEngines.contains(engine);
+
+      VectorizationCondition[] conditions = new VectorizationCondition[] {
+          new VectorizationCondition(
+              enabled,
+              HiveConf.ConfVars.HIVE_VECTORIZATION_REDUCE_ENABLED.varname),
+          new VectorizationCondition(
+              engineInSupported,
+              engineInSupportedCondName)
+      };
+      return conditions;
+    }
+
+    @Explain(vectorization = Vectorization.SUMMARY, displayName = "enableConditionsMet", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+    public List<String> getEnableConditionsMet() {
+      if (reduceVectorizationConditions == null) {
+        reduceVectorizationConditions = createReduceExplainVectorizationConditions();
+      }
+      return VectorizationCondition.getConditionsMet(reduceVectorizationConditions);
+    }
+
+    @Explain(vectorization = Vectorization.SUMMARY, displayName = "enableConditionsNotMet", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+    public List<String> getEnableConditionsNotMet() {
+      if (reduceVectorizationConditions == null) {
+        reduceVectorizationConditions = createReduceExplainVectorizationConditions();
+      }
+      return VectorizationCondition.getConditionsNotMet(reduceVectorizationConditions);
+    }
+
+    @Explain(vectorization = Vectorization.DETAIL, displayName = "reduceColumnSortOrder", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+    public String getReduceColumnSortOrder() {
+      if (!getVectorizationExamined()) {
+        return null;
+      }
+      return reduceWork.getVectorReduceColumnSortOrder();
+    }
+
+    @Explain(vectorization = Vectorization.DETAIL, displayName = "reduceColumnNullOrder", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+    public String getReduceColumnNullOrder() {
+      if (!getVectorizationExamined()) {
+        return null;
+      }
+      return reduceWork.getVectorReduceColumnNullOrder();
+    }
+  }
+
+  @Explain(vectorization = Vectorization.SUMMARY, displayName = "Reduce Vectorization", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+  public ReduceExplainVectorization getReduceExplainVectorization() {
+    if (!getVectorizationExamined()) {
+      return null;
+    }
+    return new ReduceExplainVectorization(this);
+  }
+
+  public void setEdgePropRef(TezEdgeProperty edgeProp) {
+    this.edgeProp = edgeProp;
+  }
+
+  public TezEdgeProperty getEdgePropRef() {
+    return edgeProp;
   }
 }

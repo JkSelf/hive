@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -48,5 +48,14 @@ public class CommonMergeJoinDesc extends MapJoinDesc implements Serializable {
 
   public void setBigTablePosition(int pos) {
     mapJoinConversionPos = pos;
+  }
+
+  @Override
+  public boolean isSame(OperatorDesc other) {
+    if (super.isSame(other)) {
+      CommonMergeJoinDesc otherDesc = (CommonMergeJoinDesc) other;
+      return getNumBuckets() == otherDesc.getNumBuckets();
+    }
+    return false;
   }
 }

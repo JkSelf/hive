@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,11 +20,14 @@ package org.apache.hadoop.hive.ql.exec.vector.mapjoin.fast;
 
 import java.io.IOException;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.ql.util.JavaDataModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinBytesHashTable;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.hive.serde2.WriteBuffers;
 import org.apache.hadoop.io.BytesWritable;
+import org.apache.hive.common.util.HashCodeUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -35,12 +38,11 @@ public abstract class VectorMapJoinFastBytesHashTable
         extends VectorMapJoinFastHashTable
         implements VectorMapJoinBytesHashTable {
 
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinFastBytesHashTable.class);
+  private static final Logger LOG = LoggerFactory.getLogger(VectorMapJoinFastBytesHashTable.class);
 
   protected VectorMapJoinFastKeyStore keyStore;
 
-  private BytesWritable testKeyBytesWritable;
-  private BytesWritable testValueBytesWritable;
+  protected BytesWritable testKeyBytesWritable;
 
   @Override
   public void putRow(BytesWritable currentKey, BytesWritable currentValue) throws HiveException, IOException {
@@ -48,17 +50,6 @@ public abstract class VectorMapJoinFastBytesHashTable
     byte[] keyBytes = currentKey.getBytes();
     int keyLength = currentKey.getLength();
     add(keyBytes, 0, keyLength, currentValue);
-  }
-
-  @VisibleForTesting
-  public void putRow(byte[] currentKey, byte[] currentValue) throws HiveException, IOException {
-    if (testKeyBytesWritable == null) {
-      testKeyBytesWritable = new BytesWritable();
-      testValueBytesWritable = new BytesWritable();
-    }
-    testKeyBytesWritable.set(currentKey, 0, currentKey.length);
-    testValueBytesWritable.set(currentValue, 0, currentValue.length);
-    putRow(testKeyBytesWritable, testValueBytesWritable);
   }
 
   protected abstract void assignSlot(int slot, byte[] keyBytes, int keyStart, int keyLength,
@@ -70,7 +61,7 @@ public abstract class VectorMapJoinFastBytesHashTable
       expandAndRehash();
     }
 
-    long hashCode = VectorMapJoinFastBytesHashUtil.hashKey(keyBytes, keyStart, keyLength);
+    long hashCode = HashCodeUtil.murmurHash(keyBytes, keyStart, keyLength);
     int intHashCode = (int) hashCode;
     int slot = (intHashCode & logicalHashBucketMask);
     long probeSlot = slot;
@@ -84,7 +75,7 @@ public abstract class VectorMapJoinFastBytesHashTable
         break;
       }
       if (hashCode == slotTriples[tripleIndex + 1] &&
-          keyStore.equalKey(slotTriples[tripleIndex], keyBytes, keyStart, keyLength)) {
+          keyStore.unsafeEqualKey(slotTriples[tripleIndex], keyBytes, keyStart, keyLength)) {
         // LOG.debug("VectorMapJoinFastBytesHashMap findWriteSlot slot " + slot + " tripleIndex " + tripleIndex + " existing");
         isNewKey = false;
         break;
@@ -113,6 +104,10 @@ public abstract class VectorMapJoinFastBytesHashTable
 
   private void expandAndRehash() {
 
+    // We allocate triples, so we cannot go above highest Integer power of 2 / 6.
+    if (logicalHashBucketCount > ONE_SIXTH_LIMIT) {
+      throwExpandError(ONE_SIXTH_LIMIT, "Bytes");
+    }
     int newLogicalHashBucketCount = logicalHashBucketCount * 2;
     int newLogicalHashBucketMask = newLogicalHashBucketCount - 1;
     int newMetricPutConflict = 0;
@@ -173,7 +168,8 @@ public abstract class VectorMapJoinFastBytesHashTable
     // LOG.debug("VectorMapJoinFastLongHashTable expandAndRehash new logicalHashBucketCount " + logicalHashBucketCount + " resizeThreshold " + resizeThreshold + " metricExpands " + metricExpands);
   }
 
-  protected long findReadSlot(byte[] keyBytes, int keyStart, int keyLength, long hashCode) {
+  protected final long findReadSlot(
+      byte[] keyBytes, int keyStart, int keyLength, long hashCode, WriteBuffers.Position readPos) {
 
     int intHashCode = (int) hashCode;
     int slot = (intHashCode & logicalHashBucketMask);
@@ -182,10 +178,13 @@ public abstract class VectorMapJoinFastBytesHashTable
     while (true) {
       int tripleIndex = slot * 3;
       // LOG.debug("VectorMapJoinFastBytesHashMap findReadSlot slot keyRefWord " + Long.toHexString(slotTriples[tripleIndex]) + " hashCode " + Long.toHexString(hashCode) + " entry hashCode " + Long.toHexString(slotTriples[tripleIndex + 1]) + " valueRefWord " + Long.toHexString(slotTriples[tripleIndex + 2]));
-      if (slotTriples[tripleIndex] != 0 && hashCode == slotTriples[tripleIndex + 1]) {
+      if (slotTriples[tripleIndex] == 0) {
+        // Given that we do not delete, an empty slot means no match.
+        return -1;
+      } else if (hashCode == slotTriples[tripleIndex + 1]) {
         // Finally, verify the key bytes match.
 
-        if (keyStore.equalKey(slotTriples[tripleIndex], keyBytes, keyStart, keyLength)) {
+        if (keyStore.equalKey(slotTriples[tripleIndex], keyBytes, keyStart, keyLength, readPos)) {
           return slotTriples[tripleIndex + 2];
         }
       }
@@ -209,13 +208,22 @@ public abstract class VectorMapJoinFastBytesHashTable
   protected long[] slotTriples;
 
   private void allocateBucketArray() {
+    // We allocate triples, so we cannot go above highest Integer power of 2 / 6.
+    if (logicalHashBucketCount > ONE_SIXTH_LIMIT) {
+      throwExpandError(ONE_SIXTH_LIMIT, "Bytes");
+    }
     int slotTripleArraySize = 3 * logicalHashBucketCount;
     slotTriples = new long[slotTripleArraySize];
   }
 
   public VectorMapJoinFastBytesHashTable(
-        int initialCapacity, float loadFactor, int writeBuffersSize) {
-    super(initialCapacity, loadFactor, writeBuffersSize);
+        int initialCapacity, float loadFactor, int writeBuffersSize, long estimatedKeyCount) {
+    super(initialCapacity, loadFactor, writeBuffersSize, estimatedKeyCount);
     allocateBucketArray();
+  }
+
+  @Override
+  public long getEstimatedMemorySize() {
+    return super.getEstimatedMemorySize() + JavaDataModel.get().lengthForLongArrayOfSize(slotTriples.length);
   }
 }

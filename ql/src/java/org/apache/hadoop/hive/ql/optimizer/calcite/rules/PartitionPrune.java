@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -24,8 +24,8 @@ import java.util.List;
 import java.util.Set;
 import java.io.IOException;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeField;
@@ -67,7 +67,7 @@ public class PartitionPrune {
 
   public static class ExtractPartPruningPredicate extends
       RexVisitorImpl<RexNode> {
-    private static final Log LOG = LogFactory.getLog(ExtractPartPruningPredicate.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ExtractPartPruningPredicate.class);
     final RelOptHiveTable hiveTable;
     final RelDataType rType;
     final Set<String> partCols;
@@ -112,7 +112,7 @@ public class PartitionPrune {
         hiveUDF = SqlFunctionConverter.getHiveUDF(call.getOperator(),
             call.getType(), call.operands.size());
         if (hiveUDF != null &&
-            !FunctionRegistry.isDeterministic(hiveUDF)) {
+            !FunctionRegistry.isConsistentWithinQuery(hiveUDF)) {
           return null;
         }
       } finally {

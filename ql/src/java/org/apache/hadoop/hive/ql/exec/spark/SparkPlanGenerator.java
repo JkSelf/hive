@@ -1,4 +1,4 @@
-/**
+/*
  *  Licensed to the Apache Software Foundation (ASF) under one
  *  or more contributor license agreements.  See the NOTICE file
  *  distributed with this work for additional information
@@ -18,27 +18,31 @@
 
 package org.apache.hadoop.hive.ql.exec.spark;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-import com.google.common.base.Preconditions;
+import org.apache.spark.util.CallSite;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
 import org.apache.hadoop.hive.ql.io.merge.MergeFileMapper;
 import org.apache.hadoop.hive.ql.io.merge.MergeFileOutputFormat;
 import org.apache.hadoop.hive.ql.io.merge.MergeFileWork;
 import org.apache.hadoop.hive.ql.log.PerfLogger;
+import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.mapred.FileOutputFormat;
-import org.apache.hadoop.mapred.Partitioner;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.Context;
 import org.apache.hadoop.hive.ql.ErrorMsg;
 import org.apache.hadoop.hive.ql.exec.FileSinkOperator;
+import org.apache.hadoop.hive.ql.exec.TableScanOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.exec.mr.ExecMapper;
@@ -50,6 +54,8 @@ import org.apache.hadoop.hive.ql.plan.MapWork;
 import org.apache.hadoop.hive.ql.plan.ReduceWork;
 import org.apache.hadoop.hive.ql.plan.SparkEdgeProperty;
 import org.apache.hadoop.hive.ql.plan.SparkWork;
+import org.apache.hadoop.hive.ql.plan.TableScanDesc;
+import org.apache.hadoop.hive.ql.stats.StatsCollectionContext;
 import org.apache.hadoop.hive.ql.stats.StatsFactory;
 import org.apache.hadoop.hive.ql.stats.StatsPublisher;
 import org.apache.hadoop.io.Writable;
@@ -58,17 +64,19 @@ import org.apache.hadoop.mapred.JobConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 
+import com.google.common.base.Preconditions;
+
 @SuppressWarnings("rawtypes")
 public class SparkPlanGenerator {
   private static final String CLASS_NAME = SparkPlanGenerator.class.getName();
-  private final PerfLogger perfLogger = PerfLogger.getPerfLogger();
-  private static final Log LOG = LogFactory.getLog(SparkPlanGenerator.class);
+  private final PerfLogger perfLogger = SessionState.getPerfLogger();
+  private static final Logger LOG = LoggerFactory.getLogger(SparkPlanGenerator.class);
 
-  private JavaSparkContext sc;
+  private final JavaSparkContext sc;
   private final JobConf jobConf;
-  private Context context;
-  private Path scratchDir;
-  private SparkReporter sparkReporter;
+  private final Context context;
+  private final Path scratchDir;
+  private final SparkReporter sparkReporter;
   private Map<BaseWork, BaseWork> cloneToWork;
   private final Map<BaseWork, SparkTran> workToTranMap;
   private final Map<BaseWork, SparkTran> workToParentWorkTranMap;
@@ -94,7 +102,7 @@ public class SparkPlanGenerator {
 
   public SparkPlan generate(SparkWork sparkWork) throws Exception {
     perfLogger.PerfLogBegin(CLASS_NAME, PerfLogger.SPARK_BUILD_PLAN);
-    SparkPlan sparkPlan = new SparkPlan();
+    SparkPlan sparkPlan = new SparkPlan(this.sc.sc());
     cloneToWork = sparkWork.getCloneToWork();
     workToTranMap.clear();
     workToParentWorkTranMap.clear();
@@ -112,7 +120,7 @@ public class SparkPlanGenerator {
     } finally {
       // clear all ThreadLocal cached MapWork/ReduceWork after plan generation
       // as this may executed in a pool thread.
-      Utilities.clearWorkMap();
+      Utilities.clearWorkMap(jobConf);
     }
 
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.SPARK_BUILD_PLAN);
@@ -134,9 +142,10 @@ public class SparkPlanGenerator {
       result = generateMapInput(sparkPlan, (MapWork)work);
       sparkPlan.addTran(result);
     } else if (work instanceof ReduceWork) {
+      boolean toCache = cloneToWork.containsKey(work);
       List<BaseWork> parentWorks = sparkWork.getParents(work);
-      result = generate(sparkPlan,
-        sparkWork.getEdgeProperty(parentWorks.get(0), work), cloneToWork.containsKey(work));
+      SparkEdgeProperty sparkEdgeProperty = sparkWork.getEdgeProperty(parentWorks.get(0), work);
+      result = generate(sparkPlan, sparkEdgeProperty, toCache, work.getName());
       sparkPlan.addTran(result);
       for (BaseWork parentWork : parentWorks) {
         sparkPlan.connect(workToTranMap.get(parentWork), result);
@@ -185,6 +194,8 @@ public class SparkPlanGenerator {
     JobConf jobConf = cloneJobConf(mapWork);
     Class ifClass = getInputFormat(jobConf, mapWork);
 
+    sc.sc().setCallSite(CallSite.apply(mapWork.getName(), ""));
+
     JavaPairRDD<WritableComparable, Writable> hadoopRDD;
     if (mapWork.getNumMapTasks() != null) {
       jobConf.setNumMapTasks(mapWork.getNumMapTasks());
@@ -194,23 +205,35 @@ public class SparkPlanGenerator {
       hadoopRDD = sc.hadoopRDD(jobConf, ifClass, WritableComparable.class, Writable.class);
     }
 
+    boolean toCache = false/*cloneToWork.containsKey(mapWork)*/;
+
+    String tables = mapWork.getAllRootOperators().stream()
+            .filter(op -> op instanceof TableScanOperator)
+            .map(ts -> ((TableScanDesc) ts.getConf()).getAlias())
+            .collect(Collectors.joining(", "));
+
+    String rddName = mapWork.getName() + " (" + tables + ", " + hadoopRDD.getNumPartitions() +
+            (toCache ? ", cached)" : ")");
+
     // Caching is disabled for MapInput due to HIVE-8920
-    MapInput result = new MapInput(sparkPlan, hadoopRDD, false/*cloneToWork.containsKey(mapWork)*/);
+    MapInput result = new MapInput(sparkPlan, hadoopRDD, toCache, rddName);
     return result;
   }
 
-  private ShuffleTran generate(SparkPlan sparkPlan, SparkEdgeProperty edge, boolean toCache) {
+  private ShuffleTran generate(SparkPlan sparkPlan, SparkEdgeProperty edge, boolean toCache,
+                               String name) {
+
     Preconditions.checkArgument(!edge.isShuffleNone(),
         "AssertionError: SHUFFLE_NONE should only be used for UnionWork.");
     SparkShuffler shuffler;
     if (edge.isMRShuffle()) {
-      shuffler = new SortByShuffler(false);
+      shuffler = new SortByShuffler(false, sparkPlan);
     } else if (edge.isShuffleSort()) {
-      shuffler = new SortByShuffler(true);
+      shuffler = new SortByShuffler(true, sparkPlan);
     } else {
       shuffler = new GroupByShuffler();
     }
-    return new ShuffleTran(sparkPlan, shuffler, edge.getNumPartitions(), toCache);
+    return new ShuffleTran(sparkPlan, shuffler, edge.getNumPartitions(), toCache, name, edge);
   }
 
   private SparkTran generate(BaseWork work, SparkWork sparkWork) throws Exception {
@@ -220,12 +243,26 @@ public class SparkPlanGenerator {
     byte[] confBytes = KryoSerializer.serializeJobConf(newJobConf);
     boolean caching = isCachingWork(work, sparkWork);
     if (work instanceof MapWork) {
-      MapTran mapTran = new MapTran(caching);
+      // Create tmp dir for MergeFileWork
+      if (work instanceof MergeFileWork) {
+        Path outputPath = ((MergeFileWork) work).getOutputDir();
+        Path tempOutPath = Utilities.toTempPath(outputPath);
+        FileSystem fs = outputPath.getFileSystem(jobConf);
+        try {
+          if (!fs.exists(tempOutPath)) {
+            fs.mkdirs(tempOutPath);
+          }
+        } catch (IOException e) {
+          throw new RuntimeException(
+              "Can't make path " + outputPath + " : " + e.getMessage());
+        }
+      }
+      MapTran mapTran = new MapTran(caching, work.getName());
       HiveMapFunction mapFunc = new HiveMapFunction(confBytes, sparkReporter);
       mapTran.setMapFunction(mapFunc);
       return mapTran;
     } else if (work instanceof ReduceWork) {
-      ReduceTran reduceTran = new ReduceTran(caching);
+      ReduceTran reduceTran = new ReduceTran(caching, work.getName());
       HiveReduceFunction reduceFunc = new HiveReduceFunction(confBytes, sparkReporter);
       reduceTran.setReduceFunction(reduceFunc);
       return reduceTran;
@@ -269,20 +306,20 @@ public class SparkPlanGenerator {
     // Make sure we'll use a different plan path from the original one
     HiveConf.setVar(cloned, HiveConf.ConfVars.PLAN, "");
     try {
-      cloned.setPartitionerClass((Class<? extends Partitioner>)
-          JavaUtils.loadClass(HiveConf.getVar(cloned, HiveConf.ConfVars.HIVEPARTITIONER)));
+      cloned.setPartitionerClass(JavaUtils.loadClass(HiveConf.getVar(cloned, HiveConf.ConfVars.HIVEPARTITIONER)));
     } catch (ClassNotFoundException e) {
       String msg = "Could not find partitioner class: " + e.getMessage()
         + " which is specified by: " + HiveConf.ConfVars.HIVEPARTITIONER.varname;
       throw new IllegalArgumentException(msg, e);
     }
     if (work instanceof MapWork) {
+      MapWork mapWork = (MapWork) work;
       cloned.setBoolean("mapred.task.is.map", true);
-      List<Path> inputPaths = Utilities.getInputPaths(cloned, (MapWork) work,
+      List<Path> inputPaths = Utilities.getInputPaths(cloned, mapWork,
           scratchDir, context, false);
       Utilities.setInputPaths(cloned, inputPaths);
-      Utilities.setMapWork(cloned, (MapWork) work, scratchDir, false);
-      Utilities.createTmpDirs(cloned, (MapWork) work);
+      Utilities.setMapWork(cloned, mapWork, scratchDir, false);
+      Utilities.createTmpDirs(cloned, mapWork);
       if (work instanceof MergeFileWork) {
         MergeFileWork mergeFileWork = (MergeFileWork) work;
         cloned.set(Utilities.MAPRED_MAPPER_CLASS, MergeFileMapper.class.getName());
@@ -292,9 +329,21 @@ public class SparkPlanGenerator {
       } else {
         cloned.set(Utilities.MAPRED_MAPPER_CLASS, ExecMapper.class.getName());
       }
-      if (((MapWork) work).getMinSplitSize() != null) {
+      if (mapWork.getMaxSplitSize() != null) {
+        HiveConf.setLongVar(cloned, HiveConf.ConfVars.MAPREDMAXSPLITSIZE,
+            mapWork.getMaxSplitSize());
+      }
+      if (mapWork.getMinSplitSize() != null) {
         HiveConf.setLongVar(cloned, HiveConf.ConfVars.MAPREDMINSPLITSIZE,
-            ((MapWork) work).getMinSplitSize());
+            mapWork.getMinSplitSize());
+      }
+      if (mapWork.getMinSplitSizePerNode() != null) {
+        HiveConf.setLongVar(cloned, HiveConf.ConfVars.MAPREDMINSPLITSIZEPERNODE,
+            mapWork.getMinSplitSizePerNode());
+      }
+      if (mapWork.getMinSplitSizePerRack() != null) {
+        HiveConf.setLongVar(cloned, HiveConf.ConfVars.MAPREDMINSPLITSIZEPERRACK,
+            mapWork.getMinSplitSizePerRack());
       }
       // remember the JobConf cloned for each MapWork, so we won't clone for it again
       workToJobConf.put(work, cloned);
@@ -314,7 +363,9 @@ public class SparkPlanGenerator {
       StatsFactory factory = StatsFactory.newFactory(jobConf);
       if (factory != null) {
         statsPublisher = factory.getStatsPublisher();
-        if (!statsPublisher.init(jobConf)) { // creating stats table if not exists
+        StatsCollectionContext sc = new StatsCollectionContext(jobConf);
+        sc.setStatsTmpDirs(Utilities.getStatsTmpDirs(work, jobConf));
+        if (!statsPublisher.init(sc)) { // creating stats table if not exists
           if (HiveConf.getBoolVar(jobConf, HiveConf.ConfVars.HIVE_STATS_RELIABLE)) {
             throw new HiveException(
                 ErrorMsg.STATSPUBLISHER_INITIALIZATION_ERROR.getErrorCodedMsg());

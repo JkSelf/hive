@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -26,5 +26,13 @@ public class InvalidTable extends StreamingException {
 
   public InvalidTable(String db, String table) {
     super(makeMsg(db,table), null);
+  }
+
+  public InvalidTable(String db, String table, String msg) {
+    super(makeMsg(db, table) + ": " + msg, null);
+  }
+
+  public InvalidTable(String db, String table, Exception inner) {
+    super(makeMsg(db, table) + ": " + inner.getMessage(), inner);
   }
 }

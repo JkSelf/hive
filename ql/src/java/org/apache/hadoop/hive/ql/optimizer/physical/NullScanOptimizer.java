@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,14 +19,19 @@
 package org.apache.hadoop.hive.ql.optimizer.physical;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Stack;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.FilterOperator;
 import org.apache.hadoop.hive.ql.exec.LimitOperator;
+import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.TableScanOperator;
 import org.apache.hadoop.hive.ql.lib.DefaultGraphWalker;
 import org.apache.hadoop.hive.ql.lib.Dispatcher;
@@ -49,7 +54,7 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
  */
 public class NullScanOptimizer implements PhysicalPlanResolver {
 
-  private static final Log LOG = LogFactory.getLog(NullScanOptimizer.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(NullScanOptimizer.class.getName());
   @Override
   public PhysicalContext resolve(PhysicalContext pctx) throws SemanticException {
 
@@ -74,6 +79,32 @@ public class NullScanOptimizer implements PhysicalPlanResolver {
     return pctx;
   }
 
+  //We need to make sure that Null Operator (LIM or FIL) is present in all branches of multi-insert query before
+  //applying the optimization. This method does full tree traversal starting from TS and will return true only if
+  //it finds target Null operator on each branch.
+  static private boolean isNullOpPresentInAllBranches(TableScanOperator ts, Node causeOfNullNode) {
+    Node curNode = null;
+    List<? extends Node> curChd = null;
+    LinkedList<Node> middleNodes = new LinkedList<Node>();
+    middleNodes.addLast(ts);
+    while (!middleNodes.isEmpty()) {
+      curNode = middleNodes.remove();
+      curChd = curNode.getChildren();
+      for (Node chd: curChd) {
+        if (chd.getChildren() == null || chd.getChildren().isEmpty() || chd == causeOfNullNode) {
+          if (chd != causeOfNullNode) { // If there is an end node that not the limit0/wherefalse..
+            return false;
+          }
+        }
+        else {
+          middleNodes.addLast(chd);
+        }
+      }
+
+    }
+    return true;
+  }
+
   static private class WhereFalseProcessor implements NodeProcessor {
 
     @Override
@@ -93,8 +124,10 @@ public class NullScanOptimizer implements PhysicalPlanResolver {
       WalkerCtx ctx = (WalkerCtx) procCtx;
       for (Node op : stack) {
         if (op instanceof TableScanOperator) {
-          ctx.setMayBeMetadataOnly((TableScanOperator)op);
-          LOG.info("Found where false TableScan. " + op);
+          if (isNullOpPresentInAllBranches((TableScanOperator)op, filter)) {
+            ctx.setMayBeMetadataOnly((TableScanOperator)op);
+            LOG.info("Found where false TableScan. " + op);
+          }
         }
       }
       ctx.convertMetadataOnly();
@@ -108,8 +141,17 @@ public class NullScanOptimizer implements PhysicalPlanResolver {
     public Object process(Node nd, Stack<Node> stack, NodeProcessorCtx procCtx,
         Object... nodeOutputs) throws SemanticException {
 
-      if(!(((LimitOperator)nd).getConf().getLimit() == 0)) {
+      LimitOperator limitOp = (LimitOperator)nd;
+      if(!(limitOp.getConf().getLimit() == 0)) {
         return null;
+      }
+
+      HashSet<TableScanOperator> tsOps = ((WalkerCtx)procCtx).getMayBeMetadataOnlyTableScans();
+      if (tsOps != null) {
+        for (Iterator<TableScanOperator> tsOp = tsOps.iterator(); tsOp.hasNext();) {
+          if (!isNullOpPresentInAllBranches(tsOp.next(),limitOp))
+            tsOp.remove();
+        }
       }
       LOG.info("Found Limit 0 TableScan. " + nd);
       ((WalkerCtx)procCtx).convertMetadataOnly();

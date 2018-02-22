@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -26,8 +26,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import junit.framework.Assert;
 import junit.framework.TestCase;
 
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
-import org.apache.hive.service.auth.HiveAuthFactory;
+import org.apache.hive.service.auth.HiveAuthConstants;
 import org.apache.hive.service.cli.HiveSQLException;
 import org.apache.hive.service.cli.SessionHandle;
 import org.apache.hive.service.cli.thrift.EmbeddedThriftBinaryCLIService;
@@ -63,7 +64,11 @@ public class TestSessionHooks extends TestCase {
     System.setProperty(ConfVars.HIVE_SERVER2_SESSION_HOOK.varname,
         TestSessionHooks.SessionHookTest.class.getName());
     service = new EmbeddedThriftBinaryCLIService();
-    service.init(null);
+    HiveConf hiveConf = new HiveConf();
+    hiveConf
+        .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+            "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
+    service.init(hiveConf);
     client = new ThriftCLIServiceClient(service);
   }
 
@@ -85,7 +90,7 @@ public class TestSessionHooks extends TestCase {
     String connectingUser = "user1";
     String proxyUser = System.getProperty("user.name");
     Map<String, String>sessConf = new HashMap<String,String>();
-    sessConf.put(HiveAuthFactory.HS2_PROXY_USER, proxyUser);
+    sessConf.put(HiveAuthConstants.HS2_PROXY_USER, proxyUser);
     sessionUserName = proxyUser;
     SessionHandle sessionHandle = client.openSession(connectingUser, "foobar", sessConf);
     Assert.assertEquals(1, SessionHookTest.runCount.get());

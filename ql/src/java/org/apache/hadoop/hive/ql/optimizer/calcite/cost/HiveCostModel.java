@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,20 +23,21 @@ import org.apache.calcite.plan.RelOptCost;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelCollation;
 import org.apache.calcite.rel.RelDistribution;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.hadoop.hive.ql.optimizer.calcite.reloperators.HiveAggregate;
 import org.apache.hadoop.hive.ql.optimizer.calcite.reloperators.HiveJoin;
 import org.apache.hadoop.hive.ql.optimizer.calcite.reloperators.HiveTableScan;
 
 import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Cost model interface.
  */
 public abstract class HiveCostModel {
 
-  private static final Log LOG = LogFactory.getLog(HiveCostModel.class);
+  private static final Logger LOG = LoggerFactory.getLogger(HiveCostModel.class);
 
   private final Set<JoinAlgorithm> joinAlgorithms;
 
@@ -49,15 +50,15 @@ public abstract class HiveCostModel {
 
   public abstract RelOptCost getAggregateCost(HiveAggregate aggregate);
 
-  public abstract RelOptCost getScanCost(HiveTableScan ts);
+  public abstract RelOptCost getScanCost(HiveTableScan ts, RelMetadataQuery mq);
 
   public RelOptCost getJoinCost(HiveJoin join) {
     // Select algorithm with min cost
     JoinAlgorithm joinAlgorithm = null;
     RelOptCost minJoinCost = null;
 
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Join algorithm selection for:\n" + RelOptUtil.toString(join));
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Join algorithm selection for:\n" + RelOptUtil.toString(join));
     }
 
     for (JoinAlgorithm possibleAlgorithm : this.joinAlgorithms) {
@@ -65,8 +66,8 @@ public abstract class HiveCostModel {
         continue;
       }
       RelOptCost joinCost = possibleAlgorithm.getCost(join);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug(possibleAlgorithm + " cost: " + joinCost);
+      if (LOG.isTraceEnabled()) {
+        LOG.trace(possibleAlgorithm + " cost: " + joinCost);
       }
       if (minJoinCost == null || joinCost.isLt(minJoinCost) ) {
         joinAlgorithm = possibleAlgorithm;
@@ -74,8 +75,8 @@ public abstract class HiveCostModel {
       }
     }
 
-    if (LOG.isDebugEnabled()) {
-      LOG.debug(joinAlgorithm + " selected");
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(joinAlgorithm + " selected");
     }
 
     join.setJoinAlgorithm(joinAlgorithm);

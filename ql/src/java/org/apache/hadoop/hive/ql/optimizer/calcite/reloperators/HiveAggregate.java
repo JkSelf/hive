@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -17,75 +17,65 @@
  */
 package org.apache.hadoop.hive.ql.optimizer.calcite.reloperators;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 import org.apache.calcite.linq4j.Ord;
 import org.apache.calcite.plan.RelOptCluster;
-import org.apache.calcite.plan.RelOptCost;
-import org.apache.calcite.plan.RelOptPlanner;
 import org.apache.calcite.plan.RelTraitSet;
-import org.apache.calcite.rel.InvalidRelException;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.RelShuttle;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.AggregateCall;
-import org.apache.calcite.rel.core.RelFactories.AggregateFactory;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.util.ImmutableBitSet;
-import org.apache.calcite.util.IntList;
+import org.apache.hadoop.hive.ql.optimizer.calcite.HiveRelShuttle;
 import org.apache.hadoop.hive.ql.optimizer.calcite.TraitsUtil;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 public class HiveAggregate extends Aggregate implements HiveRelNode {
 
-  public static final HiveAggRelFactory HIVE_AGGR_REL_FACTORY = new HiveAggRelFactory();
-
+  private LinkedHashSet<Integer> aggregateColumnsOrder;
 
 
   public HiveAggregate(RelOptCluster cluster, RelTraitSet traitSet, RelNode child,
-      boolean indicator, ImmutableBitSet groupSet, List<ImmutableBitSet> groupSets,
-      List<AggregateCall> aggCalls) throws InvalidRelException {
-    super(cluster, TraitsUtil.getDefaultTraitSet(cluster), child, indicator, groupSet,
-            groupSets, aggCalls);
+      ImmutableBitSet groupSet, List<ImmutableBitSet> groupSets,
+      List<AggregateCall> aggCalls) {
+    super(cluster, TraitsUtil.getDefaultTraitSet(cluster), child, false,
+            groupSet, groupSets, aggCalls);
   }
 
   @Override
   public Aggregate copy(RelTraitSet traitSet, RelNode input,
           boolean indicator, ImmutableBitSet groupSet,
           List<ImmutableBitSet> groupSets, List<AggregateCall> aggCalls) {
-    try {
-      return new HiveAggregate(getCluster(), traitSet, input, indicator, groupSet,
-              groupSets, aggCalls);
-    } catch (InvalidRelException e) {
-      // Semantic error not possible. Must be a bug. Convert to
-      // internal error.
-      throw new AssertionError(e);
-    }
+      if (indicator) {
+        throw new IllegalStateException("Hive does not support indicator columns but tried "
+                + "to create an Aggregate operator containing them");
+      }
+      return new HiveAggregate(getCluster(), traitSet, input,
+              groupSet, groupSets, aggCalls);
   }
 
   @Override
   public void implement(Implementor implementor) {
   }
 
+  // getRows will call estimateRowCount
   @Override
-  public RelOptCost computeSelfCost(RelOptPlanner planner) {
-    return RelMetadataQuery.getNonCumulativeCost(this);
-  }
-
-  @Override
-  public double getRows() {
-    return RelMetadataQuery.getDistinctRowCount(this, groupSet, getCluster().getRexBuilder()
-        .makeLiteral(true));
+  public double estimateRowCount(RelMetadataQuery mq) {
+    return mq.getDistinctRowCount(this, groupSet, getCluster().getRexBuilder().makeLiteral(true));
   }
 
   public boolean isBucketedInput() {
-    return RelMetadataQuery.distribution(this.getInput()).getKeys().
+    final RelMetadataQuery mq = this.getInput().getCluster().getMetadataQuery();
+    return mq.distribution(this.getInput()).getKeys().
             containsAll(groupSet.asList());
   }
 
@@ -99,7 +89,7 @@ public class HiveAggregate extends Aggregate implements HiveRelNode {
       final RelDataType inputRowType, boolean indicator,
       ImmutableBitSet groupSet, List<ImmutableBitSet> groupSets,
       final List<AggregateCall> aggCalls) {
-    final IntList groupList = groupSet.toList();
+    final List<Integer> groupList = groupSet.asList();
     assert groupList.size() == groupSet.cardinality();
     final RelDataTypeFactory.FieldInfoBuilder builder = typeFactory.builder();
     final List<RelDataTypeField> fieldList = inputRowType.getFieldList();
@@ -139,18 +129,20 @@ public class HiveAggregate extends Aggregate implements HiveRelNode {
     return builder.build();
   }
 
-  private static class HiveAggRelFactory implements AggregateFactory {
-
-    @Override
-    public RelNode createAggregate(RelNode child, boolean indicator,
-            ImmutableBitSet groupSet, ImmutableList<ImmutableBitSet> groupSets,
-            List<AggregateCall> aggCalls) {
-      try {
-        return new HiveAggregate(child.getCluster(), child.getTraitSet(), child, indicator,
-                groupSet, groupSets, aggCalls);
-      } catch (InvalidRelException e) {
-          throw new RuntimeException(e);
-      }
-    }
+  public void setAggregateColumnsOrder(LinkedHashSet<Integer> aggregateColumnsOrder) {
+    this.aggregateColumnsOrder = aggregateColumnsOrder;
   }
+
+  public LinkedHashSet<Integer> getAggregateColumnsOrder() {
+    return this.aggregateColumnsOrder;
+  }
+
+  //required for HiveRelDecorrelator
+  @Override public RelNode accept(RelShuttle shuttle) {
+    if(shuttle instanceof HiveRelShuttle) {
+      return ((HiveRelShuttle)shuttle).visit(this);
+    }
+    return shuttle.visit(this);
+  }
+
 }

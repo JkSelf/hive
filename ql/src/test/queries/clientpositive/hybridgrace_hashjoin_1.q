@@ -1,9 +1,13 @@
+set hive.stats.column.autogather=false;
+set hive.mapred.mode=nonstrict;
 set hive.explain.user=false;
+set tez.cartesian-product.max-parallelism=1;
 -- Hybrid Grace Hash Join
 -- Test basic functionalities:
 -- 1. Various cases when hash partitions spill
 -- 2. Partitioned table spilling
 -- 3. Vectorization
+
 
 SELECT 1;
 
@@ -131,6 +135,7 @@ select count(*) from
  on cd.cint = c.cint) t1
 ;
 
+set hive.llap.enable.grace.join.in.llap=true;
 
 -- Partitioned table
 create table parttbl (key string, value char(20)) partitioned by (dt char(10));

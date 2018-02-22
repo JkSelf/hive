@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,15 +20,14 @@ package org.apache.hadoop.hive.ql.exec;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.Future;
 
-import org.apache.commons.logging.Log;
+import org.slf4j.Logger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.JoinDesc;
 import org.apache.hadoop.hive.ql.plan.api.OperatorType;
@@ -55,16 +54,24 @@ public class JoinOperator extends CommonJoinOperator<JoinDesc> implements Serial
 
   private final transient LongWritable skewjoin_followup_jobs = new LongWritable(0);
 
+  /** Kryo ctor. */
+  protected JoinOperator() {
+    super();
+  }
+
+  public JoinOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
   @Override
-  protected Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
-    Collection<Future<?>> result = super.initializeOp(hconf);
+  protected void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
     if (handleSkewJoin) {
       skewJoinKeyContext = new SkewJoinHandler(this);
       skewJoinKeyContext.initiliaze(hconf);
       skewJoinKeyContext.setSkewJoinJobCounter(skewjoin_followup_jobs);
     }
     statsMap.put(SkewkeyTableCounter.SKEWJOINFOLLOWUPJOBS.toString(), skewjoin_followup_jobs);
-    return result;
   }
 
   @Override
@@ -94,7 +101,8 @@ public class JoinOperator extends CommonJoinOperator<JoinDesc> implements Serial
       // Are we consuming too much memory
       if (alias == numAliases - 1 && !(handleSkewJoin && skewJoinKeyContext.currBigKeyTag >= 0) &&
           !hasLeftSemiJoin) {
-        if (sz == joinEmitInterval && !hasFilter(alias)) {
+        if (sz == joinEmitInterval && !hasFilter(condn[alias-1].getLeft()) &&
+                !hasFilter(condn[alias-1].getRight())) {
           // The input is sorted by alias, so if we are already in the last join
           // operand,
           // we can emit some results now.
@@ -105,7 +113,7 @@ public class JoinOperator extends CommonJoinOperator<JoinDesc> implements Serial
           storage[alias].clearRows();
         }
       } else {
-        if (isLogInfoEnabled && (sz == nextSz)) {
+        if (LOG.isInfoEnabled() && (sz == nextSz)) {
           // Print a message if we reached at least 1000 rows for a join operand
           // We won't print a message for the last join operand since the size
           // will never goes to joinEmitInterval.
@@ -187,7 +195,7 @@ public class JoinOperator extends CommonJoinOperator<JoinDesc> implements Serial
     super.jobCloseOp(hconf, success);
   }
 
-  private void moveUpFiles(Path specPath, Configuration hconf, Log log)
+  private void moveUpFiles(Path specPath, Configuration hconf, Logger log)
       throws IOException, HiveException {
     FileSystem fs = specPath.getFileSystem(hconf);
 
@@ -212,7 +220,7 @@ public class JoinOperator extends CommonJoinOperator<JoinDesc> implements Serial
    * @throws HiveException
    */
   private void  mvFileToFinalPath(Path specPath, Configuration hconf,
-      boolean success, Log log) throws IOException, HiveException {
+      boolean success, Logger log) throws IOException, HiveException {
 
     FileSystem fs = specPath.getFileSystem(hconf);
     Path tmpPath = Utilities.toTempPath(specPath);
@@ -223,12 +231,12 @@ public class JoinOperator extends CommonJoinOperator<JoinDesc> implements Serial
         // Step1: rename tmp output folder to intermediate path. After this
         // point, updates from speculative tasks still writing to tmpPath
         // will not appear in finalPath.
-        log.info("Moving tmp dir: " + tmpPath + " to: " + intermediatePath);
+        Utilities.FILE_OP_LOGGER.info("Moving tmp dir: " + tmpPath + " to: " + intermediatePath + "(spec " + specPath + ")");
         Utilities.rename(fs, tmpPath, intermediatePath);
         // Step2: remove any tmp file or double-committed output files
-        Utilities.removeTempOrDuplicateFiles(fs, intermediatePath);
+        Utilities.removeTempOrDuplicateFiles(fs, intermediatePath, false);
         // Step3: move to the file destination
-        log.info("Moving tmp dir: " + intermediatePath + " to: " + specPath);
+        Utilities.FILE_OP_LOGGER.info("Moving tmp dir: " + intermediatePath + " to: " + specPath);
         Utilities.renameOrMoveFiles(fs, intermediatePath, specPath);
       }
     } else {

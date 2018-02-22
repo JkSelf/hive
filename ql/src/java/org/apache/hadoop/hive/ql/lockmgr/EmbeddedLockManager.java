@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,13 +18,20 @@
 
 package org.apache.hadoop.hive.ql.lockmgr;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.Driver.LockedDriverState;
 import org.apache.hadoop.hive.ql.lockmgr.HiveLockObject.HiveLockObjectData;
 import org.apache.hadoop.hive.ql.metadata.*;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Stack;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -33,7 +40,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class EmbeddedLockManager implements HiveLockManager {
 
-  private static final Log LOG = LogFactory.getLog("EmbeddedHiveLockManager");
+  private static final Logger LOG = LoggerFactory.getLogger("EmbeddedHiveLockManager");
 
   private final Node root = new Node();
 
@@ -46,41 +53,53 @@ public class EmbeddedLockManager implements HiveLockManager {
   public EmbeddedLockManager() {
   }
 
+  @Override
   public void setContext(HiveLockManagerCtx ctx) throws LockException {
     this.ctx = ctx;
     refresh();
   }
 
+  @Override
   public HiveLock lock(HiveLockObject key, HiveLockMode mode, boolean keepAlive)
       throws LockException {
+    LOG.debug("Acquiring lock for {} with mode {} {}", key.getName(), mode,
+        key.getData().getLockMode());
     return lock(key, mode, numRetriesForLock, sleepTime);
   }
 
-  public List<HiveLock> lock(List<HiveLockObj> objs, boolean keepAlive) throws LockException {
+  @Override
+  public List<HiveLock> lock(List<HiveLockObj> objs, boolean keepAlive, LockedDriverState lDrvState)
+      throws LockException {
     return lock(objs, numRetriesForLock, sleepTime);
   }
 
+  @Override
   public void unlock(HiveLock hiveLock) throws LockException {
     unlock(hiveLock, numRetriesForUnLock, sleepTime);
   }
 
+  @Override
   public void releaseLocks(List<HiveLock> hiveLocks) {
     releaseLocks(hiveLocks, numRetriesForUnLock, sleepTime);
   }
 
+  @Override
   public List<HiveLock> getLocks(boolean verifyTablePartitions, boolean fetchData)
       throws LockException {
     return getLocks(verifyTablePartitions, fetchData, ctx.getConf());
   }
 
+  @Override
   public List<HiveLock> getLocks(HiveLockObject key, boolean verifyTablePartitions,
       boolean fetchData) throws LockException {
     return getLocks(key, verifyTablePartitions, fetchData, ctx.getConf());
   }
 
+  @Override
   public void prepareRetry() {
   }
 
+  @Override
   public void refresh() {
     HiveConf conf = ctx.getConf();
     sleepTime = conf.getTimeVar(
@@ -111,9 +130,16 @@ public class EmbeddedLockManager implements HiveLockManager {
     }
   }
 
-  public List<HiveLock> lock(List<HiveLockObj> objs, int numRetriesForLock, long sleepTime)
+  private List<HiveLock> lock(List<HiveLockObj> objs, int numRetriesForLock, long sleepTime)
       throws LockException {
     sortLocks(objs);
+    if (LOG.isDebugEnabled()) {
+      for (HiveLockObj obj : objs) {
+        LOG.debug("Acquiring lock for {} with mode {}", obj.getObj().getName(),
+            obj.getMode());
+      }
+    }
+
     for (int i = 0; i <= numRetriesForLock; i++) {
       if (i > 0) {
         sleep(sleepTime);
@@ -149,6 +175,7 @@ public class EmbeddedLockManager implements HiveLockManager {
 
   private void sortLocks(List<HiveLockObj> objs) {
     Collections.sort(objs, new Comparator<HiveLockObj>() {
+      @Override
       public int compare(HiveLockObj o1, HiveLockObj o2) {
         int cmp = o1.getName().compareTo(o2.getName());
         if (cmp == 0) {
@@ -186,7 +213,7 @@ public class EmbeddedLockManager implements HiveLockManager {
       try {
         unlock(locked, numRetriesForUnLock, sleepTime);
       } catch (LockException e) {
-        LOG.info(e);
+        LOG.info("Failed to unlock ", e);
       }
     }
   }
@@ -242,6 +269,7 @@ public class EmbeddedLockManager implements HiveLockManager {
     }
   }
 
+  @Override
   public void close() {
     root.lock.lock();
     try {

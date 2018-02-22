@@ -40,6 +40,7 @@ import org.apache.hive.ptest.api.response.TestStatus;
 import org.apache.hive.ptest.api.response.TestStatusResponse;
 import org.apache.hive.ptest.api.response.TestStopResponse;
 import org.apache.hive.ptest.execution.PTest;
+import org.apache.hive.ptest.execution.conf.Context;
 import org.apache.hive.ptest.execution.conf.ExecutionContextConfiguration;
 import org.apache.hive.ptest.execution.context.ExecutionContextProvider;
 import org.slf4j.Logger;
@@ -55,6 +56,8 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+
+
 
 
 /**
@@ -79,7 +82,11 @@ public class ExecutionController {
       throws IOException {
     String executionContextConfigurationFile = System.getProperty(CONF_PROPERTY, "").trim();
     Preconditions.checkArgument(!executionContextConfigurationFile.isEmpty(), CONF_PROPERTY + " is required");
-    mExecutionContextConfiguration = ExecutionContextConfiguration.fromFile(executionContextConfigurationFile);
+    LOG.info("Reading configuration from file: " + executionContextConfigurationFile);
+    mExecutionContextConfiguration = ExecutionContextConfiguration.withContext(
+        Context.fromFile(executionContextConfigurationFile)
+    );
+    LOG.info("ExecutionContext is [{}]", mExecutionContextConfiguration);
     mExecutionContextProvider = mExecutionContextConfiguration.getExecutionContextProvider();
     mTests = Collections.synchronizedMap(new LinkedHashMap<String, Test>() {
       private static final long serialVersionUID = 1L;

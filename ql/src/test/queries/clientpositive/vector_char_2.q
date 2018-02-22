@@ -1,5 +1,8 @@
+set hive.mapred.mode=nonstrict;
 set hive.explain.user=false;
 SET hive.vectorized.execution.enabled=true;
+set hive.fetch.task.conversion=none;
+
 drop table char_2;
 
 create table char_2 (
@@ -9,13 +12,16 @@ create table char_2 (
 
 insert overwrite table char_2 select * from src;
 
+-- Add a single NULL row that will come from ORC as isRepeated.
+insert into char_2 values (NULL, NULL);
+
 select value, sum(cast(key as int)), count(*) numrows
 from src
 group by value
 order by value asc
 limit 5;
 
-explain select value, sum(cast(key as int)), count(*) numrows
+explain vectorization expression select value, sum(cast(key as int)), count(*) numrows
 from char_2
 group by value
 order by value asc
@@ -34,7 +40,7 @@ group by value
 order by value desc
 limit 5;
 
-explain select value, sum(cast(key as int)), count(*) numrows
+explain vectorization expression select value, sum(cast(key as int)), count(*) numrows
 from char_2
 group by value
 order by value desc

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -22,46 +22,66 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.ql.exec.DDLTask;
+import org.apache.hadoop.hive.ql.exec.MaterializedViewDesc;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.google.common.collect.Interner;
+import com.google.common.collect.Interners;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.common.HiveStatsUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.ql.Context;
 import org.apache.hadoop.hive.ql.ErrorMsg;
-import org.apache.hadoop.hive.ql.exec.ColumnStatsTask;
+import org.apache.hadoop.hive.ql.QueryState;
 import org.apache.hadoop.hive.ql.exec.FetchTask;
 import org.apache.hadoop.hive.ql.exec.StatsTask;
+import org.apache.hadoop.hive.ql.exec.TableScanOperator;
 import org.apache.hadoop.hive.ql.exec.Task;
 import org.apache.hadoop.hive.ql.exec.TaskFactory;
 import org.apache.hadoop.hive.ql.exec.Utilities;
-import org.apache.hadoop.hive.ql.exec.mr.ExecDriver;
-import org.apache.hadoop.hive.ql.exec.spark.SparkTask;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
+import org.apache.hadoop.hive.ql.io.orc.OrcInputFormat;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.hive.ql.metadata.Partition;
+import org.apache.hadoop.hive.ql.metadata.Table;
 import org.apache.hadoop.hive.ql.optimizer.GenMapRedUtils;
 import org.apache.hadoop.hive.ql.parse.BaseSemanticAnalyzer.AnalyzeRewriteContext;
+import org.apache.hadoop.hive.ql.parse.BaseSemanticAnalyzer.TableSpec;
+import org.apache.hadoop.hive.ql.plan.BasicStatsWork;
 import org.apache.hadoop.hive.ql.plan.ColumnStatsDesc;
-import org.apache.hadoop.hive.ql.plan.ColumnStatsWork;
 import org.apache.hadoop.hive.ql.plan.CreateTableDesc;
+import org.apache.hadoop.hive.ql.plan.CreateViewDesc;
 import org.apache.hadoop.hive.ql.plan.DDLWork;
 import org.apache.hadoop.hive.ql.plan.FetchWork;
+import org.apache.hadoop.hive.ql.plan.FileSinkDesc;
 import org.apache.hadoop.hive.ql.plan.LoadFileDesc;
 import org.apache.hadoop.hive.ql.plan.LoadTableDesc;
 import org.apache.hadoop.hive.ql.plan.MoveWork;
 import org.apache.hadoop.hive.ql.plan.PlanUtils;
+import org.apache.hadoop.hive.ql.plan.StatsWork;
 import org.apache.hadoop.hive.ql.plan.TableDesc;
+import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.hive.ql.session.SessionState.LogHelper;
-
-import com.google.common.collect.Interner;
-import com.google.common.collect.Interners;
+import org.apache.hadoop.hive.serde.serdeConstants;
+import org.apache.hadoop.hive.serde2.DefaultFetchFormatter;
+import org.apache.hadoop.hive.serde2.NoOpFetchFormatter;
+import org.apache.hadoop.hive.serde2.SerDeUtils;
+import org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe;
+import org.apache.hadoop.hive.serde2.thrift.ThriftFormatter;
+import org.apache.hadoop.hive.serde2.thrift.ThriftJDBCBinarySerDe;
+import org.apache.hadoop.mapred.InputFormat;
 
 /**
  * TaskCompiler is a the base class for classes that compile
@@ -69,25 +89,29 @@ import com.google.common.collect.Interners;
  */
 public abstract class TaskCompiler {
 
-  protected final Log LOG = LogFactory.getLog(TaskCompiler.class);
+  protected final Logger LOG = LoggerFactory.getLogger(TaskCompiler.class);
 
+  // Assumes one instance of this + single-threaded compilation for each query.
   protected Hive db;
   protected LogHelper console;
+  protected QueryState queryState;
   protected HiveConf conf;
 
-  public void init(HiveConf conf, LogHelper console, Hive db) {
-    this.conf = conf;
+  public void init(QueryState queryState, LogHelper console, Hive db) {
+    this.queryState = queryState;
+    this.conf = queryState.getConf();
     this.db = db;
     this.console = console;
   }
 
   @SuppressWarnings({"nls", "unchecked"})
-  public void compile(final ParseContext pCtx, final List<Task<? extends Serializable>> rootTasks,
+  public void compile(final ParseContext pCtx,
+      final List<Task<? extends Serializable>> rootTasks,
       final HashSet<ReadEntity> inputs, final HashSet<WriteEntity> outputs) throws SemanticException {
 
     Context ctx = pCtx.getContext();
     GlobalLimitCtx globalLimitCtx = pCtx.getGlobalLimitCtx();
-    List<Task<MoveWork>> mvTask = new ArrayList<Task<MoveWork>>();
+    List<Task<MoveWork>> mvTask = new ArrayList<>();
 
     List<LoadTableDesc> loadTableWork = pCtx.getLoadTableWork();
     List<LoadFileDesc> loadFileWork = pCtx.getLoadFileWork();
@@ -96,6 +120,24 @@ public abstract class TaskCompiler {
     int outerQueryLimit = pCtx.getQueryProperties().getOuterQueryLimit();
 
     if (pCtx.getFetchTask() != null) {
+      if (pCtx.getFetchTask().getTblDesc() == null) {
+        return;
+      }
+      pCtx.getFetchTask().getWork().setHiveServerQuery(SessionState.get().isHiveServerQuery());
+      TableDesc resultTab = pCtx.getFetchTask().getTblDesc();
+      // If the serializer is ThriftJDBCBinarySerDe, then it requires that NoOpFetchFormatter be used. But when it isn't,
+      // then either the ThriftFormatter or the DefaultFetchFormatter should be used.
+      if (!resultTab.getSerdeClassName().equalsIgnoreCase(ThriftJDBCBinarySerDe.class.getName())) {
+        if (SessionState.get().isHiveServerQuery()) {
+          conf.set(SerDeUtils.LIST_SINK_OUTPUT_FORMATTER,ThriftFormatter.class.getName());
+        } else {
+          String formatterName = conf.get(SerDeUtils.LIST_SINK_OUTPUT_FORMATTER);
+          if (formatterName == null || formatterName.isEmpty()) {
+            conf.set(SerDeUtils.LIST_SINK_OUTPUT_FORMATTER, DefaultFetchFormatter.class.getName());
+          }
+        }
+      }
+
       return;
     }
 
@@ -108,7 +150,7 @@ public abstract class TaskCompiler {
      */
     if (pCtx.getQueryProperties().isQuery() && !isCStats) {
       if ((!loadTableWork.isEmpty()) || (loadFileWork.size() != 1)) {
-        throw new SemanticException(ErrorMsg.GENERIC_ERROR.getMsg());
+        throw new SemanticException(ErrorMsg.INVALID_LOAD_TABLE_FILE_WORK.getMsg());
       }
 
       LoadFileDesc loadFileDesc = loadFileWork.get(0);
@@ -116,15 +158,45 @@ public abstract class TaskCompiler {
       String cols = loadFileDesc.getColumns();
       String colTypes = loadFileDesc.getColumnTypes();
 
+      String resFileFormat;
       TableDesc resultTab = pCtx.getFetchTableDesc();
       if (resultTab == null) {
-        String resFileFormat = HiveConf.getVar(conf, HiveConf.ConfVars.HIVEQUERYRESULTFILEFORMAT);
-        resultTab = PlanUtils.getDefaultQueryOutputTableDesc(cols, colTypes, resFileFormat);
+        resFileFormat = HiveConf.getVar(conf, HiveConf.ConfVars.HIVEQUERYRESULTFILEFORMAT);
+        if (SessionState.get().getIsUsingThriftJDBCBinarySerDe()
+            && (resFileFormat.equalsIgnoreCase("SequenceFile"))) {
+          resultTab =
+              PlanUtils.getDefaultQueryOutputTableDesc(cols, colTypes, resFileFormat,
+                  ThriftJDBCBinarySerDe.class);
+          // Set the fetch formatter to be a no-op for the ListSinkOperator, since we'll
+          // read formatted thrift objects from the output SequenceFile written by Tasks.
+          conf.set(SerDeUtils.LIST_SINK_OUTPUT_FORMATTER, NoOpFetchFormatter.class.getName());
+        } else {
+          resultTab =
+              PlanUtils.getDefaultQueryOutputTableDesc(cols, colTypes, resFileFormat,
+                  LazySimpleSerDe.class);
+        }
+      } else {
+        if (resultTab.getProperties().getProperty(serdeConstants.SERIALIZATION_LIB)
+            .equalsIgnoreCase(ThriftJDBCBinarySerDe.class.getName())) {
+          // Set the fetch formatter to be a no-op for the ListSinkOperator, since we'll
+          // read formatted thrift objects from the output SequenceFile written by Tasks.
+          conf.set(SerDeUtils.LIST_SINK_OUTPUT_FORMATTER, NoOpFetchFormatter.class.getName());
+        }
       }
 
       FetchWork fetch = new FetchWork(loadFileDesc.getSourcePath(), resultTab, outerQueryLimit);
+      boolean isHiveServerQuery = SessionState.get().isHiveServerQuery();
+      fetch.setHiveServerQuery(isHiveServerQuery);
       fetch.setSource(pCtx.getFetchSource());
       fetch.setSink(pCtx.getFetchSink());
+      if (isHiveServerQuery &&
+        null != resultTab &&
+        resultTab.getSerdeClassName().equalsIgnoreCase(ThriftJDBCBinarySerDe.class.getName()) &&
+        HiveConf.getBoolVar(conf, HiveConf.ConfVars.HIVE_SERVER2_THRIFT_RESULTSET_SERIALIZE_IN_TASKS)) {
+          fetch.setIsUsingThriftJDBCBinarySerDe(true);
+      } else {
+          fetch.setIsUsingThriftJDBCBinarySerDe(false);
+      }
 
       pCtx.setFetchTask((FetchTask) TaskFactory.get(fetch, conf));
 
@@ -134,7 +206,7 @@ public abstract class TaskCompiler {
       int fetchLimit = HiveConf.getIntVar(conf, HiveConf.ConfVars.HIVELIMITOPTMAXFETCH);
       if (globalLimitCtx.isEnable() && globalLimitCtx.getGlobalLimit() > fetchLimit) {
         LOG.info("For FetchTask, LIMIT " + globalLimitCtx.getGlobalLimit() + " > " + fetchLimit
-            + ". Doesn't qualify limit optimiztion.");
+            + ". Doesn't qualify limit optimization.");
         globalLimitCtx.disableOpt();
 
       }
@@ -146,72 +218,29 @@ public abstract class TaskCompiler {
       }
     } else if (!isCStats) {
       for (LoadTableDesc ltd : loadTableWork) {
-        Task<MoveWork> tsk = TaskFactory.get(new MoveWork(null, null, ltd, null, false), conf);
+        Task<MoveWork> tsk = TaskFactory
+            .get(new MoveWork(null, null, ltd, null, false),
+                conf);
         mvTask.add(tsk);
-        // Check to see if we are stale'ing any indexes and auto-update them if we want
-        if (HiveConf.getBoolVar(conf, HiveConf.ConfVars.HIVEINDEXAUTOUPDATE)) {
-          IndexUpdater indexUpdater = new IndexUpdater(loadTableWork, inputs, conf);
-          try {
-            List<Task<? extends Serializable>> indexUpdateTasks = indexUpdater
-                .generateUpdateTasks();
-            for (Task<? extends Serializable> updateTask : indexUpdateTasks) {
-              tsk.addDependentTask(updateTask);
-            }
-          } catch (HiveException e) {
-            console
-                .printInfo("WARNING: could not auto-update stale indexes, which are not in sync");
-          }
-        }
       }
 
-      boolean oneLoadFile = true;
+      boolean oneLoadFileForCtas = true;
       for (LoadFileDesc lfd : loadFileWork) {
-        if (pCtx.getQueryProperties().isCTAS()) {
-          assert (oneLoadFile); // should not have more than 1 load file for
-          // CTAS
-          // make the movetask's destination directory the table's destination.
-          Path location;
-          String loc = pCtx.getCreateTable().getLocation();
-          if (loc == null) {
-            // get the table's default location
-            Path targetPath;
-            try {
-              String[] names = Utilities.getDbTableName(
-                      pCtx.getCreateTable().getTableName());
-              if (!db.databaseExists(names[0])) {
-                throw new SemanticException("ERROR: The database " + names[0]
-                    + " does not exist.");
-              }
-              Warehouse wh = new Warehouse(conf);
-              targetPath = wh.getTablePath(db.getDatabase(names[0]), names[1]);
-            } catch (HiveException e) {
-              throw new SemanticException(e);
-            } catch (MetaException e) {
-              throw new SemanticException(e);
-            }
-
-            location = targetPath;
-          } else {
-            location = new Path(loc);
+        if (pCtx.getQueryProperties().isCTAS() || pCtx.getQueryProperties().isMaterializedView()) {
+          if (!oneLoadFileForCtas) { // should not have more than 1 load file for CTAS.
+            throw new SemanticException(
+                "One query is not expected to contain multiple CTAS loads statements");
           }
-          lfd.setTargetDir(location);
-
-          oneLoadFile = false;
+          setLoadFileLocation(pCtx, lfd);
+          oneLoadFileForCtas = false;
         }
-        mvTask.add(TaskFactory.get(new MoveWork(null, null, null, lfd, false), conf));
+        mvTask.add(TaskFactory
+            .get(new MoveWork(null, null, null, lfd, false),
+                conf));
       }
     }
 
     generateTaskTree(rootTasks, pCtx, mvTask, inputs, outputs);
-
-    /*
-     * If the query was the result of analyze table column compute statistics rewrite, create
-     * a column stats task instead of a fetch task to persist stats to the metastore.
-     */
-    if (isCStats) {
-      genColumnStatsTask(pCtx.getAnalyzeRewrite(), loadTableWork, loadFileWork,
-            rootTasks, outerQueryLimit);
-    }
 
     // For each task, set the key descriptor for the reducer
     for (Task<? extends Serializable> rootTask : rootTasks) {
@@ -226,48 +255,94 @@ public abstract class TaskCompiler {
 
     optimizeTaskPlan(rootTasks, pCtx, ctx);
 
-    decideExecMode(rootTasks, ctx, globalLimitCtx);
-
-    if (pCtx.getQueryProperties().isCTAS()) {
-      // generate a DDL task and make it a dependent task of the leaf
-      CreateTableDesc crtTblDesc = pCtx.getCreateTable();
-
-      crtTblDesc.validate(conf);
-
-      // clear the mapredWork output file from outputs for CTAS
-      // DDLWork at the tail of the chain will have the output
-      Iterator<WriteEntity> outIter = outputs.iterator();
-      while (outIter.hasNext()) {
-        switch (outIter.next().getType()) {
-        case DFS_DIR:
-        case LOCAL_DIR:
-          outIter.remove();
-          break;
-        default:
-          break;
+    /*
+     * If the query was the result of analyze table column compute statistics rewrite, create
+     * a column stats task instead of a fetch task to persist stats to the metastore.
+     * As per HIVE-15903, we will also collect table stats when user computes column stats.
+     * That means, if isCStats || !pCtx.getColumnStatsAutoGatherContexts().isEmpty()
+     * We need to collect table stats
+     * if isCStats, we need to include a basic stats task
+     * else it is ColumnStatsAutoGather, which should have a move task with a stats task already.
+     */
+    if (isCStats || !pCtx.getColumnStatsAutoGatherContexts().isEmpty()) {
+      // map from tablename to task (ColumnStatsTask which includes a BasicStatsTask)
+      Map<String, StatsTask> map = new LinkedHashMap<>();
+      if (isCStats) {
+        if (rootTasks == null || rootTasks.size() != 1 || pCtx.getTopOps() == null
+            || pCtx.getTopOps().size() != 1) {
+          throw new SemanticException("Can not find correct root task!");
+        }
+        try {
+          Task<? extends Serializable> root = rootTasks.iterator().next();
+          StatsTask tsk = (StatsTask) genTableStats(pCtx, pCtx.getTopOps().values()
+              .iterator().next(), root, outputs);
+          root.addDependentTask(tsk);
+          map.put(extractTableFullName(tsk), tsk);
+        } catch (HiveException e) {
+          throw new SemanticException(e);
+        }
+        genColumnStatsTask(pCtx.getAnalyzeRewrite(), loadFileWork, map, outerQueryLimit, 0);
+      } else {
+        Set<Task<? extends Serializable>> leafTasks = new LinkedHashSet<Task<? extends Serializable>>();
+        getLeafTasks(rootTasks, leafTasks);
+        List<Task<? extends Serializable>> nonStatsLeafTasks = new ArrayList<>();
+        for (Task<? extends Serializable> tsk : leafTasks) {
+          // map table name to the correct ColumnStatsTask
+          if (tsk instanceof StatsTask) {
+            map.put(extractTableFullName((StatsTask) tsk), (StatsTask) tsk);
+          } else {
+            nonStatsLeafTasks.add(tsk);
+          }
+        }
+        // add cStatsTask as a dependent of all the nonStatsLeafTasks
+        for (Task<? extends Serializable> tsk : nonStatsLeafTasks) {
+          for (Task<? extends Serializable> cStatsTask : map.values()) {
+            tsk.addDependentTask(cStatsTask);
+          }
+        }
+        for (ColumnStatsAutoGatherContext columnStatsAutoGatherContext : pCtx
+            .getColumnStatsAutoGatherContexts()) {
+          if (!columnStatsAutoGatherContext.isInsertInto()) {
+            genColumnStatsTask(columnStatsAutoGatherContext.getAnalyzeRewrite(),
+                columnStatsAutoGatherContext.getLoadFileWork(), map, outerQueryLimit, 0);
+          } else {
+            int numBitVector;
+            try {
+              numBitVector = HiveStatsUtils.getNumBitVectorsForNDVEstimation(conf);
+            } catch (Exception e) {
+              throw new SemanticException(e.getMessage());
+            }
+            genColumnStatsTask(columnStatsAutoGatherContext.getAnalyzeRewrite(),
+                columnStatsAutoGatherContext.getLoadFileWork(), map, outerQueryLimit, numBitVector);
+          }
         }
       }
+    }
+
+    decideExecMode(rootTasks, ctx, globalLimitCtx);
+
+    if (pCtx.getQueryProperties().isCTAS() && !pCtx.getCreateTable().isMaterialization()) {
+      // generate a DDL task and make it a dependent task of the leaf
+      CreateTableDesc crtTblDesc = pCtx.getCreateTable();
+      crtTblDesc.validate(conf);
       Task<? extends Serializable> crtTblTask = TaskFactory.get(new DDLWork(
           inputs, outputs, crtTblDesc), conf);
-
-      // find all leaf tasks and make the DDLTask as a dependent task of all of
-      // them
-      HashSet<Task<? extends Serializable>> leaves = new LinkedHashSet<Task<? extends Serializable>>();
-      getLeafTasks(rootTasks, leaves);
-      assert (leaves.size() > 0);
-      for (Task<? extends Serializable> task : leaves) {
-        if (task instanceof StatsTask) {
-          // StatsTask require table to already exist
-          for (Task<? extends Serializable> parentOfStatsTask : task.getParentTasks()) {
-            parentOfStatsTask.addDependentTask(crtTblTask);
-          }
-          for (Task<? extends Serializable> parentOfCrtTblTask : crtTblTask.getParentTasks()) {
-            parentOfCrtTblTask.removeDependentTask(task);
-          }
-          crtTblTask.addDependentTask(task);
-        } else {
-          task.addDependentTask(crtTblTask);
-        }
+      patchUpAfterCTASorMaterializedView(rootTasks, outputs, crtTblTask);
+    } else if (pCtx.getQueryProperties().isMaterializedView()) {
+      // generate a DDL task and make it a dependent task of the leaf
+      CreateViewDesc viewDesc = pCtx.getCreateViewDesc();
+      Task<? extends Serializable> crtViewTask = TaskFactory.get(new DDLWork(
+          inputs, outputs, viewDesc), conf);
+      patchUpAfterCTASorMaterializedView(rootTasks, outputs, crtViewTask);
+    } else if (pCtx.getMaterializedViewUpdateDesc() != null) {
+      // If there is a materialized view update desc, we create introduce it at the end
+      // of the tree.
+      MaterializedViewDesc materializedViewDesc = pCtx.getMaterializedViewUpdateDesc();
+      Set<Task<? extends Serializable>> leafTasks = new LinkedHashSet<Task<? extends Serializable>>();
+      getLeafTasks(rootTasks, leafTasks);
+      Task<? extends Serializable> materializedViewTask = TaskFactory.get(materializedViewDesc, conf);
+      for (Task<? extends Serializable> task : leafTasks) {
+        task.addDependentTask(materializedViewTask);
       }
     }
 
@@ -279,22 +354,168 @@ public abstract class TaskCompiler {
     if (globalLimitCtx.isEnable() && globalLimitCtx.getLastReduceLimitDesc() != null) {
       LOG.info("set least row check for LimitDesc: " + globalLimitCtx.getGlobalLimit());
       globalLimitCtx.getLastReduceLimitDesc().setLeastRows(globalLimitCtx.getGlobalLimit());
-      List<ExecDriver> mrTasks = Utilities.getMRTasks(rootTasks);
-      for (ExecDriver tsk : mrTasks) {
-        tsk.setRetryCmdWhenFail(true);
-      }
-      List<SparkTask> sparkTasks = Utilities.getSparkTasks(rootTasks);
-      for (SparkTask sparkTask : sparkTasks) {
-        sparkTask.setRetryCmdWhenFail(true);
-      }
     }
 
     Interner<TableDesc> interner = Interners.newStrongInterner();
     for (Task<? extends Serializable> rootTask : rootTasks) {
       GenMapRedUtils.internTableDesc(rootTask, interner);
+      GenMapRedUtils.deriveFinalExplainAttributes(rootTask, pCtx.getConf());
     }
   }
 
+  private String extractTableFullName(StatsTask tsk) throws SemanticException {
+    return tsk.getWork().getFullTableName();
+  }
+
+  private Task<?> genTableStats(ParseContext parseContext, TableScanOperator tableScan, Task currentTask, final HashSet<WriteEntity> outputs)
+      throws HiveException {
+    Class<? extends InputFormat> inputFormat = tableScan.getConf().getTableMetadata()
+        .getInputFormatClass();
+    Table table = tableScan.getConf().getTableMetadata();
+    List<Partition> partitions = new ArrayList<>();
+    if (table.isPartitioned()) {
+      partitions.addAll(parseContext.getPrunedPartitions(tableScan).getPartitions());
+      for (Partition partn : partitions) {
+        LOG.trace("adding part: " + partn);
+        outputs.add(new WriteEntity(partn, WriteEntity.WriteType.DDL_NO_LOCK));
+      }
+    }
+    TableSpec tableSpec = new TableSpec(table, partitions);
+    tableScan.getConf().getTableMetadata().setTableSpec(tableSpec);
+
+    if (inputFormat.equals(OrcInputFormat.class)) {
+      // For ORC, there is no Tez Job for table stats.
+      StatsWork columnStatsWork = new StatsWork(table, parseContext.getConf());
+      columnStatsWork.setFooterScan();
+      // If partition is specified, get pruned partition list
+      if (partitions.size() > 0) {
+        columnStatsWork.addInputPartitions(parseContext.getPrunedPartitions(tableScan).getPartitions());
+      }
+      return TaskFactory.get(columnStatsWork, parseContext.getConf());
+    } else {
+      BasicStatsWork statsWork = new BasicStatsWork(tableScan.getConf().getTableMetadata().getTableSpec());
+      StatsWork columnStatsWork = new StatsWork(table, statsWork, parseContext.getConf());
+      columnStatsWork.collectStatsFromAggregator(tableScan.getConf());
+      columnStatsWork.setSourceTask(currentTask);
+      return TaskFactory.get(columnStatsWork, parseContext.getConf());
+    }
+  }
+
+  private void setLoadFileLocation(
+      final ParseContext pCtx, LoadFileDesc lfd) throws SemanticException {
+    // CTAS; make the movetask's destination directory the table's destination.
+    Long txnIdForCtas = null;
+    int stmtId = 0; // CTAS cannot be part of multi-txn stmt
+    FileSinkDesc dataSinkForCtas = null;
+    String loc = null;
+    if (pCtx.getQueryProperties().isCTAS()) {
+      CreateTableDesc ctd = pCtx.getCreateTable();
+      dataSinkForCtas = ctd.getAndUnsetWriter();
+      txnIdForCtas = ctd.getInitialMmWriteId();
+      loc = ctd.getLocation();
+    } else {
+      loc = pCtx.getCreateViewDesc().getLocation();
+    }
+    Path location = (loc == null) ? getDefaultCtasLocation(pCtx) : new Path(loc);
+    if (txnIdForCtas != null) {
+      dataSinkForCtas.setDirName(location);
+      location = new Path(location, AcidUtils.deltaSubdir(txnIdForCtas, txnIdForCtas, stmtId));
+      lfd.setSourcePath(location);
+      if (Utilities.FILE_OP_LOGGER.isTraceEnabled()) {
+        Utilities.FILE_OP_LOGGER.trace("Setting MM CTAS to " + location);
+      }
+    }
+    if (Utilities.FILE_OP_LOGGER.isTraceEnabled()) {
+      Utilities.FILE_OP_LOGGER.trace("Location for LFD is being set to "
+        + location + "; moving from " + lfd.getSourcePath());
+    }
+    lfd.setTargetDir(location);
+  }
+
+  private Path getDefaultCtasLocation(final ParseContext pCtx) throws SemanticException {
+    try {
+      String protoName = null;
+      if (pCtx.getQueryProperties().isCTAS()) {
+        protoName = pCtx.getCreateTable().getTableName();
+      } else if (pCtx.getQueryProperties().isMaterializedView()) {
+        protoName = pCtx.getCreateViewDesc().getViewName();
+      }
+      String[] names = Utilities.getDbTableName(protoName);
+      if (!db.databaseExists(names[0])) {
+        throw new SemanticException("ERROR: The database " + names[0] + " does not exist.");
+      }
+      Warehouse wh = new Warehouse(conf);
+      return wh.getDefaultTablePath(db.getDatabase(names[0]), names[1]);
+    } catch (HiveException e) {
+      throw new SemanticException(e);
+    } catch (MetaException e) {
+      throw new SemanticException(e);
+    }
+  }
+
+  private void patchUpAfterCTASorMaterializedView(final List<Task<? extends Serializable>>  rootTasks,
+                                                  final HashSet<WriteEntity> outputs,
+                                                  Task<? extends Serializable> createTask) {
+    // clear the mapredWork output file from outputs for CTAS
+    // DDLWork at the tail of the chain will have the output
+    Iterator<WriteEntity> outIter = outputs.iterator();
+    while (outIter.hasNext()) {
+      switch (outIter.next().getType()) {
+      case DFS_DIR:
+      case LOCAL_DIR:
+        outIter.remove();
+        break;
+      default:
+        break;
+      }
+    }
+
+    // find all leaf tasks and make the DDLTask as a dependent task on all of them
+    HashSet<Task<? extends Serializable>> leaves = new LinkedHashSet<>();
+    getLeafTasks(rootTasks, leaves);
+    assert (leaves.size() > 0);
+    Task<? extends Serializable> targetTask = createTask;
+    for (Task<? extends Serializable> task : leaves) {
+      if (task instanceof StatsTask) {
+        // StatsTask require table to already exist
+        for (Task<? extends Serializable> parentOfStatsTask : task.getParentTasks()) {
+          parentOfStatsTask.addDependentTask(createTask);
+        }
+        for (Task<? extends Serializable> parentOfCrtTblTask : createTask.getParentTasks()) {
+          parentOfCrtTblTask.removeDependentTask(task);
+        }
+        createTask.addDependentTask(task);
+        targetTask = task;
+      } else {
+        task.addDependentTask(createTask);
+      }
+    }
+
+    // Add task to insert / delete materialized view from registry if needed
+    if (createTask instanceof DDLTask) {
+      DDLTask ddlTask = (DDLTask) createTask;
+      DDLWork work = ddlTask.getWork();
+      String tableName = null;
+      boolean retrieveAndInclude = false;
+      boolean disableRewrite = false;
+      if (work.getCreateViewDesc() != null && work.getCreateViewDesc().isMaterialized()) {
+        tableName = work.getCreateViewDesc().getViewName();
+        retrieveAndInclude = work.getCreateViewDesc().isRewriteEnabled();
+      } else if (work.getAlterMaterializedViewDesc() != null) {
+        tableName = work.getAlterMaterializedViewDesc().getMaterializedViewName();
+        if (work.getAlterMaterializedViewDesc().isRewriteEnable()) {
+          retrieveAndInclude = true;
+        } else {
+          disableRewrite = true;
+        }
+      } else {
+        return;
+      }
+      targetTask.addDependentTask(
+          TaskFactory.get(
+              new MaterializedViewDesc(tableName, retrieveAndInclude, disableRewrite, false), conf));
+    }
+  }
 
   /**
    * A helper function to generate a column stats task on top of map-red task. The column stats
@@ -304,14 +525,12 @@ public abstract class TaskCompiler {
    * This method generates a plan with a column stats task on top of map-red task and sets up the
    * appropriate metadata to be used during execution.
    *
-   * @param qb
    */
   @SuppressWarnings("unchecked")
-  protected void genColumnStatsTask(AnalyzeRewriteContext analyzeRewrite, List<LoadTableDesc> loadTableWork,
-      List<LoadFileDesc> loadFileWork, List<Task<? extends Serializable>> rootTasks, int outerQueryLimit) {
-    ColumnStatsTask cStatsTask = null;
-    ColumnStatsWork cStatsWork = null;
-    FetchWork fetch = null;
+  protected void genColumnStatsTask(AnalyzeRewriteContext analyzeRewrite,
+      List<LoadFileDesc> loadFileWork, Map<String, StatsTask> map,
+      int outerQueryLimit, int numBitVector) throws SemanticException {
+    FetchWork fetch;
     String tableName = analyzeRewrite.getTableName();
     List<String> colName = analyzeRewrite.getColName();
     List<String> colType = analyzeRewrite.getColType();
@@ -320,26 +539,38 @@ public abstract class TaskCompiler {
     String cols = loadFileWork.get(0).getColumns();
     String colTypes = loadFileWork.get(0).getColumnTypes();
 
-    String resFileFormat = HiveConf.getVar(conf, HiveConf.ConfVars.HIVEQUERYRESULTFILEFORMAT);
-    TableDesc resultTab = PlanUtils.getDefaultQueryOutputTableDesc(cols, colTypes, resFileFormat);
+    String resFileFormat;
+    TableDesc resultTab;
+    if (SessionState.get().isHiveServerQuery() && conf.getBoolVar(HiveConf.ConfVars.HIVE_SERVER2_THRIFT_RESULTSET_SERIALIZE_IN_TASKS)) {
+      resFileFormat = "SequenceFile";
+      resultTab =
+          PlanUtils.getDefaultQueryOutputTableDesc(cols, colTypes, resFileFormat,
+              ThriftJDBCBinarySerDe.class);
+    } else {
+      resFileFormat = HiveConf.getVar(conf, HiveConf.ConfVars.HIVEQUERYRESULTFILEFORMAT);
+      resultTab =
+          PlanUtils.getDefaultQueryOutputTableDesc(cols, colTypes, resFileFormat,
+              LazySimpleSerDe.class);
+    }
 
     fetch = new FetchWork(loadFileWork.get(0).getSourcePath(), resultTab, outerQueryLimit);
 
     ColumnStatsDesc cStatsDesc = new ColumnStatsDesc(tableName,
-        colName, colType, isTblLevel);
-    cStatsWork = new ColumnStatsWork(fetch, cStatsDesc);
-    cStatsTask = (ColumnStatsTask) TaskFactory.get(cStatsWork, conf);
-    // This is a column stats task. According to the semantic, there should be
-    // only one MR task in the rootTask.
-    rootTasks.get(0).addDependentTask(cStatsTask);
+        colName, colType, isTblLevel, numBitVector, fetch);
+    StatsTask columnStatsTask = map.get(tableName);
+    if (columnStatsTask == null) {
+      throw new SemanticException("Can not find " + tableName + " in genColumnStatsTask");
+    } else {
+      columnStatsTask.getWork().setColStats(cStatsDesc);
+    }
   }
 
 
   /**
    * Find all leaf tasks of the list of root tasks.
    */
-  protected void getLeafTasks(List<Task<? extends Serializable>> rootTasks,
-      HashSet<Task<? extends Serializable>> leaves) {
+  private void getLeafTasks(List<Task<? extends Serializable>> rootTasks,
+      Set<Task<? extends Serializable>> leaves) {
 
     for (Task<? extends Serializable> root : rootTasks) {
       getLeafTasks(root, leaves);
@@ -347,7 +578,7 @@ public abstract class TaskCompiler {
   }
 
   private void getLeafTasks(Task<? extends Serializable> task,
-      HashSet<Task<? extends Serializable>> leaves) {
+      Set<Task<? extends Serializable>> leaves) {
     if (task.getDependentTasks() == null) {
       if (!leaves.contains(task)) {
         leaves.add(task);
@@ -391,20 +622,30 @@ public abstract class TaskCompiler {
    * Create a clone of the parse context
    */
   public ParseContext getParseContext(ParseContext pCtx, List<Task<? extends Serializable>> rootTasks) {
-    ParseContext clone = new ParseContext(conf,
+    ParseContext clone = new ParseContext(queryState,
         pCtx.getOpToPartPruner(), pCtx.getOpToPartList(), pCtx.getTopOps(),
         pCtx.getJoinOps(), pCtx.getSmbMapJoinOps(),
-        pCtx.getLoadTableWork(), pCtx.getLoadFileWork(), pCtx.getContext(),
+        pCtx.getLoadTableWork(), pCtx.getLoadFileWork(),
+        pCtx.getColumnStatsAutoGatherContexts(), pCtx.getContext(),
         pCtx.getIdToTableNameMap(), pCtx.getDestTableId(), pCtx.getUCtx(),
         pCtx.getListMapJoinOpsNoReducer(),
-        pCtx.getPrunedPartitions(), pCtx.getOpToSamplePruner(), pCtx.getGlobalLimitCtx(),
+        pCtx.getPrunedPartitions(), pCtx.getTabNameToTabObject(), pCtx.getOpToSamplePruner(), pCtx.getGlobalLimitCtx(),
         pCtx.getNameToSplitSample(), pCtx.getSemanticInputs(), rootTasks,
         pCtx.getOpToPartToSkewedPruner(), pCtx.getViewAliasToInput(),
         pCtx.getReduceSinkOperatorsAddedByEnforceBucketingSorting(),
-        pCtx.getAnalyzeRewrite(), pCtx.getCreateTable(), pCtx.getQueryProperties());
+        pCtx.getAnalyzeRewrite(), pCtx.getCreateTable(),
+        pCtx.getCreateViewDesc(), pCtx.getMaterializedViewUpdateDesc(),
+        pCtx.getQueryProperties(), pCtx.getViewProjectToTableSchema(),
+        pCtx.getAcidSinks());
     clone.setFetchTask(pCtx.getFetchTask());
     clone.setLineageInfo(pCtx.getLineageInfo());
     clone.setMapJoinOps(pCtx.getMapJoinOps());
+    clone.setRsToRuntimeValuesInfoMap(pCtx.getRsToRuntimeValuesInfoMap());
+    clone.setRsToSemiJoinBranchInfo(pCtx.getRsToSemiJoinBranchInfo());
+    clone.setColExprToGBMap(pCtx.getColExprToGBMap());
+    clone.setSemiJoinHints(pCtx.getSemiJoinHints());
+
     return clone;
   }
+
 }

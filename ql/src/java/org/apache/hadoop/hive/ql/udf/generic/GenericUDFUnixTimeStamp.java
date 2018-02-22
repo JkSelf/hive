@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,15 +18,12 @@
 
 package org.apache.hadoop.hive.ql.udf.generic;
 
-import java.io.PrintStream;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.session.SessionState;
-import org.apache.hadoop.hive.ql.session.SessionState.LogHelper;
 import org.apache.hadoop.hive.ql.udf.UDFType;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.io.LongWritable;
@@ -38,7 +35,7 @@ import org.apache.hadoop.io.LongWritable;
     extended = "Converts the specified time to number of seconds "
         + "since 1970-01-01. The _FUNC_(void) overload is deprecated, use current_timestamp.")
 public class GenericUDFUnixTimeStamp extends GenericUDFToUnixTimeStamp {
-  private static final Log LOG = LogFactory.getLog(GenericUDFUnixTimeStamp.class);
+  private static final Logger LOG = LoggerFactory.getLogger(GenericUDFUnixTimeStamp.class);
   private LongWritable currentTimestamp; // retValue is transient so store this separately.
   @Override
   protected void initializeInput(ObjectInspector[] arguments) throws UDFArgumentException {
@@ -49,11 +46,7 @@ public class GenericUDFUnixTimeStamp extends GenericUDFToUnixTimeStamp {
         currentTimestamp = new LongWritable(0);
         setValueFromTs(currentTimestamp, SessionState.get().getQueryCurrentTimestamp());
         String msg = "unix_timestamp(void) is deprecated. Use current_timestamp instead.";
-        LOG.warn(msg);
-        PrintStream stream = LogHelper.getInfoStream();
-        if (stream != null) {
-          stream.println(msg);
-        }
+        SessionState.getConsole().printInfo(msg, false);
       }
     }
   }

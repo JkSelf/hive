@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,82 +18,98 @@
 
 package org.apache.hadoop.hive.ql.exec.vector;
 
-import java.util.Collection;
-import java.util.concurrent.Future;
-
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.optimizer.spark.SparkPartitionPruningSinkDesc;
 import org.apache.hadoop.hive.ql.parse.spark.SparkPartitionPruningSinkOperator;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorSparkPartitionPruningSinkDesc;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.io.Writable;
+
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * Vectorized version for SparkPartitionPruningSinkOperator.
  * Forked from VectorAppMasterEventOperator.
  **/
-public class VectorSparkPartitionPruningSinkOperator extends SparkPartitionPruningSinkOperator {
+public class VectorSparkPartitionPruningSinkOperator extends SparkPartitionPruningSinkOperator
+    implements VectorizationOperator {
 
   private static final long serialVersionUID = 1L;
 
   private VectorizationContext vContext;
+  private VectorSparkPartitionPruningSinkDesc vectorDesc;
 
   protected transient boolean firstBatch;
 
-  protected transient VectorExtractRowDynBatch vectorExtractRowDynBatch;
+  protected transient VectorExtractRow vectorExtractRow;
 
   protected transient Object[] singleRow;
 
-  public VectorSparkPartitionPruningSinkOperator(VectorizationContext context,
-      OperatorDesc conf) {
-    super();
+  public VectorSparkPartitionPruningSinkOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext context, VectorDesc vectorDesc) {
+    this(ctx);
     this.conf = (SparkPartitionPruningSinkDesc) conf;
     this.vContext = context;
+    this.vectorDesc = (VectorSparkPartitionPruningSinkDesc) vectorDesc;
   }
 
+  /** Kryo ctor. */
+  @VisibleForTesting
   public VectorSparkPartitionPruningSinkOperator() {
+    super();
+  }
+
+  public VectorSparkPartitionPruningSinkOperator(CompilationOpContext ctx) {
+    super(ctx);
   }
 
   @Override
-  public Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
+  public VectorizationContext getInputVectorizationContext() {
+    return vContext;
+  }
+
+  @Override
+  public void initializeOp(Configuration hconf) throws HiveException {
     inputObjInspectors[0] =
         VectorizedBatchUtil.convertToStandardStructObjectInspector(
             (StructObjectInspector) inputObjInspectors[0]);
-    Collection<Future<?>> result = super.initializeOp(hconf);
-    assert result.isEmpty();
+    super.initializeOp(hconf);
 
     firstBatch = true;
-
-    return result;
   }
 
   @Override
   public void process(Object data, int tag) throws HiveException {
     VectorizedRowBatch batch = (VectorizedRowBatch) data;
     if (firstBatch) {
-      vectorExtractRowDynBatch = new VectorExtractRowDynBatch();
-      vectorExtractRowDynBatch.init((StructObjectInspector) inputObjInspectors[0],
+      vectorExtractRow = new VectorExtractRow();
+      vectorExtractRow.init((StructObjectInspector) inputObjInspectors[0],
           vContext.getProjectedColumns());
-      singleRow = new Object[vectorExtractRowDynBatch.getCount()];
+      singleRow = new Object[vectorExtractRow.getCount()];
       firstBatch = false;
     }
 
-    vectorExtractRowDynBatch.setBatchOnEntry(batch);
     ObjectInspector rowInspector = inputObjInspectors[0];
     try {
       Writable writableRow;
       for (int logical = 0; logical < batch.size; logical++) {
         int batchIndex = batch.selectedInUse ? batch.selected[logical] : logical;
-        vectorExtractRowDynBatch.extractRow(batchIndex, singleRow);
+        vectorExtractRow.extractRow(batch, batchIndex, singleRow);
         writableRow = serializer.serialize(singleRow, rowInspector);
         writableRow.write(buffer);
       }
     } catch (Exception e) {
       throw new HiveException(e);
     }
+  }
 
-    vectorExtractRowDynBatch.forgetBatchOnExit();
+  @Override
+  public VectorDesc getVectorDesc() {
+    return vectorDesc;
   }
 }

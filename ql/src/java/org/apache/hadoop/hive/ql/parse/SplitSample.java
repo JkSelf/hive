@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -101,5 +101,9 @@ public class SplitSample implements Serializable{
 
   public long getTargetSize(long totalSize) {
     return totalLength != null ? totalLength : (long) (totalSize * percent / 100D);
+  }
+
+  public long estimateSourceSize(long targetSize) {
+    return percent != null ? Math.round(targetSize * 100D / percent) : targetSize;
   }
 }

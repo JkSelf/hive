@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -48,12 +48,20 @@ public class ReflectiveCommandHandler extends AbstractCommandHandler {
 
   public boolean execute(String line) {
     lastException = null;
+    ClientHook hook = ClientCommandHookFactory.get().getHook(beeLine, line);
+
     try {
       Object ob = beeLine.getCommands().getClass().getMethod(getName(),
           new Class[] {String.class})
           .invoke(beeLine.getCommands(), new Object[] {line});
-      return ob != null && ob instanceof Boolean
-          && ((Boolean) ob).booleanValue();
+
+      boolean result = (ob != null && ob instanceof Boolean && ((Boolean) ob).booleanValue());
+
+      if (hook != null && result) {
+        hook.postHook(beeLine);
+      }
+
+      return result;
     } catch (Throwable e) {
       lastException = e;
       return beeLine.error(e);

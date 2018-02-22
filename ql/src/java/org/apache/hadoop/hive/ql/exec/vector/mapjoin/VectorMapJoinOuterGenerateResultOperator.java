@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,8 +19,10 @@
 package org.apache.hadoop.hive.ql.exec.vector.mapjoin;
 
 import java.io.IOException;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
 import org.apache.hadoop.hive.ql.exec.vector.ColumnVector;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizationContext;
@@ -31,6 +33,7 @@ import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHash
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHashTableResult;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
 import org.apache.hadoop.hive.serde2.WriteBuffers.ByteSegmentRef;
 
 /**
@@ -60,7 +63,7 @@ public abstract class VectorMapJoinOuterGenerateResultOperator
         extends VectorMapJoinGenerateResultOperator {
 
   private static final long serialVersionUID = 1L;
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinOuterGenerateResultOperator.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(VectorMapJoinOuterGenerateResultOperator.class.getName());
 
   //---------------------------------------------------------------------------
   // Outer join specific members.
@@ -111,13 +114,18 @@ public abstract class VectorMapJoinOuterGenerateResultOperator
   protected transient int[] noMatchs;
   protected transient int[] merged;
 
-  public VectorMapJoinOuterGenerateResultOperator() {
+  /** Kryo ctor. */
+  protected VectorMapJoinOuterGenerateResultOperator() {
     super();
   }
 
-  public VectorMapJoinOuterGenerateResultOperator(VectorizationContext vContext, OperatorDesc conf)
-              throws HiveException {
-    super(vContext, conf);
+  public VectorMapJoinOuterGenerateResultOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorMapJoinOuterGenerateResultOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) throws HiveException {
+    super(ctx, conf, vContext, vectorDesc);
   }
 
   /*

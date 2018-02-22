@@ -10,7 +10,7 @@ create table over10k(
            bo boolean,
            s string,
 	   ts timestamp,
-           dec decimal,
+           `dec` decimal,
            bin binary)
        row format delimited
        fields terminated by '|';
@@ -36,16 +36,16 @@ select ts, f, count(f) over (partition by ts order by f rows between 1 following
 select ts, f, count(f) over (partition by ts order by f rows between unbounded preceding and 1 following) from over10k limit 100;
 
 -- max
-select ts, f, max(f) over (partition by ts order by t rows between 2 preceding and 1 preceding) from over10k limit 100;
-select ts, f, max(f) over (partition by ts order by t rows between unbounded preceding and 1 preceding) from over10k limit 100;
-select ts, f, max(f) over (partition by ts order by t rows between 1 following and 2 following) from over10k limit 100;
-select ts, f, max(f) over (partition by ts order by t rows between unbounded preceding and 1 following) from over10k limit 100;
+select ts, f, max(f) over (partition by ts order by t,f rows between 2 preceding and 1 preceding) from over10k limit 100;
+select ts, f, max(f) over (partition by ts order by t,f rows between unbounded preceding and 1 preceding) from over10k limit 100;
+select ts, f, max(f) over (partition by ts order by t,f rows between 1 following and 2 following) from over10k limit 100;
+select ts, f, max(f) over (partition by ts order by t,f rows between unbounded preceding and 1 following) from over10k limit 100;
 
 -- min
-select ts, f, min(f) over (partition by ts order by t rows between 2 preceding and 1 preceding) from over10k limit 100;
-select ts, f, min(f) over (partition by ts order by t rows between unbounded preceding and 1 preceding) from over10k limit 100;
-select ts, f, min(f) over (partition by ts order by t rows between 1 following and 2 following) from over10k limit 100;
-select ts, f, min(f) over (partition by ts order by t rows between unbounded preceding and 1 following) from over10k limit 100;
+select ts, f, min(f) over (partition by ts order by t,f rows between 2 preceding and 1 preceding) from over10k limit 100;
+select ts, f, min(f) over (partition by ts order by t,f rows between unbounded preceding and 1 preceding) from over10k limit 100;
+select ts, f, min(f) over (partition by ts order by t,f rows between 1 following and 2 following) from over10k limit 100;
+select ts, f, min(f) over (partition by ts order by t,f rows between unbounded preceding and 1 following) from over10k limit 100;
 
 -- first_value
 select ts, f, first_value(f) over (partition by ts order by f rows between 2 preceding and 1 preceding) from over10k limit 100;

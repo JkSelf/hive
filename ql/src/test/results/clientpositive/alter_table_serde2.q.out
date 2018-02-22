@@ -1,14 +1,8 @@
-PREHOOK: query: -- Tests that when overwriting a partition in a table after altering the serde properties
--- the partition metadata is updated as well.
-
-CREATE TABLE tst1(key STRING, value STRING) PARTITIONED BY (ds STRING)
+PREHOOK: query: CREATE TABLE tst1(key STRING, value STRING) PARTITIONED BY (ds STRING)
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@tst1
-POSTHOOK: query: -- Tests that when overwriting a partition in a table after altering the serde properties
--- the partition metadata is updated as well.
-
-CREATE TABLE tst1(key STRING, value STRING) PARTITIONED BY (ds STRING)
+POSTHOOK: query: CREATE TABLE tst1(key STRING, value STRING) PARTITIONED BY (ds STRING)
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@tst1
@@ -19,13 +13,11 @@ POSTHOOK: query: DESCRIBE FORMATTED tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -35,6 +27,12 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+	numFiles            	0                   
+	numPartitions       	0                   
+	numRows             	0                   
+	rawDataSize         	0                   
+	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -64,13 +62,11 @@ POSTHOOK: query: DESCRIBE FORMATTED tst1 PARTITION (ds = '1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -79,7 +75,7 @@ Database:           	default
 Table:              	tst1                	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 	numFiles            	1                   
 	numRows             	500                 
 	rawDataSize         	5312                
@@ -96,15 +92,11 @@ Bucket Columns:     	[]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Test altering the serde properties
-
-ALTER TABLE tst1 SET SERDEPROPERTIES ('field.delim' = ',')
+PREHOOK: query: ALTER TABLE tst1 SET SERDEPROPERTIES ('field.delim' = ',')
 PREHOOK: type: ALTERTABLE_SERDEPROPERTIES
 PREHOOK: Input: default@tst1
 PREHOOK: Output: default@tst1
-POSTHOOK: query: -- Test altering the serde properties
-
-ALTER TABLE tst1 SET SERDEPROPERTIES ('field.delim' = ',')
+POSTHOOK: query: ALTER TABLE tst1 SET SERDEPROPERTIES ('field.delim' = ',')
 POSTHOOK: type: ALTERTABLE_SERDEPROPERTIES
 POSTHOOK: Input: default@tst1
 POSTHOOK: Output: default@tst1
@@ -115,13 +107,11 @@ POSTHOOK: query: DESCRIBE FORMATTED tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -131,6 +121,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	1                   
+	numPartitions       	1                   
+	numRows             	500                 
+	rawDataSize         	5312                
+	totalSize           	5812                
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -161,13 +158,11 @@ POSTHOOK: query: DESCRIBE FORMATTED tst1 PARTITION (ds = '1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -176,7 +171,7 @@ Database:           	default
 Table:              	tst1                	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 	numFiles            	1                   
 	numRows             	500                 
 	rawDataSize         	5312                

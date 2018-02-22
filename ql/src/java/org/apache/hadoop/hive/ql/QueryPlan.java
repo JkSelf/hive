@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -35,8 +35,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.hive.metastore.api.Schema;
 import org.apache.hadoop.hive.ql.exec.ConditionalTask;
 import org.apache.hadoop.hive.ql.exec.ExplainTask;
@@ -50,6 +49,7 @@ import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.parse.BaseSemanticAnalyzer;
 import org.apache.hadoop.hive.ql.parse.ColumnAccessInfo;
 import org.apache.hadoop.hive.ql.parse.TableAccessInfo;
+import org.apache.hadoop.hive.ql.plan.FileSinkDesc;
 import org.apache.hadoop.hive.ql.plan.HiveOperation;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 import org.apache.hadoop.hive.ql.plan.ReducerTimeStatsPerJob;
@@ -69,7 +69,6 @@ import org.apache.thrift.transport.TMemoryBuffer;
 public class QueryPlan implements Serializable {
   private static final long serialVersionUID = 1L;
 
-  private static final Log LOG = LogFactory.getLog(QueryPlan.class.getName());
 
   private String queryString;
 
@@ -108,24 +107,31 @@ public class QueryPlan implements Serializable {
 
   private transient Long queryStartTime;
   private final HiveOperation operation;
+  private final boolean acidResourcesInQuery;
+  private final Set<FileSinkDesc> acidSinks; // Note: both full-ACID and insert-only sinks.
   private Boolean autoCommitValue;
 
   public QueryPlan() {
-    this.reducerTimeStatsPerJobList = new ArrayList<ReducerTimeStatsPerJob>();
-    operation = null;
+    this(null);
+  }
+  @VisibleForTesting
+  protected QueryPlan(HiveOperation command) {
+    this.reducerTimeStatsPerJobList = new ArrayList<>();
+    this.operation = command;
+    this.acidResourcesInQuery = false;
+    this.acidSinks = Collections.emptySet();
   }
 
   public QueryPlan(String queryString, BaseSemanticAnalyzer sem, Long startTime, String queryId,
-                   HiveOperation operation, Schema resultSchema) {
+                  HiveOperation operation, Schema resultSchema) {
     this.queryString = queryString;
 
-    rootTasks = new ArrayList<Task<? extends Serializable>>();
-    this.reducerTimeStatsPerJobList = new ArrayList<ReducerTimeStatsPerJob>();
-    rootTasks.addAll(sem.getRootTasks());
+    rootTasks = new ArrayList<Task<? extends Serializable>>(sem.getAllRootTasks());
+    reducerTimeStatsPerJobList = new ArrayList<ReducerTimeStatsPerJob>();
     fetchTask = sem.getFetchTask();
     // Note that inputs and outputs can be changed when the query gets executed
-    inputs = sem.getInputs();
-    outputs = sem.getOutputs();
+    inputs = sem.getAllInputs();
+    outputs = sem.getAllOutputs();
     linfo = sem.getLineageInfo();
     tableAccessInfo = sem.getTableAccessInfo();
     columnAccessInfo = sem.getColumnAccessInfo();
@@ -140,8 +146,22 @@ public class QueryPlan implements Serializable {
     this.operation = operation;
     this.autoCommitValue = sem.getAutoCommitValue();
     this.resultSchema = resultSchema;
+    this.acidResourcesInQuery = sem.hasTransactionalInQuery();
+    this.acidSinks = sem.getAcidFileSinks();
   }
 
+  /**
+   * @return true if any acid resources are read/written
+   */
+  public boolean hasAcidResourcesInQuery() {
+    return acidResourcesInQuery;
+  }
+  /**
+   * @return Collection of FileSinkDesc representing writes to Acid resources
+   */
+  Set<FileSinkDesc> getAcidSinks() {
+    return acidSinks;
+  }
   public String getQueryStr() {
     return queryString;
   }

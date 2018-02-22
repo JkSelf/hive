@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -29,12 +29,14 @@ public class SimpleGenericUDAFParameterInfo implements GenericUDAFParameterInfo
 {
 
   private final ObjectInspector[] parameters;
+  private final boolean isWindowing;
   private final boolean distinct;
   private final boolean allColumns;
 
-  public SimpleGenericUDAFParameterInfo(ObjectInspector[] params, boolean distinct,
+  public SimpleGenericUDAFParameterInfo(ObjectInspector[] params, boolean isWindowing, boolean distinct,
       boolean allColumns) {
     this.parameters = params;
+    this.isWindowing = isWindowing;
     this.distinct = distinct;
     this.allColumns = allColumns;
   }
@@ -62,5 +64,10 @@ public class SimpleGenericUDAFParameterInfo implements GenericUDAFParameterInfo
   @Override
   public boolean isAllColumns() {
     return allColumns;
+  }
+
+  @Override
+  public boolean isWindowing() {
+    return isWindowing;
   }
 }

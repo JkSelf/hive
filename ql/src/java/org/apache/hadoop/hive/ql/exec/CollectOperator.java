@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,10 +20,9 @@ package org.apache.hadoop.hive.ql.exec;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.concurrent.Future;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.CollectDesc;
 import org.apache.hadoop.hive.ql.plan.api.OperatorType;
@@ -42,12 +41,20 @@ public class CollectOperator extends Operator<CollectDesc> implements
   protected transient ObjectInspector standardRowInspector;
   transient int maxSize;
 
+  /** Kryo ctor. */
+  protected CollectOperator() {
+    super();
+  }
+
+  public CollectOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
   @Override
-  protected Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
-    Collection<Future<?>> result = super.initializeOp(hconf);
+  protected void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
     rowList = new ArrayList<Object>();
     maxSize = conf.getBufferSize().intValue();
-    return result;
   }
 
   boolean firstRow = true;
@@ -84,5 +91,19 @@ public class CollectOperator extends Operator<CollectDesc> implements
   @Override
   public OperatorType getType() {
     return null;
+  }
+
+  @Override
+  public String getName() {
+    return CollectOperator.getOperatorName();
+  }
+
+  public static String getOperatorName() {
+    return "COLLECT";
+  }
+
+  @Override
+  public boolean logicalEquals(Operator other) {
+    return getClass().getName().equals(other.getClass().getName());
   }
 }

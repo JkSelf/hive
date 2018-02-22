@@ -1,12 +1,8 @@
-PREHOOK: query: -- SORT_QUERY_RESULTS
-
-create table insert1(key int, value string) stored as textfile
+PREHOOK: query: create table insert1(key int, value string) stored as textfile
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@insert1
-POSTHOOK: query: -- SORT_QUERY_RESULTS
-
-create table insert1(key int, value string) stored as textfile
+POSTHOOK: query: create table insert1(key int, value string) stored as textfile
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@insert1
@@ -26,7 +22,7 @@ POSTHOOK: query: insert overwrite table insert1 select a.key, a.value from inser
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@insert2
 POSTHOOK: Output: default@insert1
-POSTHOOK: Lineage: insert1.key SIMPLE [(insert2)a.FieldSchema(name:key, type:int, comment:null), ]
+POSTHOOK: Lineage: insert1.key SIMPLE []
 POSTHOOK: Lineage: insert1.value SIMPLE [(insert2)a.FieldSchema(name:value, type:string, comment:null), ]
 PREHOOK: query: explain insert into table insert1 select a.key, a.value from insert2 a WHERE (a.key=-1)
 PREHOOK: type: QUERY
@@ -64,6 +60,32 @@ STAGE PLANS:
                       output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                       name: default.insert1
+                Select Operator
+                  expressions: _col0 (type: int), _col1 (type: string)
+                  outputColumnNames: key, value
+                  Statistics: Num rows: 1 Data size: 0 Basic stats: PARTIAL Column stats: NONE
+                  Group By Operator
+                    aggregations: compute_stats(key, 'hll'), compute_stats(value, 'hll')
+                    mode: hash
+                    outputColumnNames: _col0, _col1
+                    Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                    Reduce Output Operator
+                      sort order: 
+                      Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                      value expressions: _col0 (type: struct<columntype:string,min:bigint,max:bigint,countnulls:bigint,bitvector:binary>), _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
+      Reduce Operator Tree:
+        Group By Operator
+          aggregations: compute_stats(VALUE._col0), compute_stats(VALUE._col1)
+          mode: mergepartial
+          outputColumnNames: _col0, _col1
+          Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+          File Output Operator
+            compressed: false
+            Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+            table:
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-7
     Conditional Operator
@@ -85,7 +107,12 @@ STAGE PLANS:
               name: default.insert1
 
   Stage: Stage-2
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
+      Column Stats Desc:
+          Columns: key, value
+          Column Types: int, string
+          Table: default.insert1
 
   Stage: Stage-3
     Map Reduce
@@ -153,6 +180,32 @@ STAGE PLANS:
                       output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                       name: default.insert1
+                Select Operator
+                  expressions: _col0 (type: int), _col1 (type: string)
+                  outputColumnNames: key, value
+                  Statistics: Num rows: 1 Data size: 0 Basic stats: PARTIAL Column stats: NONE
+                  Group By Operator
+                    aggregations: compute_stats(key, 'hll'), compute_stats(value, 'hll')
+                    mode: hash
+                    outputColumnNames: _col0, _col1
+                    Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                    Reduce Output Operator
+                      sort order: 
+                      Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                      value expressions: _col0 (type: struct<columntype:string,min:bigint,max:bigint,countnulls:bigint,bitvector:binary>), _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
+      Reduce Operator Tree:
+        Group By Operator
+          aggregations: compute_stats(VALUE._col0), compute_stats(VALUE._col1)
+          mode: mergepartial
+          outputColumnNames: _col0, _col1
+          Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+          File Output Operator
+            compressed: false
+            Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+            table:
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-7
     Conditional Operator
@@ -174,7 +227,12 @@ STAGE PLANS:
               name: default.insert1
 
   Stage: Stage-2
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
+      Column Stats Desc:
+          Columns: key, value
+          Column Types: int, string
+          Table: default.insert1
 
   Stage: Stage-3
     Map Reduce
@@ -206,12 +264,10 @@ STAGE PLANS:
           hdfs directory: true
 #### A masked pattern was here ####
 
-PREHOOK: query: -- HIVE-3465
-create database x
+PREHOOK: query: create database x
 PREHOOK: type: CREATEDATABASE
 PREHOOK: Output: database:x
-POSTHOOK: query: -- HIVE-3465
-create database x
+POSTHOOK: query: create database x
 POSTHOOK: type: CREATEDATABASE
 POSTHOOK: Output: database:x
 PREHOOK: query: create table x.insert1(key int, value string) stored as textfile
@@ -258,6 +314,32 @@ STAGE PLANS:
                       output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                       name: x.insert1
+                Select Operator
+                  expressions: _col0 (type: int), _col1 (type: string)
+                  outputColumnNames: key, value
+                  Statistics: Num rows: 1 Data size: 0 Basic stats: PARTIAL Column stats: NONE
+                  Group By Operator
+                    aggregations: compute_stats(key, 'hll'), compute_stats(value, 'hll')
+                    mode: hash
+                    outputColumnNames: _col0, _col1
+                    Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                    Reduce Output Operator
+                      sort order: 
+                      Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                      value expressions: _col0 (type: struct<columntype:string,min:bigint,max:bigint,countnulls:bigint,bitvector:binary>), _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
+      Reduce Operator Tree:
+        Group By Operator
+          aggregations: compute_stats(VALUE._col0), compute_stats(VALUE._col1)
+          mode: mergepartial
+          outputColumnNames: _col0, _col1
+          Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+          File Output Operator
+            compressed: false
+            Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+            table:
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-7
     Conditional Operator
@@ -279,7 +361,12 @@ STAGE PLANS:
               name: x.insert1
 
   Stage: Stage-2
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
+      Column Stats Desc:
+          Columns: key, value
+          Column Types: int, string
+          Table: x.insert1
 
   Stage: Stage-3
     Map Reduce
@@ -347,6 +434,32 @@ STAGE PLANS:
                       output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                       name: default.insert1
+                Select Operator
+                  expressions: _col0 (type: int), _col1 (type: string)
+                  outputColumnNames: key, value
+                  Statistics: Num rows: 1 Data size: 0 Basic stats: PARTIAL Column stats: NONE
+                  Group By Operator
+                    aggregations: compute_stats(key, 'hll'), compute_stats(value, 'hll')
+                    mode: hash
+                    outputColumnNames: _col0, _col1
+                    Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                    Reduce Output Operator
+                      sort order: 
+                      Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                      value expressions: _col0 (type: struct<columntype:string,min:bigint,max:bigint,countnulls:bigint,bitvector:binary>), _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
+      Reduce Operator Tree:
+        Group By Operator
+          aggregations: compute_stats(VALUE._col0), compute_stats(VALUE._col1)
+          mode: mergepartial
+          outputColumnNames: _col0, _col1
+          Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+          File Output Operator
+            compressed: false
+            Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+            table:
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-7
     Conditional Operator
@@ -368,7 +481,12 @@ STAGE PLANS:
               name: default.insert1
 
   Stage: Stage-2
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
+      Column Stats Desc:
+          Columns: key, value
+          Column Types: int, string
+          Table: default.insert1
 
   Stage: Stage-3
     Map Reduce
@@ -415,17 +533,13 @@ STAGE DEPENDENCIES:
   Stage-8 depends on stages: Stage-2 , consists of Stage-5, Stage-4, Stage-6
   Stage-5
   Stage-0 depends on stages: Stage-5, Stage-4, Stage-7
-  Stage-3 depends on stages: Stage-0
+  Stage-3 depends on stages: Stage-0, Stage-10
   Stage-4
   Stage-6
   Stage-7 depends on stages: Stage-6
-  Stage-14 depends on stages: Stage-2 , consists of Stage-11, Stage-10, Stage-12
-  Stage-11
-  Stage-1 depends on stages: Stage-11, Stage-10, Stage-13
-  Stage-9 depends on stages: Stage-1
-  Stage-10
-  Stage-12
-  Stage-13 depends on stages: Stage-12
+  Stage-1 depends on stages: Stage-2
+  Stage-9 depends on stages: Stage-1, Stage-10
+  Stage-10 depends on stages: Stage-2
 
 STAGE PLANS:
   Stage: Stage-2
@@ -449,8 +563,21 @@ STAGE PLANS:
                       output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                       name: default.insert1
+                Select Operator
+                  expressions: _col0 (type: int), _col1 (type: string)
+                  outputColumnNames: key, value
+                  Statistics: Num rows: 1 Data size: 0 Basic stats: PARTIAL Column stats: NONE
+                  Group By Operator
+                    aggregations: compute_stats(key, 'hll'), compute_stats(value, 'hll')
+                    mode: hash
+                    outputColumnNames: _col0, _col1
+                    Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                    Reduce Output Operator
+                      sort order: 
+                      Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                      value expressions: _col0 (type: struct<columntype:string,min:bigint,max:bigint,countnulls:bigint,bitvector:binary>), _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
             Filter Operator
-              predicate: ((key > 10) and (key < 20)) (type: boolean)
+              predicate: ((key < 20) and (key > 10)) (type: boolean)
               Statistics: Num rows: 1 Data size: 0 Basic stats: PARTIAL Column stats: NONE
               Select Operator
                 expressions: key (type: int), value (type: string)
@@ -464,6 +591,34 @@ STAGE PLANS:
                       output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                       name: x.insert1
+                Select Operator
+                  expressions: _col0 (type: int), _col1 (type: string)
+                  outputColumnNames: key, value
+                  Statistics: Num rows: 1 Data size: 0 Basic stats: PARTIAL Column stats: NONE
+                  Group By Operator
+                    aggregations: compute_stats(key, 'hll'), compute_stats(value, 'hll')
+                    mode: hash
+                    outputColumnNames: _col0, _col1
+                    Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+                    File Output Operator
+                      compressed: false
+                      table:
+                          input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                          output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                          serde: org.apache.hadoop.hive.serde2.lazybinary.LazyBinarySerDe
+      Reduce Operator Tree:
+        Group By Operator
+          aggregations: compute_stats(VALUE._col0), compute_stats(VALUE._col1)
+          mode: mergepartial
+          outputColumnNames: _col0, _col1
+          Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+          File Output Operator
+            compressed: false
+            Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+            table:
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-8
     Conditional Operator
@@ -485,7 +640,12 @@ STAGE PLANS:
               name: default.insert1
 
   Stage: Stage-3
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
+      Column Stats Desc:
+          Columns: key, value
+          Column Types: int, string
+          Table: default.insert1
 
   Stage: Stage-4
     Map Reduce
@@ -517,15 +677,6 @@ STAGE PLANS:
           hdfs directory: true
 #### A masked pattern was here ####
 
-  Stage: Stage-14
-    Conditional Operator
-
-  Stage: Stage-11
-    Move Operator
-      files:
-          hdfs directory: true
-#### A masked pattern was here ####
-
   Stage: Stage-1
     Move Operator
       tables:
@@ -537,44 +688,39 @@ STAGE PLANS:
               name: x.insert1
 
   Stage: Stage-9
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
+      Column Stats Desc:
+          Columns: key, value
+          Column Types: int, string
+          Table: x.insert1
 
   Stage: Stage-10
     Map Reduce
       Map Operator Tree:
           TableScan
-            File Output Operator
-              compressed: false
-              table:
-                  input format: org.apache.hadoop.mapred.TextInputFormat
-                  output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-                  serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-                  name: x.insert1
+            Reduce Output Operator
+              sort order: 
+              Statistics: Num rows: 1 Data size: 864 Basic stats: PARTIAL Column stats: NONE
+              value expressions: _col0 (type: struct<columntype:string,min:bigint,max:bigint,countnulls:bigint,bitvector:binary>), _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
+      Reduce Operator Tree:
+        Group By Operator
+          aggregations: compute_stats(VALUE._col0), compute_stats(VALUE._col1)
+          mode: mergepartial
+          outputColumnNames: _col0, _col1
+          Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+          File Output Operator
+            compressed: false
+            Statistics: Num rows: 1 Data size: 880 Basic stats: PARTIAL Column stats: NONE
+            table:
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
-  Stage: Stage-12
-    Map Reduce
-      Map Operator Tree:
-          TableScan
-            File Output Operator
-              compressed: false
-              table:
-                  input format: org.apache.hadoop.mapred.TextInputFormat
-                  output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-                  serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-                  name: x.insert1
-
-  Stage: Stage-13
-    Move Operator
-      files:
-          hdfs directory: true
-#### A masked pattern was here ####
-
-PREHOOK: query: -- HIVE-3676
-CREATE DATABASE db2
+PREHOOK: query: CREATE DATABASE db2
 PREHOOK: type: CREATEDATABASE
 PREHOOK: Output: database:db2
-POSTHOOK: query: -- HIVE-3676
-CREATE DATABASE db2
+POSTHOOK: query: CREATE DATABASE db2
 POSTHOOK: type: CREATEDATABASE
 POSTHOOK: Output: database:db2
 PREHOOK: query: USE db2

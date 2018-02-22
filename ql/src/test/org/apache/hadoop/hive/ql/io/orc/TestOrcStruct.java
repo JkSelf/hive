@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -94,6 +94,8 @@ public class TestOrcStruct {
         inspector.getAllStructFieldRefs().get(12).getFieldObjectInspector();
     assertEquals(ObjectInspector.Category.LIST, listOI.getCategory());
     assertEquals(10, listOI.getListElement(list, 10));
+    assertEquals(null, listOI.getListElement(list, -1));
+    assertEquals(null, listOI.getListElement(list, 13));
     assertEquals(13, listOI.getListLength(list));
 
     Map<Integer, Integer> map = new HashMap<Integer,Integer>();

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.io.ArrayWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.parquet.column.Dictionary;
@@ -65,12 +66,12 @@ public interface Repeated extends ConverterParent {
     private final int index;
     private final List<Writable> list = new ArrayList<Writable>();
 
-    public RepeatedPrimitiveConverter(PrimitiveType primitiveType, ConverterParent parent, int index) {
+    public RepeatedPrimitiveConverter(PrimitiveType primitiveType, ConverterParent parent, int index, TypeInfo hiveTypeInfo) {
       setMetadata(parent.getMetadata());
       this.primitiveType = primitiveType;
       this.parent = parent;
       this.index = index;
-      this.wrapped = HiveGroupConverter.getConverterFromDescription(primitiveType, 0, this);
+      this.wrapped = HiveGroupConverter.getConverterFromDescription(primitiveType, 0, this, hiveTypeInfo);
     }
 
     @Override
@@ -146,15 +147,14 @@ public interface Repeated extends ConverterParent {
     private final ConverterParent parent;
     private final int index;
     private final List<Writable> list = new ArrayList<Writable>();
-    private final Map<String, String> metadata = new HashMap<String, String>();
 
 
-    public RepeatedGroupConverter(GroupType groupType, ConverterParent parent, int index) {
+    public RepeatedGroupConverter(GroupType groupType, ConverterParent parent, int index, TypeInfo hiveTypeInfo) {
       setMetadata(parent.getMetadata());
       this.groupType = groupType;
       this.parent = parent;
       this.index = index;
-      this.wrapped = HiveGroupConverter.getConverterFromDescription(groupType, 0, this);
+      this.wrapped = HiveGroupConverter.getConverterFromDescription(groupType, 0, this, hiveTypeInfo);
     }
 
     @Override

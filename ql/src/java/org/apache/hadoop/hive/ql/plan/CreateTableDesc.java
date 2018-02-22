@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -24,23 +24,37 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Order;
+import org.apache.hadoop.hive.metastore.api.SQLForeignKey;
+import org.apache.hadoop.hive.metastore.api.SQLNotNullConstraint;
+import org.apache.hadoop.hive.metastore.api.SQLPrimaryKey;
+import org.apache.hadoop.hive.metastore.api.SQLUniqueConstraint;
+import org.apache.hadoop.hive.metastore.utils.MetaStoreUtils;
 import org.apache.hadoop.hive.ql.ErrorMsg;
+import org.apache.hadoop.hive.ql.exec.DDLTask;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.io.HiveFileFormatUtils;
 import org.apache.hadoop.hive.ql.io.HiveOutputFormat;
+import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.hive.ql.metadata.HiveStorageHandler;
 import org.apache.hadoop.hive.ql.metadata.Table;
 import org.apache.hadoop.hive.ql.parse.BaseSemanticAnalyzer;
 import org.apache.hadoop.hive.ql.parse.ParseUtils;
+import org.apache.hadoop.hive.ql.parse.ReplicationSpec;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
+import org.apache.hadoop.hive.ql.plan.Explain.Level;
+import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.mapred.OutputFormat;
-import org.apache.hadoop.hive.ql.plan.Explain.Level;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 /**
@@ -50,7 +64,7 @@ import org.apache.hadoop.hive.ql.plan.Explain.Level;
 @Explain(displayName = "Create Table", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
 public class CreateTableDesc extends DDLDesc implements Serializable {
   private static final long serialVersionUID = 1L;
-  private static Log LOG = LogFactory.getLog(CreateTableDesc.class);
+  private static Logger LOG = LoggerFactory.getLogger(CreateTableDesc.class);
   String databaseName;
   String tableName;
   boolean isExternal;
@@ -78,7 +92,18 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
   List<List<String>> skewedColValues;
   boolean isStoredAsSubDirectories = false;
   boolean isTemporary = false;
+  private boolean isMaterialization = false;
   private boolean replaceMode = false;
+  private ReplicationSpec replicationSpec = null;
+  private boolean isCTAS = false;
+  List<SQLPrimaryKey> primaryKeys;
+  List<SQLForeignKey> foreignKeys;
+  List<SQLUniqueConstraint> uniqueConstraints;
+  List<SQLNotNullConstraint> notNullConstraints;
+  private Long initialMmWriteId; // Initial MM write ID for CTAS and import.
+  // The FSOP configuration for the FSOP that is going to write initial data during ctas.
+  // This is not needed beyond compilation, so it is transient.
+  private transient FileSinkDesc writer;
 
   public CreateTableDesc() {
   }
@@ -92,16 +117,42 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
       String storageHandler,
       Map<String, String> serdeProps,
       Map<String, String> tblProps,
-      boolean ifNotExists, List<String> skewedColNames, List<List<String>> skewedColValues) {
+      boolean ifNotExists, List<String> skewedColNames, List<List<String>> skewedColValues,
+      List<SQLPrimaryKey> primaryKeys, List<SQLForeignKey> foreignKeys,
+      List<SQLUniqueConstraint> uniqueConstraints, List<SQLNotNullConstraint> notNullConstraints) {
 
     this(tableName, isExternal, isTemporary, cols, partCols,
         bucketCols, sortCols, numBuckets, fieldDelim, fieldEscape,
         collItemDelim, mapKeyDelim, lineDelim, comment, inputFormat,
         outputFormat, location, serName, storageHandler, serdeProps,
-        tblProps, ifNotExists, skewedColNames, skewedColValues);
+        tblProps, ifNotExists, skewedColNames, skewedColValues,
+        primaryKeys, foreignKeys, uniqueConstraints, notNullConstraints);
 
     this.databaseName = databaseName;
   }
+
+  public CreateTableDesc(String databaseName, String tableName, boolean isExternal, boolean isTemporary,
+                         List<FieldSchema> cols, List<FieldSchema> partCols,
+                         List<String> bucketCols, List<Order> sortCols, int numBuckets,
+                         String fieldDelim, String fieldEscape, String collItemDelim,
+                         String mapKeyDelim, String lineDelim, String comment, String inputFormat,
+                         String outputFormat, String location, String serName,
+                         String storageHandler,
+                         Map<String, String> serdeProps,
+                         Map<String, String> tblProps,
+                         boolean ifNotExists, List<String> skewedColNames, List<List<String>> skewedColValues,
+                         boolean isCTAS, List<SQLPrimaryKey> primaryKeys, List<SQLForeignKey> foreignKeys,
+                         List<SQLUniqueConstraint> uniqueConstraints, List<SQLNotNullConstraint> notNullConstraints) {
+    this(databaseName, tableName, isExternal, isTemporary, cols, partCols,
+            bucketCols, sortCols, numBuckets, fieldDelim, fieldEscape,
+            collItemDelim, mapKeyDelim, lineDelim, comment, inputFormat,
+            outputFormat, location, serName, storageHandler, serdeProps,
+            tblProps, ifNotExists, skewedColNames, skewedColValues,
+            primaryKeys, foreignKeys, uniqueConstraints, notNullConstraints);
+    this.isCTAS = isCTAS;
+
+  }
+
 
   public CreateTableDesc(String tableName, boolean isExternal, boolean isTemporary,
       List<FieldSchema> cols, List<FieldSchema> partCols,
@@ -112,7 +163,9 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
       String storageHandler,
       Map<String, String> serdeProps,
       Map<String, String> tblProps,
-      boolean ifNotExists, List<String> skewedColNames, List<List<String>> skewedColValues) {
+      boolean ifNotExists, List<String> skewedColNames, List<List<String>> skewedColValues,
+      List<SQLPrimaryKey> primaryKeys, List<SQLForeignKey> foreignKeys,
+      List<SQLUniqueConstraint> uniqueConstraints, List<SQLNotNullConstraint> notNullConstraints) {
     this.tableName = tableName;
     this.isExternal = isExternal;
     this.isTemporary = isTemporary;
@@ -137,18 +190,22 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
     this.ifNotExists = ifNotExists;
     this.skewedColNames = copyList(skewedColNames);
     this.skewedColValues = copyList(skewedColValues);
+    this.primaryKeys = copyList(primaryKeys);
+    this.foreignKeys = copyList(foreignKeys);
+    this.uniqueConstraints = copyList(uniqueConstraints);
+    this.notNullConstraints = copyList(notNullConstraints);
   }
 
   private static <T> List<T> copyList(List<T> copy) {
     return copy == null ? null : new ArrayList<T>(copy);
   }
 
-  @Explain(displayName = "columns", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "columns")
   public List<String> getColsString() {
     return Utilities.getFieldSchemaString(getCols());
   }
 
-  @Explain(displayName = "partition columns", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "partition columns")
   public List<String> getPartColsString() {
     return Utilities.getFieldSchemaString(getPartCols());
   }
@@ -191,7 +248,31 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
     this.partCols = partCols;
   }
 
-  @Explain(displayName = "bucket columns", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public List<SQLPrimaryKey> getPrimaryKeys() {
+    return primaryKeys;
+  }
+
+  public void setPrimaryKeys(ArrayList<SQLPrimaryKey> primaryKeys) {
+    this.primaryKeys = primaryKeys;
+  }
+
+  public List<SQLForeignKey> getForeignKeys() {
+    return foreignKeys;
+  }
+
+  public void setForeignKeys(ArrayList<SQLForeignKey> foreignKeys) {
+    this.foreignKeys = foreignKeys;
+  }
+
+  public List<SQLUniqueConstraint> getUniqueConstraints() {
+    return uniqueConstraints;
+  }
+
+  public List<SQLNotNullConstraint> getNotNullConstraints() {
+    return notNullConstraints;
+  }
+
+  @Explain(displayName = "bucket columns")
   public List<String> getBucketCols() {
     return bucketCols;
   }
@@ -200,7 +281,7 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
     this.bucketCols = bucketCols;
   }
 
-  @Explain(displayName = "# buckets", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "# buckets")
   public Integer getNumBucketsExplain() {
     if (numBuckets == -1) {
       return null;
@@ -271,7 +352,7 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
     this.comment = comment;
   }
 
-  @Explain(displayName = "input format", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "input format")
   public String getInputFormat() {
     return inputFormat;
   }
@@ -280,7 +361,7 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
     this.inputFormat = inputFormat;
   }
 
-  @Explain(displayName = "output format", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "output format")
   public String getOutputFormat() {
     return outputFormat;
   }
@@ -289,7 +370,7 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
     this.outputFormat = outputFormat;
   }
 
-  @Explain(displayName = "storage handler", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "storage handler")
   public String getStorageHandler() {
     return storageHandler;
   }
@@ -413,7 +494,8 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
 
     if ((this.getCols() == null) || (this.getCols().size() == 0)) {
       // for now make sure that serde exists
-      if (Table.hasMetastoreBasedSchema(conf, getSerName())) {
+      if (Table.hasMetastoreBasedSchema(conf, serName) &&
+              StringUtils.isEmpty(getStorageHandler())) {
         throw new SemanticException(ErrorMsg.INVALID_TBL_DDL_SERDE.getMsg());
       }
       return;
@@ -430,7 +512,7 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
             .getMsg());
         }
       } catch (ClassNotFoundException e) {
-        throw new SemanticException(ErrorMsg.GENERIC_ERROR.getMsg(), e);
+        throw new SemanticException(ErrorMsg.CLASSPATH_ERROR.getMsg(), e);
       }
     }
 
@@ -451,7 +533,7 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
           }
         }
         if (!found) {
-          throw new SemanticException(ErrorMsg.INVALID_COLUMN.getMsg());
+          throw new SemanticException(ErrorMsg.INVALID_COLUMN.getMsg(" \'" + bucketCol + "\'"));
         }
       }
     }
@@ -471,7 +553,7 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
           }
         }
         if (!found) {
-          throw new SemanticException(ErrorMsg.INVALID_COLUMN.getMsg());
+          throw new SemanticException(ErrorMsg.INVALID_COLUMN.getMsg(" \'" + sortCol + "\'"));
         }
       }
     }
@@ -486,7 +568,7 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
         try {
           pti = TypeInfoFactory.getPrimitiveTypeInfo(fs.getType());
         } catch (Exception err) {
-          LOG.error(err);
+          LOG.error("Failed to get type info", err);
         }
         if(null == pti){
           throw new SemanticException(ErrorMsg.PARTITION_COLUMN_NON_PRIMITIVE.getMsg() + " Found "
@@ -553,6 +635,21 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
   }
 
   /**
+   * @return the isMaterialization
+   */
+  @Explain(displayName = "isMaterialization", displayOnlyOnTrue = true)
+  public boolean isMaterialization() {
+    return isMaterialization;
+  }
+
+  /**
+   * @param isMaterialization table is a materialization or not.
+   */
+  public void setMaterialization(boolean isMaterialization) {
+    this.isMaterialization = isMaterialization;
+  }
+
+  /**
    * @param replaceMode Determine if this CreateTable should behave like a replace-into alter instead
    */
   public void setReplaceMode(boolean replaceMode) {
@@ -564,5 +661,222 @@ public class CreateTableDesc extends DDLDesc implements Serializable {
    */
   public boolean getReplaceMode() {
     return replaceMode;
+  }
+
+  /**
+   * @param replicationSpec Sets the replication spec governing this create.
+   * This parameter will have meaningful values only for creates happening as a result of a replication.
+   */
+  public void setReplicationSpec(ReplicationSpec replicationSpec) {
+    this.replicationSpec = replicationSpec;
+  }
+
+  /**
+   * @return what kind of replication scope this drop is running under.
+   * This can result in a "CREATE/REPLACE IF NEWER THAN" kind of semantic
+   */
+  public ReplicationSpec getReplicationSpec(){
+    if (replicationSpec == null){
+      this.replicationSpec = new ReplicationSpec();
+    }
+    return this.replicationSpec;
+  }
+
+  public boolean isCTAS() {
+    return isCTAS;
+  }
+
+  public Table toTable(HiveConf conf) throws HiveException {
+    String databaseName = getDatabaseName();
+    String tableName = getTableName();
+
+    if (databaseName == null || tableName.contains(".")) {
+      String[] names = Utilities.getDbTableName(tableName);
+      databaseName = names[0];
+      tableName = names[1];
+    }
+
+    Table tbl = new Table(databaseName, tableName);
+
+    if (getTblProps() != null) {
+      tbl.getTTable().getParameters().putAll(getTblProps());
+    }
+
+    if (getPartCols() != null) {
+      tbl.setPartCols(getPartCols());
+    }
+
+    if (getNumBuckets() != -1) {
+      tbl.setNumBuckets(getNumBuckets());
+    }
+
+    if (getStorageHandler() != null) {
+      tbl.setProperty(
+              org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.META_TABLE_STORAGE,
+              getStorageHandler());
+    }
+    HiveStorageHandler storageHandler = tbl.getStorageHandler();
+
+    /*
+     * If the user didn't specify a SerDe, we use the default.
+     */
+    String serDeClassName;
+    if (getSerName() == null) {
+      if (storageHandler == null) {
+        serDeClassName = PlanUtils.getDefaultSerDe().getName();
+        LOG.info("Default to " + serDeClassName + " for table " + tableName);
+      } else {
+        serDeClassName = storageHandler.getSerDeClass().getName();
+        LOG.info("Use StorageHandler-supplied " + serDeClassName
+                + " for table " + tableName);
+      }
+    } else {
+      // let's validate that the serde exists
+      serDeClassName = getSerName();
+      DDLTask.validateSerDe(serDeClassName, conf);
+    }
+    tbl.setSerializationLib(serDeClassName);
+
+    if (getFieldDelim() != null) {
+      tbl.setSerdeParam(serdeConstants.FIELD_DELIM, getFieldDelim());
+      tbl.setSerdeParam(serdeConstants.SERIALIZATION_FORMAT, getFieldDelim());
+    }
+    if (getFieldEscape() != null) {
+      tbl.setSerdeParam(serdeConstants.ESCAPE_CHAR, getFieldEscape());
+    }
+
+    if (getCollItemDelim() != null) {
+      tbl.setSerdeParam(serdeConstants.COLLECTION_DELIM, getCollItemDelim());
+    }
+    if (getMapKeyDelim() != null) {
+      tbl.setSerdeParam(serdeConstants.MAPKEY_DELIM, getMapKeyDelim());
+    }
+    if (getLineDelim() != null) {
+      tbl.setSerdeParam(serdeConstants.LINE_DELIM, getLineDelim());
+    }
+    if (getNullFormat() != null) {
+      tbl.setSerdeParam(serdeConstants.SERIALIZATION_NULL_FORMAT, getNullFormat());
+    }
+    if (getSerdeProps() != null) {
+      Iterator<Map.Entry<String, String>> iter = getSerdeProps().entrySet()
+              .iterator();
+      while (iter.hasNext()) {
+        Map.Entry<String, String> m = iter.next();
+        tbl.setSerdeParam(m.getKey(), m.getValue());
+      }
+    }
+
+    if (getCols() != null) {
+      tbl.setFields(getCols());
+    }
+    if (getBucketCols() != null) {
+      tbl.setBucketCols(getBucketCols());
+    }
+    if (getSortCols() != null) {
+      tbl.setSortCols(getSortCols());
+    }
+    if (getComment() != null) {
+      tbl.setProperty("comment", getComment());
+    }
+    if (getLocation() != null) {
+      tbl.setDataLocation(new Path(getLocation()));
+    }
+
+    if (getSkewedColNames() != null) {
+      tbl.setSkewedColNames(getSkewedColNames());
+    }
+    if (getSkewedColValues() != null) {
+      tbl.setSkewedColValues(getSkewedColValues());
+    }
+
+    tbl.getTTable().setTemporary(isTemporary());
+
+    tbl.setStoredAsSubDirectories(isStoredAsSubDirectories());
+
+    tbl.setInputFormatClass(getInputFormat());
+    tbl.setOutputFormatClass(getOutputFormat());
+
+    // only persist input/output format to metadata when it is explicitly specified.
+    // Otherwise, load lazily via StorageHandler at query time.
+    if (getInputFormat() != null && !getInputFormat().isEmpty()) {
+      tbl.getTTable().getSd().setInputFormat(tbl.getInputFormatClass().getName());
+    }
+    if (getOutputFormat() != null && !getOutputFormat().isEmpty()) {
+      tbl.getTTable().getSd().setOutputFormat(tbl.getOutputFormatClass().getName());
+    }
+
+    if (DDLTask.doesTableNeedLocation(tbl)) {
+      // If location is specified - ensure that it is a full qualified name
+      DDLTask.makeLocationQualified(tbl.getDbName(), tbl.getTTable().getSd(), tableName, conf);
+    }
+
+    if (isExternal()) {
+      tbl.setProperty("EXTERNAL", "TRUE");
+      tbl.setTableType(TableType.EXTERNAL_TABLE);
+    }
+
+    // If the sorted columns is a superset of bucketed columns, store this fact.
+    // It can be later used to
+    // optimize some group-by queries. Note that, the order does not matter as
+    // long as it in the first
+    // 'n' columns where 'n' is the length of the bucketed columns.
+    if ((tbl.getBucketCols() != null) && (tbl.getSortCols() != null)) {
+      List<String> bucketCols = tbl.getBucketCols();
+      List<Order> sortCols = tbl.getSortCols();
+
+      if ((sortCols.size() > 0) && (sortCols.size() >= bucketCols.size())) {
+        boolean found = true;
+
+        Iterator<String> iterBucketCols = bucketCols.iterator();
+        while (iterBucketCols.hasNext()) {
+          String bucketCol = iterBucketCols.next();
+          boolean colFound = false;
+          for (int i = 0; i < bucketCols.size(); i++) {
+            if (bucketCol.equals(sortCols.get(i).getCol())) {
+              colFound = true;
+              break;
+            }
+          }
+          if (colFound == false) {
+            found = false;
+            break;
+          }
+        }
+        if (found) {
+          tbl.setProperty("SORTBUCKETCOLSPREFIX", "TRUE");
+        }
+      }
+    }
+
+    if (!this.isCTAS && (tbl.getPath() == null || (tbl.isEmpty() && !isExternal()))) {
+      if (!tbl.isPartitioned() && conf.getBoolVar(HiveConf.ConfVars.HIVESTATSAUTOGATHER)) {
+        StatsSetupConst.setStatsStateForCreateTable(tbl.getTTable().getParameters(),
+            MetaStoreUtils.getColumnNames(tbl.getCols()), StatsSetupConst.TRUE);
+      }
+    } else {
+      StatsSetupConst.setStatsStateForCreateTable(tbl.getTTable().getParameters(), null,
+          StatsSetupConst.FALSE);
+    }
+    return tbl;
+  }
+
+  public void setInitialMmWriteId(Long mmWriteId) {
+    this.initialMmWriteId = mmWriteId;
+  }
+
+  public Long getInitialMmWriteId() {
+    return initialMmWriteId;
+  }
+
+  
+
+  public FileSinkDesc getAndUnsetWriter() {
+    FileSinkDesc fsd = writer;
+    writer = null;
+    return fsd;
+  }
+
+  public void setWriter(FileSinkDesc writer) {
+    this.writer = writer;
   }
 }

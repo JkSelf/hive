@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.See the NOTICE file
  * distributed with this work for additional information
@@ -30,8 +30,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.Stack;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -40,6 +38,8 @@ import org.apache.hadoop.hive.ql.ErrorMsg;
 import org.apache.hadoop.hive.ql.exec.MapJoinOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.TableScanOperator;
+import org.apache.hadoop.hive.ql.exec.Utilities;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.lib.NodeProcessor;
 import org.apache.hadoop.hive.ql.lib.NodeProcessorCtx;
@@ -60,8 +60,6 @@ import org.apache.hadoop.hive.ql.plan.OperatorDesc;
  * this transformation does bucket map join optimization.
  */
 abstract public class AbstractBucketJoinProc implements NodeProcessor {
-  private static final Log LOG =
-      LogFactory.getLog(AbstractBucketJoinProc.class.getName());
 
   protected ParseContext pGraphContext;
 
@@ -198,7 +196,7 @@ abstract public class AbstractBucketJoinProc implements NodeProcessor {
     LinkedHashMap<String, List<List<String>>> tblAliasToBucketedFilePathsInEachPartition =
         new LinkedHashMap<String, List<List<String>>>();
 
-    HashMap<String, Operator<? extends OperatorDesc>> topOps = pGraphContext.getTopOps();
+    HashMap<String, TableScanOperator> topOps = pGraphContext.getTopOps();
 
     HashMap<String, String> aliasToNewAliasMap = new HashMap<String, String>();
 
@@ -232,7 +230,7 @@ abstract public class AbstractBucketJoinProc implements NodeProcessor {
 
       // For nested sub-queries, the alias mapping is not maintained in QB currently.
       if (topOps.containsValue(tso)) {
-        for (Map.Entry<String, Operator<? extends OperatorDesc>> topOpEntry : topOps.entrySet()) {
+        for (Map.Entry<String, TableScanOperator> topOpEntry : topOps.entrySet()) {
           if (topOpEntry.getValue() == tso) {
             String newAlias = topOpEntry.getKey();
             if (!newAlias.equals(alias)) {
@@ -266,6 +264,10 @@ abstract public class AbstractBucketJoinProc implements NodeProcessor {
       }
 
       Table tbl = tso.getConf().getTableMetadata();
+      if (AcidUtils.isInsertOnlyTable(tbl.getParameters())) {
+        Utilities.FILE_OP_LOGGER.debug("No bucketed join on MM table " + tbl.getTableName());
+        return false;
+      }
       if (tbl.isPartitioned()) {
         PrunedPartitionList prunedParts = pGraphContext.getPrunedPartitions(alias, tso);
         List<Partition> partitions = prunedParts.getNotDeniedPartns();

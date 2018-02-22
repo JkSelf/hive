@@ -18,6 +18,7 @@
 package org.apache.hive.spark.client;
 
 import java.io.IOException;
+import java.io.PrintStream;
 import java.util.Map;
 
 import org.apache.hadoop.hive.common.classification.InterfaceAudience;
@@ -34,37 +35,43 @@ import com.google.common.base.Throwables;
 @InterfaceAudience.Private
 public final class SparkClientFactory {
 
-  /** Used to run the driver in-process, mostly for testing. */
-  static final String CONF_KEY_IN_PROCESS = "spark.client.do_not_use.run_driver_in_process";
-
   /** Used by client and driver to share a client ID for establishing an RPC session. */
   static final String CONF_CLIENT_ID = "spark.client.authentication.client_id";
 
   /** Used by client and driver to share a secret for establishing an RPC session. */
   static final String CONF_KEY_SECRET = "spark.client.authentication.secret";
 
-  private static RpcServer server = null;
+  private static volatile RpcServer server = null;
+  private static final Object serverLock = new Object();
 
   /**
    * Initializes the SparkClient library. Must be called before creating client instances.
    *
    * @param conf Map containing configuration parameters for the client library.
    */
-  public static synchronized void initialize(Map<String, String> conf) throws IOException {
+  public static void initialize(Map<String, String> conf) throws IOException {
     if (server == null) {
-      try {
-        server = new RpcServer(conf);
-      } catch (InterruptedException ie) {
-        throw Throwables.propagate(ie);
+      synchronized (serverLock) {
+        if (server == null) {
+          try {
+            server = new RpcServer(conf);
+          } catch (InterruptedException ie) {
+            throw Throwables.propagate(ie);
+          }
+        }
       }
     }
   }
 
   /** Stops the SparkClient library. */
-  public static synchronized void stop() {
+  public static void stop() {
     if (server != null) {
-      server.close();
-      server = null;
+      synchronized (serverLock) {
+        if (server != null) {
+          server.close();
+          server = null;
+        }
+      }
     }
   }
 
@@ -74,10 +81,11 @@ public final class SparkClientFactory {
    * @param sparkConf Configuration for the remote Spark application, contains spark.* properties.
    * @param hiveConf Configuration for Hive, contains hive.* properties.
    */
-  public static synchronized SparkClient createClient(Map<String, String> sparkConf, HiveConf hiveConf)
-      throws IOException, SparkException {
+  public static SparkClient createClient(Map<String, String> sparkConf, HiveConf hiveConf,
+                                         String sessionId)
+          throws IOException, SparkException {
     Preconditions.checkState(server != null, "initialize() not called.");
-    return new SparkClientImpl(server, sparkConf, hiveConf);
+    return new SparkClientImpl(server, sparkConf, hiveConf, sessionId);
   }
 
 }

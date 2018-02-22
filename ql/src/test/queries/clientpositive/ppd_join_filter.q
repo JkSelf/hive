@@ -1,5 +1,8 @@
+set hive.mapred.mode=nonstrict;
 set hive.optimize.ppd=true;
 set hive.ppd.remove.duplicatefilters=false;
+
+-- SORT_QUERY_RESULTS
 
 explain extended select a.key, b.k2, b.k3
 from src a

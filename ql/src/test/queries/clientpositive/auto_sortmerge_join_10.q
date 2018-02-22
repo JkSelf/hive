@@ -1,6 +1,7 @@
+set hive.mapred.mode=nonstrict;
 set hive.explain.user=false;
-set hive.enforce.bucketing = true;
-set hive.enforce.sorting = true;
+;
+
 set hive.exec.reducers.max = 1;
 
 CREATE TABLE tbl1(key int, value string) CLUSTERED BY (key) SORTED BY (key) INTO 2 BUCKETS;
@@ -19,6 +20,9 @@ set hive.input.format = org.apache.hadoop.hive.ql.io.BucketizedHiveInputFormat;
 
 set hive.auto.convert.sortmerge.join=true;
 set hive.auto.convert.sortmerge.join.to.mapjoin=false;
+-- disable hash joins
+set hive.auto.convert.join.noconditionaltask.size=1;
+
 -- One of the subqueries contains a union, so it should not be converted to a sort-merge join.
 explain
 select count(*) from 

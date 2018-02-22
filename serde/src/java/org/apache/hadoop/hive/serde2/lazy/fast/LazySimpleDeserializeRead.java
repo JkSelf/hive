@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,24 +19,18 @@
 package org.apache.hadoop.hive.serde2.lazy.fast;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.CharacterCodingException;
+import java.nio.charset.StandardCharsets;
 import java.sql.Date;
-import java.sql.Timestamp;
+import java.util.Arrays;
+import java.util.List;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hive.common.type.HiveDecimal;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.common.type.DataTypePhysicalVariation;
 import org.apache.hadoop.hive.common.type.HiveIntervalDayTime;
 import org.apache.hadoop.hive.common.type.HiveIntervalYearMonth;
 import org.apache.hadoop.hive.serde2.fast.DeserializeRead;
-
-import org.apache.hadoop.hive.serde2.io.DateWritable;
-import org.apache.hadoop.hive.serde2.io.HiveCharWritable;
-import org.apache.hadoop.hive.serde2.io.HiveIntervalDayTimeWritable;
-import org.apache.hadoop.hive.serde2.io.HiveIntervalYearMonthWritable;
-import org.apache.hadoop.hive.serde2.io.HiveVarcharWritable;
-import org.apache.hadoop.hive.serde2.io.TimestampWritable;
 import org.apache.hadoop.hive.serde2.lazy.LazyBinary;
 import org.apache.hadoop.hive.serde2.lazy.LazyByte;
 import org.apache.hadoop.hive.serde2.lazy.LazyInteger;
@@ -44,105 +38,322 @@ import org.apache.hadoop.hive.serde2.lazy.LazyLong;
 import org.apache.hadoop.hive.serde2.lazy.LazySerDeParameters;
 import org.apache.hadoop.hive.serde2.lazy.LazyShort;
 import org.apache.hadoop.hive.serde2.lazy.LazyUtils;
-import org.apache.hadoop.hive.serde2.typeinfo.CharTypeInfo;
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
+import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector.PrimitiveCategory;
 import org.apache.hadoop.hive.serde2.typeinfo.DecimalTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.ListTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.MapTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
-import org.apache.hadoop.hive.serde2.typeinfo.VarcharTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.StructTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
+import org.apache.hadoop.hive.serde2.typeinfo.UnionTypeInfo;
 import org.apache.hadoop.io.Text;
 import org.apache.hive.common.util.TimestampParser;
+
+import com.google.common.base.Preconditions;
 
 /*
  * Directly deserialize with the caller reading field-by-field the LazySimple (text)
  * serialization format.
  *
  * The caller is responsible for calling the read method for the right type of each field
- * (after calling readCheckNull).
+ * (after calling readNextField).
  *
  * Reading some fields require a results object to receive value information.  A separate
  * results object is created by the caller at initialization per different field even for the same
- * type. 
+ * type.
  *
  * Some type values are by reference to either bytes in the deserialization buffer or to
  * other type specific buffers.  So, those references are only valid until the next time set is
  * called.
  */
-public class LazySimpleDeserializeRead implements DeserializeRead {
-  public static final Log LOG = LogFactory.getLog(LazySimpleDeserializeRead.class.getName());
+public final class LazySimpleDeserializeRead extends DeserializeRead {
+  public static final Logger LOG = LoggerFactory.getLogger(LazySimpleDeserializeRead.class.getName());
 
-  private PrimitiveTypeInfo[] primitiveTypeInfos;
+  /*
+   * Information on a field.  Made a class to allow readField to be agnostic to whether a top level
+   * or field within a complex type is being read
+   */
+  private static class Field {
 
-  private LazySerDeParameters lazyParams;
+    // Optimize for most common case -- primitive.
+    public final boolean isPrimitive;
+    public final PrimitiveCategory primitiveCategory;
 
-  private byte separator;
-  private boolean lastColumnTakesRest;
-  private boolean isEscaped;
-  private byte escapeChar;
-  private byte[] nullSequenceBytes;
-  private boolean isExtendedBooleanLiteral;
+    public final Category complexCategory;
 
-  private byte[] bytes;
-  private int start;
-  private int offset;
-  private int end;
-  private int fieldCount;
-  private int fieldIndex;
-  private int fieldStart;
-  private int fieldLength;
+    public final TypeInfo typeInfo;
+    public final DataTypePhysicalVariation dataTypePhysicalVariation;
 
-  private boolean saveBool;
-  private byte saveByte;
-  private short saveShort;
-  private int saveInt;
-  private long saveLong;
-  private float saveFloat;
-  private double saveDouble;
-  private byte[] saveBytes;
-  private int saveBytesStart;
-  private int saveBytesLength;
-  private Date saveDate;
-  private Timestamp saveTimestamp;
-  private HiveIntervalYearMonth saveIntervalYearMonth;
-  private HiveIntervalDayTime saveIntervalDayTime;
-  private HiveDecimal saveDecimal;
-  private DecimalTypeInfo saveDecimalTypeInfo;
+    public ComplexTypeHelper complexTypeHelper;
 
-  private Text tempText;
-  private TimestampParser timestampParser;
+    public Field(TypeInfo typeInfo, DataTypePhysicalVariation dataTypePhysicalVariation) {
+      Category category = typeInfo.getCategory();
+      if (category == Category.PRIMITIVE) {
+        isPrimitive = true;
+        primitiveCategory = ((PrimitiveTypeInfo) typeInfo).getPrimitiveCategory();
+        complexCategory = null;
+      } else {
+        isPrimitive = false;
+        primitiveCategory = null;
+        complexCategory = category;
+      }
 
-  private boolean readBeyondConfiguredFieldsWarned;
-  private boolean readBeyondBufferRangeWarned;
-  private boolean bufferRangeHasExtraDataWarned;
+      this.typeInfo = typeInfo;
+      this.dataTypePhysicalVariation = dataTypePhysicalVariation;
 
-  public LazySimpleDeserializeRead(PrimitiveTypeInfo[] primitiveTypeInfos,
-      byte separator, LazySerDeParameters lazyParams) {
+      complexTypeHelper = null;
+    }
 
-    this.primitiveTypeInfos = primitiveTypeInfos;
-
-    this.separator = separator;
-    this.lazyParams = lazyParams;
-
-    lastColumnTakesRest = lazyParams.isLastColumnTakesRest();
-    isEscaped = lazyParams.isEscaped();
-    escapeChar = lazyParams.getEscapeChar();
-    nullSequenceBytes = lazyParams.getNullSequence().getBytes();
-    isExtendedBooleanLiteral = lazyParams.isExtendedBooleanLiteral();
-
-    fieldCount = primitiveTypeInfos.length;
-    tempText = new Text();
-    readBeyondConfiguredFieldsWarned = false;
-    readBeyondBufferRangeWarned = false;
-    bufferRangeHasExtraDataWarned = false;
-  }
-
-  // Not public since we must have the field count so every 8 fields NULL bytes can be navigated.
-  private LazySimpleDeserializeRead() {
+    public Field(TypeInfo typeInfo) {
+      this(typeInfo, DataTypePhysicalVariation.NONE);
+    }
   }
 
   /*
-   * The primitive type information for all fields.
+   * Used to keep position/length for complex type fields.
+   * NOTE: The top level uses startPositions instead.
    */
-  public PrimitiveTypeInfo[] primitiveTypeInfos() {
-    return primitiveTypeInfos;
+  private static class ComplexTypeHelper {
+
+    public final Field complexField;
+
+    public int complexFieldStart;
+    public int complexFieldLength;
+    public int complexFieldEnd;
+
+    public int fieldPosition;
+
+    public ComplexTypeHelper(Field complexField) {
+      this.complexField = complexField;
+    }
+
+    public void setCurrentFieldInfo(int complexFieldStart, int complexFieldLength) {
+      this.complexFieldStart = complexFieldStart;
+      this.complexFieldLength = complexFieldLength;
+      complexFieldEnd = complexFieldStart + complexFieldLength;
+      fieldPosition = complexFieldStart;
+    }
+  }
+
+  private static class ListComplexTypeHelper extends ComplexTypeHelper {
+
+    public Field elementField;
+
+    public ListComplexTypeHelper(Field complexField, Field elementField) {
+      super(complexField);
+      this.elementField = elementField;
+    }
+  }
+
+  private static class MapComplexTypeHelper extends ComplexTypeHelper {
+
+    public Field keyField;
+    public Field valueField;
+
+    public boolean fieldHaveParsedKey;
+
+    public MapComplexTypeHelper(Field complexField, Field keyField, Field valueField) {
+      super(complexField);
+      this.keyField = keyField;
+      this.valueField = valueField;
+      fieldHaveParsedKey = false;
+    }
+  }
+
+  private static class StructComplexTypeHelper extends ComplexTypeHelper {
+
+    public Field[] fields;
+
+    public int nextFieldIndex;
+
+    public StructComplexTypeHelper(Field complexField, Field[] fields) {
+      super(complexField);
+      this.fields = fields;
+      nextFieldIndex = 0;
+    }
+  }
+
+  private static class UnionComplexTypeHelper extends ComplexTypeHelper {
+
+    public Field tagField;
+    public Field[] fields;
+
+    public boolean fieldHaveParsedTag;
+    public int fieldTag;
+
+    public UnionComplexTypeHelper(Field complexField, Field[] fields) {
+      super(complexField);
+      this.tagField = new Field(TypeInfoFactory.intTypeInfo);
+      this.fields = fields;
+      fieldHaveParsedTag = false;
+    }
+  }
+
+  private int[] startPositions;
+
+  private final byte[] separators;
+  private final boolean isEscaped;
+  private final byte escapeChar;
+  private final int[] escapeCounts;
+  private final byte[] nullSequenceBytes;
+  private final boolean isExtendedBooleanLiteral;
+
+  private final int fieldCount;
+  private final Field[] fields;
+  private final int maxLevelDepth;
+
+  private byte[] bytes;
+  private int start;
+  private int end;
+  private boolean topLevelParsed;
+
+  // Used by readNextField/skipNextField and not by readField.
+  private int nextFieldIndex;
+
+  // For getDetailedReadPositionString.
+  private int currentLevel;
+  private int currentTopLevelFieldIndex;
+  private int currentFieldStart;
+  private int currentFieldLength;
+  private int currentEscapeCount;
+
+  private ComplexTypeHelper[] currentComplexTypeHelpers;
+
+  // For string/char/varchar buffering when there are escapes.
+  private int internalBufferLen;
+  private byte[] internalBuffer;
+
+  private final TimestampParser timestampParser;
+
+  private boolean isEndOfInputReached;
+
+  private int addComplexFields(List<TypeInfo> fieldTypeInfoList, Field[] fields, int depth) {
+    Field field;
+    final int count = fieldTypeInfoList.size();
+    for (int i = 0; i < count; i++) {
+      field = new Field(fieldTypeInfoList.get(i));
+      if (!field.isPrimitive) {
+        depth = Math.max(depth, addComplexTypeHelper(field, depth));
+      }
+      fields[i] = field;
+    }
+    return depth;
+  }
+
+  private int addComplexTypeHelper(Field complexField, int depth) {
+
+    // Assume one separator (depth) needed.
+    depth++;
+
+    switch (complexField.complexCategory) {
+    case LIST:
+      {
+        final ListTypeInfo listTypeInfo = (ListTypeInfo) complexField.typeInfo;
+        final Field elementField = new Field(listTypeInfo.getListElementTypeInfo());
+        if (!elementField.isPrimitive) {
+          depth = addComplexTypeHelper(elementField, depth);
+        }
+        final ListComplexTypeHelper listHelper =
+            new ListComplexTypeHelper(complexField, elementField);
+        complexField.complexTypeHelper = listHelper;
+      }
+      break;
+    case MAP:
+      {
+        // Map needs two separators (key and key/value pair).
+        depth++;
+
+        final MapTypeInfo mapTypeInfo = (MapTypeInfo) complexField.typeInfo;
+        final Field keyField = new Field(mapTypeInfo.getMapKeyTypeInfo());
+        if (!keyField.isPrimitive) {
+          depth = Math.max(depth, addComplexTypeHelper(keyField, depth));
+        }
+        final Field valueField = new Field(mapTypeInfo.getMapValueTypeInfo());
+        if (!valueField.isPrimitive) {
+          depth = Math.max(depth, addComplexTypeHelper(valueField, depth));
+        }
+        final MapComplexTypeHelper mapHelper =
+            new MapComplexTypeHelper(complexField, keyField, valueField);
+        complexField.complexTypeHelper = mapHelper;
+      }
+      break;
+    case STRUCT:
+      {
+        final StructTypeInfo structTypeInfo = (StructTypeInfo) complexField.typeInfo;
+        final List<TypeInfo> fieldTypeInfoList = structTypeInfo.getAllStructFieldTypeInfos();
+        final Field[] fields = new Field[fieldTypeInfoList.size()];
+        depth = addComplexFields(fieldTypeInfoList, fields, depth);
+        final StructComplexTypeHelper structHelper =
+            new StructComplexTypeHelper(complexField, fields);
+        complexField.complexTypeHelper = structHelper;
+      }
+      break;
+    case UNION:
+      {
+        final UnionTypeInfo unionTypeInfo = (UnionTypeInfo) complexField.typeInfo;
+        final List<TypeInfo> fieldTypeInfoList = unionTypeInfo.getAllUnionObjectTypeInfos();
+        final Field[] fields = new Field[fieldTypeInfoList.size()];
+        depth = addComplexFields(fieldTypeInfoList, fields, depth);
+        final UnionComplexTypeHelper structHelper =
+            new UnionComplexTypeHelper(complexField, fields);
+        complexField.complexTypeHelper = structHelper;
+      }
+      break;
+    default:
+      throw new Error("Unexpected complex category " + complexField.complexCategory);
+    }
+    return depth;
+  }
+
+  public LazySimpleDeserializeRead(TypeInfo[] typeInfos,
+      DataTypePhysicalVariation[] dataTypePhysicalVariations, boolean useExternalBuffer,
+      LazySerDeParameters lazyParams) {
+    super(typeInfos, dataTypePhysicalVariations, useExternalBuffer);
+
+    final int count = typeInfos.length;
+    fieldCount = count;
+    int depth = 0;
+    fields = new Field[count];
+    Field field;
+    for (int i = 0; i < count; i++) {
+      field = new Field(typeInfos[i], this.dataTypePhysicalVariations[i]);
+      if (!field.isPrimitive) {
+        depth = Math.max(depth, addComplexTypeHelper(field, 0));
+      }
+      fields[i] = field;
+    }
+    maxLevelDepth = depth;
+    currentComplexTypeHelpers = new ComplexTypeHelper[depth];
+
+    // Field length is difference between positions hence one extra.
+    startPositions = new int[count + 1];
+
+    this.separators = lazyParams.getSeparators();
+
+    isEscaped = lazyParams.isEscaped();
+    if (isEscaped) {
+      escapeChar = lazyParams.getEscapeChar();
+      escapeCounts = new int[count];
+    } else {
+      escapeChar = (byte) 0;
+      escapeCounts = null;
+    }
+    nullSequenceBytes = lazyParams.getNullSequence().getBytes();
+    isExtendedBooleanLiteral = lazyParams.isExtendedBooleanLiteral();
+    if (lazyParams.isLastColumnTakesRest()) {
+      throw new RuntimeException("serialization.last.column.takes.rest not supported");
+    }
+
+    timestampParser = new TimestampParser();
+
+    internalBufferLen = -1;
+  }
+
+  public LazySimpleDeserializeRead(TypeInfo[] typeInfos, boolean useExternalBuffer,
+      LazySerDeParameters lazyParams) {
+    this(typeInfos, null, useExternalBuffer, lazyParams);
   }
 
   /*
@@ -151,363 +362,872 @@ public class LazySimpleDeserializeRead implements DeserializeRead {
   @Override
   public void set(byte[] bytes, int offset, int length) {
     this.bytes = bytes;
-    this.offset = offset;
     start = offset;
     end = offset + length;
-    fieldIndex = -1;
+    topLevelParsed = false;
+    currentLevel = 0;
+    nextFieldIndex = -1;
   }
 
   /*
-   * Reads the NULL information for a field.
+   * Get detailed read position information to help diagnose exceptions.
+   */
+  public String getDetailedReadPositionString() {
+    StringBuilder sb = new StringBuilder(64);
+
+    sb.append("Reading byte[] of length ");
+    sb.append(bytes.length);
+    sb.append(" at start offset ");
+    sb.append(start);
+    sb.append(" for length ");
+    sb.append(end - start);
+    sb.append(" to read ");
+    sb.append(fieldCount);
+    sb.append(" fields with types ");
+    sb.append(Arrays.toString(typeInfos));
+    sb.append(".  ");
+    if (!topLevelParsed) {
+      sb.append("Error during field separator parsing");
+    } else {
+      sb.append("Read field #");
+      sb.append(currentTopLevelFieldIndex);
+      sb.append(" at field start position ");
+      sb.append(startPositions[currentTopLevelFieldIndex]);
+      int currentFieldLength = startPositions[currentTopLevelFieldIndex + 1] -
+          startPositions[currentTopLevelFieldIndex] - 1;
+      sb.append(" for field length ");
+      sb.append(currentFieldLength);
+    }
+
+    return sb.toString();
+  }
+
+  /**
+   * Parse the byte[] and fill each field.
    *
-   * @return Returns true when the field is NULL; reading is positioned to the next field.
-   *         Otherwise, false when the field is NOT NULL; reading is positioned to the field data.
+   * This is an adapted version of the parse method in the LazyStruct class.
+   * They should parse things the same way.
+   */
+  private void topLevelParse() {
+
+    int fieldId = 0;
+    int fieldByteBegin = start;
+    int fieldByteEnd = start;
+
+    final byte separator = this.separators[0];
+    final int fieldCount = this.fieldCount;
+    final int[] startPositions = this.startPositions;
+    final byte[] bytes = this.bytes;
+    final int end = this.end;
+
+    /*
+     * Optimize the loops by pulling special end cases and global decisions like isEscaped out!
+     */
+    if (!isEscaped) {
+      while (fieldByteEnd < end) {
+        if (bytes[fieldByteEnd] == separator) {
+          startPositions[fieldId++] = fieldByteBegin;
+          if (fieldId == fieldCount) {
+            break;
+          }
+          fieldByteBegin = ++fieldByteEnd;
+        } else {
+          fieldByteEnd++;
+        }
+      }
+      // End serves as final separator.
+      if (fieldByteEnd == end && fieldId < fieldCount) {
+        startPositions[fieldId++] = fieldByteBegin;
+      }
+    } else {
+      final byte escapeChar = this.escapeChar;
+      final int endLessOne = end - 1;
+      final int[] escapeCounts = this.escapeCounts;
+      int escapeCount = 0;
+      // Process the bytes that can be escaped (the last one can't be).
+      while (fieldByteEnd < endLessOne) {
+        if (bytes[fieldByteEnd] == separator) {
+          escapeCounts[fieldId] = escapeCount;
+          escapeCount = 0;
+          startPositions[fieldId++] = fieldByteBegin;
+          if (fieldId == fieldCount) {
+            break;
+          }
+          fieldByteBegin = ++fieldByteEnd;
+        } else if (bytes[fieldByteEnd] == escapeChar) {
+          // Ignore the char after escape_char
+          fieldByteEnd += 2;
+          escapeCount++;
+        } else {
+          fieldByteEnd++;
+        }
+      }
+      // Process the last byte if necessary.
+      if (fieldByteEnd == endLessOne && fieldId < fieldCount) {
+        if (bytes[fieldByteEnd] == separator) {
+          escapeCounts[fieldId] = escapeCount;
+          escapeCount = 0;
+          startPositions[fieldId++] = fieldByteBegin;
+          if (fieldId <= fieldCount) {
+            fieldByteBegin = ++fieldByteEnd;
+          }
+        } else {
+          fieldByteEnd++;
+        }
+      }
+      // End serves as final separator.
+      if (fieldByteEnd == end && fieldId < fieldCount) {
+        escapeCounts[fieldId] = escapeCount;
+        startPositions[fieldId++] = fieldByteBegin;
+      }
+    }
+
+    if (fieldId == fieldCount || fieldByteEnd == end) {
+      // All fields have been parsed, or bytes have been parsed.
+      // We need to set the startPositions of fields.length to ensure we
+      // can use the same formula to calculate the length of each field.
+      // For missing fields, their starting positions will all be the same,
+      // which will make their lengths to be -1 and uncheckedGetField will
+      // return these fields as NULLs.
+      Arrays.fill(startPositions, fieldId, startPositions.length, fieldByteEnd + 1);
+    }
+
+    isEndOfInputReached = (fieldByteEnd == end);
+  }
+
+  private int parseComplexField(int start, int end, int level) {
+
+    final byte separator = separators[level];
+    int fieldByteEnd = start;
+
+    final byte[] bytes = this.bytes;
+
+    currentEscapeCount = 0;
+    if (!isEscaped) {
+      while (fieldByteEnd < end) {
+        if (bytes[fieldByteEnd] == separator) {
+          return fieldByteEnd;
+        }
+        fieldByteEnd++;
+      }
+    } else {
+      final byte escapeChar = this.escapeChar;
+      final int endLessOne = end - 1;
+      int escapeCount = 0;
+      // Process the bytes that can be escaped (the last one can't be).
+      while (fieldByteEnd < endLessOne) {
+        if (bytes[fieldByteEnd] == separator) {
+          currentEscapeCount = escapeCount;
+          return fieldByteEnd;
+        } else if (bytes[fieldByteEnd] == escapeChar) {
+          // Ignore the char after escape_char
+          fieldByteEnd += 2;
+          escapeCount++;
+        } else {
+          fieldByteEnd++;
+        }
+      }
+      // Process the last byte.
+      if (fieldByteEnd == endLessOne) {
+        if (bytes[fieldByteEnd] != separator) {
+          fieldByteEnd++;
+        }
+      }
+      currentEscapeCount = escapeCount;
+    }
+    return fieldByteEnd;
+  }
+
+  /*
+   * Reads the the next field.
+   *
+   * Afterwards, reading is positioned to the next field.
+   *
+   * @return  Return true when the field was not null and data is put in the appropriate
+   *          current* member.
+   *          Otherwise, false when the field is null.
+   *
    */
   @Override
-  public boolean readCheckNull() {
-    if (++fieldIndex >= fieldCount) {
-      // Reading beyond the specified field count produces NULL.
-      if (!readBeyondConfiguredFieldsWarned) {
-        // Warn only once.
-        LOG.info("Reading beyond configured fields! Configured " + fieldCount + " fields but "
-            + " reading more (NULLs returned).  Ignoring similar problems.");
-        readBeyondConfiguredFieldsWarned = true;
+  public boolean readNextField() throws IOException {
+    if (nextFieldIndex + 1 >= fieldCount) {
+      return false;
+    }
+    nextFieldIndex++;
+    return readField(nextFieldIndex);
+  }
+
+  /*
+   * Reads through an undesired field.
+   *
+   * No data values are valid after this call.
+   * Designed for skipping columns that are not included.
+   */
+  public void skipNextField() throws IOException {
+    if (!topLevelParsed) {
+      topLevelParse();
+      topLevelParsed = true;
+    }
+    if (nextFieldIndex + 1 >= fieldCount) {
+      // No more.
+    } else {
+      nextFieldIndex++;
+    }
+  }
+
+  @Override
+  public boolean isReadFieldSupported() {
+    return true;
+  }
+
+  private boolean checkNull(byte[] bytes, int start, int len) {
+    if (len != nullSequenceBytes.length) {
+      return false;
+    }
+    final byte[] nullSequenceBytes = this.nullSequenceBytes;
+    switch(len) {
+    case 0:
+      return true;
+    case 2:
+      return bytes[start] == nullSequenceBytes[0] && bytes[start+1] == nullSequenceBytes[1];
+    case 4:
+      return bytes[start] == nullSequenceBytes[0] && bytes[start+1] == nullSequenceBytes[1]
+          && bytes[start+2] == nullSequenceBytes[2] && bytes[start+3] == nullSequenceBytes[3];
+    default:
+      for (int i = 0; i < nullSequenceBytes.length; i++) {
+        if (bytes[start + i] != nullSequenceBytes[i]) {
+          return false;
+        }
       }
       return true;
     }
-    if (offset > end) {
-      // We must allow for an empty field at the end, so no strict >= checking.
-      if (!readBeyondBufferRangeWarned) {
-        // Warn only once.
-        int length = end - start;
-        LOG.info("Reading beyond buffer range! Buffer range " +  start 
-            + " for length " + length + " but reading more (NULLs returned)."
-            + "  Ignoring similar problems.");
-        readBeyondBufferRangeWarned = true;
-      }
+  }
 
-      // char[] charsBuffer = new char[end - start];
-      // for (int c = 0; c < charsBuffer.length; c++) {
-      //  charsBuffer[c] = (char) (bytes[start + c] & 0xFF);
-      // }
+  /*
+   * When supported, read a field by field number (i.e. random access).
+   *
+   * Currently, only LazySimpleDeserializeRead supports this.
+   *
+   * @return  Return true when the field was not null and data is put in the appropriate
+   *          current* member.
+   *          Otherwise, false when the field is null.
+   */
+  public boolean readField(int fieldIndex) throws IOException {
 
-      return true;
+    Preconditions.checkState(currentLevel == 0);
+
+    if (!topLevelParsed) {
+      topLevelParse();
+      topLevelParsed = true;
     }
 
-    fieldStart = offset;
-    while (true) {
-      if (offset >= end) {
-        fieldLength = offset - fieldStart;
-        break;
-      }
-      if (bytes[offset] == separator) {
-        fieldLength = (offset++ - fieldStart);
-        break;
-      }
-      if (isEscaped && bytes[offset] == escapeChar
-          && offset + 1 < end) {
-        // Ignore the char after escape char.
-        offset += 2;
-      } else {
-        offset++;
-      }
+    // Top level.
+    currentTopLevelFieldIndex = fieldIndex;
+
+    currentFieldStart = startPositions[fieldIndex];
+    currentFieldLength = startPositions[fieldIndex + 1] - startPositions[fieldIndex] - 1;
+    currentEscapeCount = (isEscaped ? escapeCounts[fieldIndex] : 0);
+ 
+    return doReadField(fields[fieldIndex]);
+  }
+
+  private boolean doReadField(Field field) {
+    final int fieldStart = currentFieldStart;
+    final int fieldLength = currentFieldLength;
+    if (fieldLength < 0) {
+      return false;
     }
 
-    char[] charField = new char[fieldLength];
-    for (int c = 0; c < charField.length; c++) {
-      charField[c] = (char) (bytes[fieldStart + c] & 0xFF);
-    }
+    final byte[] bytes = this.bytes;
 
     // Is the field the configured string representing NULL?
     if (nullSequenceBytes != null) {
-      if (fieldLength == nullSequenceBytes.length) {
-        int i = 0;
-        while (true) {
-          if (bytes[fieldStart + i] != nullSequenceBytes[i]) {
-            break;
-          }
-          i++;
-          if (i >= fieldLength) {
-            return true;
-          }
-        }
+      if (checkNull(bytes, fieldStart, fieldLength)) {
+        return false;
       }
     }
 
-    switch (primitiveTypeInfos[fieldIndex].getPrimitiveCategory()) {
-    case BOOLEAN:
-      {
-        int i = fieldStart;
-        if (fieldLength == 4) {
-          if ((bytes[i] == 'T' || bytes[i] == 't') &&
-              (bytes[i + 1] == 'R' || bytes[i + 1] == 'r') &&
-              (bytes[i + 2] == 'U' || bytes[i + 1] == 'u') &&
-              (bytes[i + 3] == 'E' || bytes[i + 3] == 'e')) {
-            saveBool = true;
-          } else {
-            // No boolean value match for 5 char field.
-            return true;
-          }
-        } else if (fieldLength == 5) {
-          if ((bytes[i] == 'F' || bytes[i] == 'f') &&
-              (bytes[i + 1] == 'A' || bytes[i + 1] == 'a') &&
-              (bytes[i + 2] == 'L' || bytes[i + 2] == 'l') &&
-              (bytes[i + 3] == 'S' || bytes[i + 3] == 's') &&
-              (bytes[i + 4] == 'E' || bytes[i + 4] == 'e')) {
-            saveBool = false;
-          } else {
-            // No boolean value match for 4 char field.
-            return true;
-          }
-        } else if (isExtendedBooleanLiteral && fieldLength == 1) {
-          byte b = bytes[fieldStart];
-          if (b == '1' || b == 't' || b == 'T') {
-            saveBool = true;
-          } else if (b == '0' || b == 'f' || b == 'F') {
-            saveBool = false;
-          } else {
-            // No boolean value match for extended 1 char field.
-            return true;
-          }
-        } else {
-          // No boolean value match for other lengths.
-          return true;
-        }
-      }
-      break;
-    case BYTE:
-      try {
-        saveByte = LazyByte.parseByte(bytes, fieldStart, fieldLength, 10);
-      } catch (NumberFormatException e) {
-        logExceptionMessage(bytes, fieldStart, fieldLength, "TINYINT");
-        return true;
-      }
-//    if (!parseLongFast()) {
-//      return true;
-//    }
-//    saveShort = (short) saveLong;
-//    if (saveShort != saveLong) {
-//      return true;
-//    }
-      break;
-    case SHORT:
-      try {
-        saveShort = LazyShort.parseShort(bytes, fieldStart, fieldLength, 10);
-      } catch (NumberFormatException e) {
-        logExceptionMessage(bytes, fieldStart, fieldLength, "SMALLINT");
-        return true;
-      }
-//    if (!parseLongFast()) {
-//      return true;
-//    }
-//    saveShort = (short) saveLong;
-//    if (saveShort != saveLong) {
-//      return true;
-//    }
-      break;
-    case INT:
-      try {
-        saveInt = LazyInteger.parseInt(bytes, fieldStart, fieldLength, 10);
-      } catch (NumberFormatException e) {
-        logExceptionMessage(bytes, fieldStart, fieldLength, "INT");
-        return true;
-      }
-//    if (!parseLongFast()) {
-//      return true;
-//    }
-//    saveInt = (int) saveLong;
-//    if (saveInt != saveLong) {
-//      return true;
-//    }
-      break;
-    case LONG:
-      try {
-        saveLong = LazyLong.parseLong(bytes, fieldStart, fieldLength, 10);
-      } catch (NumberFormatException e) {
-        logExceptionMessage(bytes, fieldStart, fieldLength, "BIGINT");
-        return true;
-      }
-//    if (!parseLongFast()) {
-//      return true;
-//    }
-      break;
-    case FLOAT:
-      {
-        String byteData = null;
-        try {
-          byteData = Text.decode(bytes, fieldStart, fieldLength);
-          saveFloat = Float.parseFloat(byteData);
-        } catch (NumberFormatException e) {
-          LOG.debug("Data not in the Float data type range so converted to null. Given data is :"
-              + byteData, e);
-          return true;
-        } catch (CharacterCodingException e) {
-          LOG.debug("Data not in the Float data type range so converted to null.", e);
-          return true;
-        }
-      }
-//    if (!parseFloat()) {
-//      return true;
-//    }
-      break;
-    case DOUBLE:
-      {
-        String byteData = null;
-        try {
-          byteData = Text.decode(bytes, fieldStart, fieldLength);
-          saveDouble = Double.parseDouble(byteData);
-        } catch (NumberFormatException e) {
-          LOG.debug("Data not in the Double data type range so converted to null. Given data is :"
-              + byteData, e);
-          return true;
-        } catch (CharacterCodingException e) {
-          LOG.debug("Data not in the Double data type range so converted to null.", e);
-          return true;
-        }
-      }
-//    if (!parseDouble()) {
-//      return true;
-//    }
-      break;
-
-    case STRING:
-    case CHAR:
-    case VARCHAR:
-      if (isEscaped) {
-        LazyUtils.copyAndEscapeStringDataToText(bytes, fieldStart, fieldLength, escapeChar, tempText);
-        saveBytes = tempText.getBytes();
-        saveBytesStart = 0;
-        saveBytesLength = tempText.getLength();
-      } else {
-        // if the data is not escaped, simply copy the data.
-        saveBytes = bytes;
-        saveBytesStart = fieldStart;
-        saveBytesLength = fieldLength;
-      }
-      break;
-    case BINARY:
-      {
-        byte[] recv = new byte[fieldLength];
-        System.arraycopy(bytes, fieldStart, recv, 0, fieldLength);
-        byte[] decoded = LazyBinary.decodeIfNeeded(recv);
-        // use the original bytes in case decoding should fail
-        decoded = decoded.length > 0 ? decoded : recv;
-        saveBytes = decoded;
-        saveBytesStart = 0;
-        saveBytesLength = decoded.length;
-      }
-      break;
-    case DATE:
-      {
-        String s = null;
-        try {
-          s = Text.decode(bytes, fieldStart, fieldLength);
-          saveDate = Date.valueOf(s);
-        } catch (Exception e) {
-          logExceptionMessage(bytes, fieldStart, fieldLength, "DATE");
-          return true;
-        }
-      }
-//    if (!parseDate()) {
-//      return true;
-//    }
-      break;
-    case TIMESTAMP:
-      {
-        String s = null;
-        try {
-          s = new String(bytes, fieldStart, fieldLength, "US-ASCII");
-        } catch (UnsupportedEncodingException e) {
-          LOG.error(e);
-          s = "";
-        }
-
-        if (s.compareTo("NULL") == 0) {
-          logExceptionMessage(bytes, fieldStart, fieldLength, "TIMESTAMP");
-          return true;
-        } else {
-          try {
-            if (timestampParser == null) {
-              timestampParser = new TimestampParser();
+    try {
+      /*
+       * We have a field and are positioned to it.  Read it.
+       */
+      if (field.isPrimitive) {
+        switch (field.primitiveCategory) {
+        case BOOLEAN:
+          {
+            int i = fieldStart;
+            if (fieldLength == 4) {
+              if ((bytes[i] == 'T' || bytes[i] == 't') &&
+                  (bytes[i + 1] == 'R' || bytes[i + 1] == 'r') &&
+                  (bytes[i + 2] == 'U' || bytes[i + 2] == 'u') &&
+                  (bytes[i + 3] == 'E' || bytes[i + 3] == 'e')) {
+                currentBoolean = true;
+              } else {
+                // No boolean value match for 4 char field.
+                return false;
+              }
+            } else if (fieldLength == 5) {
+              if ((bytes[i] == 'F' || bytes[i] == 'f') &&
+                  (bytes[i + 1] == 'A' || bytes[i + 1] == 'a') &&
+                  (bytes[i + 2] == 'L' || bytes[i + 2] == 'l') &&
+                  (bytes[i + 3] == 'S' || bytes[i + 3] == 's') &&
+                  (bytes[i + 4] == 'E' || bytes[i + 4] == 'e')) {
+                currentBoolean = false;
+              } else {
+                // No boolean value match for 5 char field.
+                return false;
+              }
+            } else if (isExtendedBooleanLiteral && fieldLength == 1) {
+              byte b = bytes[fieldStart];
+              if (b == '1' || b == 't' || b == 'T') {
+                currentBoolean = true;
+              } else if (b == '0' || b == 'f' || b == 'F') {
+                currentBoolean = false;
+              } else {
+                // No boolean value match for extended 1 char field.
+                return false;
+              }
+            } else {
+              // No boolean value match for other lengths.
+              return false;
             }
-            saveTimestamp = timestampParser.parseTimestamp(s);
-          } catch (IllegalArgumentException e) {
-            logExceptionMessage(bytes, fieldStart, fieldLength, "TIMESTAMP");
-            return true;
           }
-        }
-      }
-//    if (!parseTimestamp()) {
-//      return true;
-//    }
-      break;
-    case INTERVAL_YEAR_MONTH:
-      {
-        String s = null;
-        try {
-          s = Text.decode(bytes, fieldStart, fieldLength);
-          saveIntervalYearMonth = HiveIntervalYearMonth.valueOf(s);
-        } catch (Exception e) {
-          logExceptionMessage(bytes, fieldStart, fieldLength, "INTERVAL_YEAR_MONTH");
           return true;
-        }
-      }
-//    if (!parseIntervalYearMonth()) {
-//      return true;
-//    }
-      break;
-    case INTERVAL_DAY_TIME:
-      {    
-        String s = null;
-        try {
-          s = Text.decode(bytes, fieldStart, fieldLength);
-          saveIntervalDayTime = HiveIntervalDayTime.valueOf(s);
-        } catch (Exception e) {
-          logExceptionMessage(bytes, fieldStart, fieldLength, "INTERVAL_DAY_TIME");
+        case BYTE:
+          if (!LazyUtils.isNumberMaybe(bytes, fieldStart, fieldLength)) {
+            return false;
+          }
+          currentByte = LazyByte.parseByte(bytes, fieldStart, fieldLength, 10);
           return true;
-        }
-      }
-//    if (!parseIntervalDayTime()) {
-//      return true;
-//    }
-      break;
-    case DECIMAL:
-      {
-        String byteData = null;
-        try {
-          byteData = Text.decode(bytes, fieldStart, fieldLength);
-        } catch (CharacterCodingException e) {
-          LOG.debug("Data not in the HiveDecimal data type range so converted to null.", e);
+        case SHORT:
+          if (!LazyUtils.isNumberMaybe(bytes, fieldStart, fieldLength)) {
+            return false;
+          }
+          currentShort = LazyShort.parseShort(bytes, fieldStart, fieldLength, 10);
           return true;
-        }
+        case INT:
+          if (!LazyUtils.isNumberMaybe(bytes, fieldStart, fieldLength)) {
+            return false;
+          }
+          currentInt = LazyInteger.parseInt(bytes, fieldStart, fieldLength, 10);
+          return true;
+        case LONG:
+          if (!LazyUtils.isNumberMaybe(bytes, fieldStart, fieldLength)) {
+            return false;
+          }
+          currentLong = LazyLong.parseLong(bytes, fieldStart, fieldLength, 10);
+          return true;
+        case FLOAT:
+          if (!LazyUtils.isNumberMaybe(bytes, fieldStart, fieldLength)) {
+            return false;
+          }
+          currentFloat =
+              Float.parseFloat(
+                  new String(bytes, fieldStart, fieldLength, StandardCharsets.UTF_8));
+          return true;
+        case DOUBLE:
+          if (!LazyUtils.isNumberMaybe(bytes, fieldStart, fieldLength)) {
+            return false;
+          }
+          currentDouble = StringToDouble.strtod(bytes, fieldStart, fieldLength);
+          return true;
+        case STRING:
+        case CHAR:
+        case VARCHAR:
+          {
+            if (isEscaped) {
+              if (currentEscapeCount == 0) {
+                // No escaping.
+                currentExternalBufferNeeded = false;
+                currentBytes = bytes;
+                currentBytesStart = fieldStart;
+                currentBytesLength = fieldLength;
+              } else {
+                final int unescapedLength = fieldLength - currentEscapeCount;
+                if (useExternalBuffer) {
+                  currentExternalBufferNeeded = true;
+                  currentExternalBufferNeededLen = unescapedLength;
+                } else {
+                  // The copyToBuffer will reposition and re-read the input buffer.
+                  currentExternalBufferNeeded = false;
+                  if (internalBufferLen < unescapedLength) {
+                    internalBufferLen = unescapedLength;
+                    internalBuffer = new byte[internalBufferLen];
+                  }
+                  copyToBuffer(internalBuffer, 0, unescapedLength);
+                  currentBytes = internalBuffer;
+                  currentBytesStart = 0;
+                  currentBytesLength = unescapedLength;
+                }
+              }
+            } else {
+              // If the data is not escaped, reference the data directly.
+              currentExternalBufferNeeded = false;
+              currentBytes = bytes;
+              currentBytesStart = fieldStart;
+              currentBytesLength = fieldLength;
+            }
+          }
+          return true;
+        case BINARY:
+          {
+            byte[] recv = new byte[fieldLength];
+            System.arraycopy(bytes, fieldStart, recv, 0, fieldLength);
+            byte[] decoded = LazyBinary.decodeIfNeeded(recv);
+            // use the original bytes in case decoding should fail
+            decoded = decoded.length > 0 ? decoded : recv;
+            currentBytes = decoded;
+            currentBytesStart = 0;
+            currentBytesLength = decoded.length;
+          }
+          return true;
+        case DATE:
+          if (!LazyUtils.isDateMaybe(bytes, fieldStart, fieldLength)) {
+            return false;
+          }
+          currentDateWritable.set(
+              Date.valueOf(
+                  new String(bytes, fieldStart, fieldLength, StandardCharsets.UTF_8)));
+          return true;
+        case TIMESTAMP:
+          {
+            if (!LazyUtils.isDateMaybe(bytes, fieldStart, fieldLength)) {
+              return false;
+            }
+            String s = new String(bytes, fieldStart, fieldLength, StandardCharsets.US_ASCII);
+            if (s.compareTo("NULL") == 0) {
+              logExceptionMessage(bytes, fieldStart, fieldLength, "TIMESTAMP");
+              return false;
+            }
+            try {
+              currentTimestampWritable.set(timestampParser.parseTimestamp(s));
+            } catch (IllegalArgumentException e) {
+              logExceptionMessage(bytes, fieldStart, fieldLength, "TIMESTAMP");
+              return false;
+            }
+          }
+          return true;
+        case INTERVAL_YEAR_MONTH:
+          if (fieldLength == 0) {
+            return false;
+          }
+          try {
+            String s = new String(bytes, fieldStart, fieldLength, StandardCharsets.UTF_8);
+            currentHiveIntervalYearMonthWritable.set(HiveIntervalYearMonth.valueOf(s));
+          } catch (Exception e) {
+            logExceptionMessage(bytes, fieldStart, fieldLength, "INTERVAL_YEAR_MONTH");
+            return false;
+          }
+          return true;
+        case INTERVAL_DAY_TIME:
+          if (fieldLength == 0) {
+            return false;
+          }
+          try {
+            String s = new String(bytes, fieldStart, fieldLength, StandardCharsets.UTF_8);
+            currentHiveIntervalDayTimeWritable.set(HiveIntervalDayTime.valueOf(s));
+          } catch (Exception e) {
+            logExceptionMessage(bytes, fieldStart, fieldLength, "INTERVAL_DAY_TIME");
+            return false;
+          }
+          return true;
+        case DECIMAL:
+          {
+            if (!LazyUtils.isNumberMaybe(bytes, fieldStart, fieldLength)) {
+              return false;
+            }
+            // Trim blanks because OldHiveDecimal did...
+            currentHiveDecimalWritable.setFromBytes(bytes, fieldStart, fieldLength, /* trimBlanks */ true);
+            boolean decimalIsNull = !currentHiveDecimalWritable.isSet();
+            if (!decimalIsNull) {
+              DecimalTypeInfo decimalTypeInfo = (DecimalTypeInfo) field.typeInfo;
 
-        saveDecimal = HiveDecimal.create(byteData);
-        saveDecimalTypeInfo = (DecimalTypeInfo) primitiveTypeInfos[fieldIndex];
-        int precision = saveDecimalTypeInfo.getPrecision();
-        int scale = saveDecimalTypeInfo.getScale();
-        saveDecimal = HiveDecimal.enforcePrecisionScale(saveDecimal, precision,
-            scale);
-        if (saveDecimal == null) {
-          LOG.debug("Data not in the HiveDecimal data type range so converted to null. Given data is :"
-              + byteData);
+              int precision = decimalTypeInfo.getPrecision();
+              int scale = decimalTypeInfo.getScale();
+
+              decimalIsNull = !currentHiveDecimalWritable.mutateEnforcePrecisionScale(precision, scale);
+              if (!decimalIsNull) {
+                if (field.dataTypePhysicalVariation == DataTypePhysicalVariation.DECIMAL_64) {
+                  currentDecimal64 = currentHiveDecimalWritable.serialize64(scale);
+                }
+                return true;
+              }
+            }
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("Data not in the HiveDecimal data type range so converted to null. Given data is :"
+                  + new String(bytes, fieldStart, fieldLength, StandardCharsets.UTF_8));
+            }
+          }
+          return false;
+
+        default:
+          throw new Error("Unexpected primitive category " + field.primitiveCategory);
+        }
+      } else {
+        switch (field.complexCategory) {
+        case LIST:
+        case MAP:
+        case STRUCT:
+        case UNION:
+          {
+            if (currentLevel > 0) {
+  
+              // Check for Map which occupies 2 levels (key separator and key/value pair separator).
+              if (currentComplexTypeHelpers[currentLevel - 1] == null) {
+                Preconditions.checkState(currentLevel > 1);
+                Preconditions.checkState(
+                    currentComplexTypeHelpers[currentLevel - 2] instanceof MapComplexTypeHelper);
+                currentLevel++;
+              }
+            }
+            ComplexTypeHelper complexTypeHelper = field.complexTypeHelper; 
+            currentComplexTypeHelpers[currentLevel++] = complexTypeHelper;
+            if (field.complexCategory == Category.MAP) {
+              currentComplexTypeHelpers[currentLevel] = null;
+            }
+  
+            // Set up context for readNextComplexField.
+            complexTypeHelper.setCurrentFieldInfo(currentFieldStart, currentFieldLength);
+          }
           return true;
+        default:
+          throw new Error("Unexpected complex category " + field.complexCategory);
         }
       }
-//    if (!parseDecimal()) {
-//      return true;
-//    }
-      break;
-
-    default:
-      throw new Error("Unexpected primitive category " + primitiveTypeInfos[fieldIndex].getPrimitiveCategory());
+    } catch (NumberFormatException nfe) {
+       logExceptionMessage(bytes, fieldStart, fieldLength, field.complexCategory, field.primitiveCategory);
+       return false;
+    } catch (IllegalArgumentException iae) {
+      logExceptionMessage(bytes, fieldStart, fieldLength, field.complexCategory, field.primitiveCategory);
+      return false;
     }
+  }
 
-    return false;
+  @Override
+  public void copyToExternalBuffer(byte[] externalBuffer, int externalBufferStart) {
+    copyToBuffer(externalBuffer, externalBufferStart, currentExternalBufferNeededLen);
+  }
+
+  private void copyToBuffer(byte[] buffer, int bufferStart, int bufferLength) {
+
+    final int fieldStart = currentFieldStart;
+    int k = 0;
+    for (int i = 0; i < bufferLength; i++) {
+      byte b = bytes[fieldStart + i];
+      if (b == escapeChar && i < bufferLength - 1) {
+        ++i;
+        // Check if it's '\r' or '\n'
+        if (bytes[fieldStart + i] == 'r') {
+          buffer[bufferStart + k++] = '\r';
+        } else if (bytes[fieldStart + i] == 'n') {
+          buffer[bufferStart + k++] = '\n';
+        } else {
+          // get the next byte
+          buffer[bufferStart + k++] = bytes[fieldStart + i];
+        }
+      } else {
+        buffer[bufferStart + k++] = b;
+      }
+    }
+  }
+
+  @Override
+  public boolean isNextComplexMultiValue() {
+    Preconditions.checkState(currentLevel > 0);
+
+    final ComplexTypeHelper complexTypeHelper = currentComplexTypeHelpers[currentLevel - 1];
+    final Field complexField = complexTypeHelper.complexField;
+    final int fieldPosition = complexTypeHelper.fieldPosition;
+    final int complexFieldEnd = complexTypeHelper.complexFieldEnd;
+    switch (complexField.complexCategory) {
+    case LIST:
+      {
+        // Allow for empty string, etc.
+        final boolean isNext = (fieldPosition <= complexFieldEnd);
+        if (!isNext) {
+          popComplexType();
+        }
+        return isNext;
+      }
+    case MAP:
+      {
+        final boolean isNext = (fieldPosition < complexFieldEnd);
+        if (!isNext) {
+          popComplexType();
+        }
+        return isNext;
+      }
+    case STRUCT:
+    case UNION:
+      throw new Error("Complex category " + complexField.complexCategory + " not multi-value");
+    default:
+      throw new Error("Unexpected complex category " + complexField.complexCategory);
+    }
+  }
+
+  private void popComplexType() {
+    Preconditions.checkState(currentLevel > 0);
+    currentLevel--;
+    if (currentLevel > 0) {
+
+      // Check for Map which occupies 2 levels (key separator and key/value pair separator).
+      if (currentComplexTypeHelpers[currentLevel - 1] == null) {
+        Preconditions.checkState(currentLevel > 1);
+        Preconditions.checkState(
+            currentComplexTypeHelpers[currentLevel - 2] instanceof MapComplexTypeHelper);
+        currentLevel--;
+      }
+    }
+  }
+
+  /*
+   * NOTE: There is an expectation that all fields will be read-thru.
+   */
+  @Override
+  public boolean readComplexField() throws IOException {
+
+    Preconditions.checkState(currentLevel > 0);
+
+    final ComplexTypeHelper complexTypeHelper = currentComplexTypeHelpers[currentLevel - 1];
+    final Field complexField = complexTypeHelper.complexField;
+    switch (complexField.complexCategory) {
+    case LIST:
+      {
+        final ListComplexTypeHelper listHelper = (ListComplexTypeHelper) complexTypeHelper;
+        final int fieldPosition = listHelper.fieldPosition;
+        final int complexFieldEnd = listHelper.complexFieldEnd;
+        Preconditions.checkState(fieldPosition <= complexFieldEnd);
+
+        final int fieldEnd = parseComplexField(fieldPosition, complexFieldEnd, currentLevel);
+        listHelper.fieldPosition = fieldEnd + 1;  // Move past separator.
+
+        currentFieldStart = fieldPosition;
+        currentFieldLength = fieldEnd - fieldPosition;
+
+        return doReadField(listHelper.elementField);
+      }
+    case MAP:
+      {
+        final MapComplexTypeHelper mapHelper = (MapComplexTypeHelper) complexTypeHelper;
+        final int fieldPosition = mapHelper.fieldPosition;
+        final int complexFieldEnd = mapHelper.complexFieldEnd;
+        Preconditions.checkState(fieldPosition <= complexFieldEnd);
+  
+        currentFieldStart = fieldPosition;
+
+        final boolean isParentMap = isParentMap();
+        if (isParentMap) {
+          currentLevel++;
+        }
+        int fieldEnd;
+        if (!mapHelper.fieldHaveParsedKey) {
+
+          // Parse until key separator (currentLevel + 1).
+          fieldEnd = parseComplexField(fieldPosition, complexFieldEnd, currentLevel + 1);
+
+          mapHelper.fieldPosition = fieldEnd + 1;  // Move past key separator.
+
+          currentFieldLength = fieldEnd - fieldPosition;
+
+          mapHelper.fieldHaveParsedKey = true;
+          final boolean result = doReadField(mapHelper.keyField);
+          if (isParentMap) {
+            currentLevel--;
+          }
+          return result;
+        } else {
+
+          // Parse until pair separator (currentLevel).
+          fieldEnd = parseComplexField(fieldPosition, complexFieldEnd, currentLevel);
+
+          mapHelper.fieldPosition = fieldEnd + 1;  // Move past pair separator.
+
+          currentFieldLength = fieldEnd - fieldPosition;
+
+          mapHelper.fieldHaveParsedKey = false;
+          final boolean result = doReadField(mapHelper.valueField);
+          if (isParentMap) {
+            currentLevel--;
+          }
+          return result;
+        }
+      }
+    case STRUCT:
+      {
+        final StructComplexTypeHelper structHelper = (StructComplexTypeHelper) complexTypeHelper;
+        final int fieldPosition = structHelper.fieldPosition;
+        final int complexFieldEnd = structHelper.complexFieldEnd;
+        Preconditions.checkState(fieldPosition <= complexFieldEnd);
+
+        currentFieldStart = fieldPosition;
+
+        final int nextFieldIndex = structHelper.nextFieldIndex;
+        final Field[] fields = structHelper.fields;
+        final int fieldEnd;
+        if (nextFieldIndex != fields.length - 1) {
+
+          // Parse until field separator (currentLevel).
+          fieldEnd = parseComplexField(fieldPosition, complexFieldEnd, currentLevel);
+
+          structHelper.fieldPosition = fieldEnd + 1;  // Move past key separator.
+
+          currentFieldLength = fieldEnd - fieldPosition;
+
+          return doReadField(fields[structHelper.nextFieldIndex++]);
+        } else {
+
+          // Parse until field separator (currentLevel).
+          fieldEnd = parseComplexField(fieldPosition, complexFieldEnd, currentLevel);
+          currentFieldLength = fieldEnd - fieldPosition;
+
+          structHelper.nextFieldIndex = 0;
+          boolean result = doReadField(fields[fields.length - 1]);
+
+          if (!isEscaped) {
+
+            // No parsing necessary -- the end is the parent's end.
+            structHelper.fieldPosition = complexFieldEnd + 1;  // Move past parent field separator.
+            currentEscapeCount = 0;
+          } else {
+            // We must parse to get the escape count.
+            parseComplexField(fieldPosition, complexFieldEnd, currentLevel - 1);
+          }
+
+          return result;
+        }
+      }
+    case UNION:
+      {
+        final UnionComplexTypeHelper unionHelper = (UnionComplexTypeHelper) complexTypeHelper;
+        final int fieldPosition = unionHelper.fieldPosition;
+        final int complexFieldEnd = unionHelper.complexFieldEnd;
+        Preconditions.checkState(fieldPosition <= complexFieldEnd);
+
+        currentFieldStart = fieldPosition;
+
+        final int fieldEnd;
+        if (!unionHelper.fieldHaveParsedTag) {
+          boolean isParentMap = isParentMap();
+          if (isParentMap) {
+            currentLevel++;
+          }
+
+          // Parse until union separator (currentLevel).
+          fieldEnd = parseComplexField(fieldPosition, complexFieldEnd, currentLevel);
+
+          unionHelper.fieldPosition = fieldEnd + 1;  // Move past union separator.
+
+          currentFieldLength = fieldEnd - fieldPosition;
+
+          unionHelper.fieldHaveParsedTag = true;
+          boolean successful = doReadField(unionHelper.tagField);
+          if (!successful) {
+            throw new IOException("Null union tag");
+          }
+          unionHelper.fieldTag = currentInt;
+
+          if (isParentMap) {
+            currentLevel--;
+          }
+          return true;
+        } else {
+
+          if (!isEscaped) {
+
+            // No parsing necessary -- the end is the parent's end.
+            unionHelper.fieldPosition = complexFieldEnd + 1;  // Move past parent field separator.
+            currentEscapeCount = 0;
+          } else {
+            // We must parse to get the escape count.
+            fieldEnd = parseComplexField(fieldPosition, complexFieldEnd, currentLevel - 1);
+          }
+
+          currentFieldLength = complexFieldEnd - fieldPosition;
+
+          unionHelper.fieldHaveParsedTag = false;
+          return doReadField(unionHelper.fields[unionHelper.fieldTag]);
+        }
+      }
+    default:
+      throw new Error("Unexpected complex category " + complexField.complexCategory);
+    }
+  }
+
+  private boolean isParentMap() {
+    return currentLevel >= 2 &&
+        currentComplexTypeHelpers[currentLevel - 2] instanceof MapComplexTypeHelper;
+  }
+
+  @Override
+  public void finishComplexVariableFieldsType() {
+    Preconditions.checkState(currentLevel > 0);
+
+    final ComplexTypeHelper complexTypeHelper = currentComplexTypeHelpers[currentLevel - 1];
+    final Field complexField = complexTypeHelper.complexField;
+    switch (complexField.complexCategory) {
+    case LIST:
+    case MAP:
+      throw new Error("Complex category " + complexField.complexCategory + " is not variable fields type");
+    case STRUCT:
+    case UNION:
+      popComplexType();
+      break;
+    default:
+      throw new Error("Unexpected category " + complexField.complexCategory);
+    }
+  }
+
+  /*
+   * Call this method may be called after all the all fields have been read to check
+   * for unread fields.
+   *
+   * Note that when optimizing reading to stop reading unneeded include columns, worrying
+   * about whether all data is consumed is not appropriate (often we aren't reading it all by
+   * design).
+   *
+   * Since LazySimpleDeserializeRead parses the line through the last desired column it does
+   * support this function.
+   */
+  public boolean isEndOfInputReached() {
+    return isEndOfInputReached;
+  }
+
+  public void logExceptionMessage(byte[] bytes, int bytesStart, int bytesLength,
+      Category dataComplexCategory, PrimitiveCategory dataPrimitiveCategory) {
+    final String dataType;
+    if (dataComplexCategory == null) {
+      switch (dataPrimitiveCategory) {
+      case BYTE:
+        dataType = "TINYINT";
+        break;
+      case LONG:
+        dataType = "BIGINT";
+        break;
+      case SHORT:
+        dataType = "SMALLINT";
+        break;
+      default:
+        dataType = dataPrimitiveCategory.toString();
+        break;
+      }
+    } else {
+      switch (dataComplexCategory) {
+      case LIST:
+      case MAP:
+      case STRUCT:
+      case UNION:
+        dataType = dataComplexCategory.toString();
+        break;
+      default:
+        throw new Error("Unexpected complex category " + dataComplexCategory);
+      }
+    }
+    logExceptionMessage(bytes, bytesStart, bytesLength, dataType);
   }
 
   public void logExceptionMessage(byte[] bytes, int bytesStart, int bytesLength, String dataType) {
     try {
-      if(LOG.isDebugEnabled()) {
+      if (LOG.isDebugEnabled()) {
         String byteData = Text.decode(bytes, bytesStart, bytesLength);
         LOG.debug("Data not in the " + dataType
             + " data type range so converted to null. Given data is :" +
@@ -518,526 +1238,9 @@ public class LazySimpleDeserializeRead implements DeserializeRead {
     }
   }
 
-  /*
-   * Call this method after all fields have been read to check for extra fields.
-   */
-  public void extraFieldsCheck() {
-    if (offset < end) {
-      // We did not consume all of the byte range.
-      if (!bufferRangeHasExtraDataWarned) {
-        // Warn only once.
-        int length = end - start;
-        LOG.info("Not all fields were read in the buffer range! Buffer range " +  start 
-            + " for length " + length + " but reading more (NULLs returned)."
-            + "  Ignoring similar problems.");
-        bufferRangeHasExtraDataWarned = true;
-      }
-    }
-  }
+  //------------------------------------------------------------------------------------------------
 
-  /*
-   * Read integrity warning flags.
-   */
-  @Override
-  public boolean readBeyondConfiguredFieldsWarned() {
-    return readBeyondConfiguredFieldsWarned;
-  }
-  @Override
-  public boolean readBeyondBufferRangeWarned() {
-    return readBeyondBufferRangeWarned;
-  }
-  @Override
-  public boolean bufferRangeHasExtraDataWarned() {
-    return bufferRangeHasExtraDataWarned;
-  }
-
-  /*
-   * BOOLEAN.
-   */
-  @Override
-  public boolean readBoolean() {
-    return saveBool;
-  }
-
-  /*
-   * BYTE.
-   */
-  @Override
-  public byte readByte() {
-    return saveByte;
-  }
-
-  /*
-   * SHORT.
-   */
-  @Override
-  public short readShort() {
-    return saveShort;
-  }
-
-  /*
-   * INT.
-   */
-  @Override
-  public int readInt() {
-    return saveInt;
- }
-
-  /*
-   * LONG.
-   */
-  @Override
-  public long readLong() {
-    return saveLong;
-  }
-
-  /*
-   * FLOAT.
-   */
-  @Override
-  public float readFloat() {
-    return saveFloat;
-  }
-
-  /*
-   * DOUBLE.
-   */
-  @Override
-  public double readDouble() {
-    return saveDouble;
-  }
-
-  /*
-   * STRING.
-   *
-   * Can be used to read CHAR and VARCHAR when the caller takes responsibility for
-   * truncation/padding issues.
-   */
-
-  // This class is for internal use.
-  private class LazySimpleReadStringResults extends ReadStringResults {
-    public LazySimpleReadStringResults() {
-      super();
-    }
-  }
-
-  // Reading a STRING field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different bytes field. 
-  @Override
-  public ReadStringResults createReadStringResults() {
-    return new LazySimpleReadStringResults();
-  }
-
-  @Override
-  public void readString(ReadStringResults readStringResults) {
-    readStringResults.bytes = saveBytes;
-    readStringResults.start = saveBytesStart;
-    readStringResults.length = saveBytesLength;
-  }
-
-  /*
-   * CHAR.
-   */
-
-  // This class is for internal use.
-  private static class LazySimpleReadHiveCharResults extends ReadHiveCharResults {
-
-    // Use our STRING reader.
-    public LazySimpleReadStringResults readStringResults;
-
-    public LazySimpleReadHiveCharResults() {
-      super();
-    }
-
-    public HiveCharWritable getHiveCharWritable() {
-      return hiveCharWritable;
-    }
-  }
-
-  // Reading a CHAR field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different CHAR field. 
-  @Override
-  public ReadHiveCharResults createReadHiveCharResults() {
-    return new LazySimpleReadHiveCharResults();
-  }
-
-  public void readHiveChar(ReadHiveCharResults readHiveCharResults) throws IOException {
-    LazySimpleReadHiveCharResults LazySimpleReadHiveCharResults = (LazySimpleReadHiveCharResults) readHiveCharResults;
-
-    if (!LazySimpleReadHiveCharResults.isInit()) {
-      LazySimpleReadHiveCharResults.init((CharTypeInfo) primitiveTypeInfos[fieldIndex]);
-    }
-
-    if (LazySimpleReadHiveCharResults.readStringResults == null) {
-      LazySimpleReadHiveCharResults.readStringResults = new LazySimpleReadStringResults();
-    }
-    LazySimpleReadStringResults readStringResults = LazySimpleReadHiveCharResults.readStringResults;
-
-    // Read the bytes using our basic method.
-    readString(readStringResults);
-
-    // Copy the bytes into our Text object, then truncate.
-    HiveCharWritable hiveCharWritable = LazySimpleReadHiveCharResults.getHiveCharWritable();
-    hiveCharWritable.getTextValue().set(readStringResults.bytes, readStringResults.start, readStringResults.length);
-    hiveCharWritable.enforceMaxLength(LazySimpleReadHiveCharResults.getMaxLength());
-
-    readHiveCharResults.bytes = hiveCharWritable.getTextValue().getBytes();
-    readHiveCharResults.start = 0;
-    readHiveCharResults.length = hiveCharWritable.getTextValue().getLength();
-  }
-
-  /*
-   * VARCHAR.
-   */
-
-  // This class is for internal use.
-  private static class LazySimpleReadHiveVarcharResults extends ReadHiveVarcharResults {
-
-    // Use our bytes reader.
-    public LazySimpleReadStringResults readStringResults;
-
-    public LazySimpleReadHiveVarcharResults() {
-      super();
-    }
-
-    public HiveVarcharWritable getHiveVarcharWritable() {
-      return hiveVarcharWritable;
-    }
-  }
-
-  // Reading a VARCHAR field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different VARCHAR field. 
-  @Override
-  public ReadHiveVarcharResults createReadHiveVarcharResults() {
-    return new LazySimpleReadHiveVarcharResults();
-  }
-
-  public void readHiveVarchar(ReadHiveVarcharResults readHiveVarcharResults) throws IOException {
-    LazySimpleReadHiveVarcharResults lazySimpleReadHiveVarvarcharResults = (LazySimpleReadHiveVarcharResults) readHiveVarcharResults;
-
-    if (!lazySimpleReadHiveVarvarcharResults.isInit()) {
-      lazySimpleReadHiveVarvarcharResults.init((VarcharTypeInfo) primitiveTypeInfos[fieldIndex]);
-    }
-
-    if (lazySimpleReadHiveVarvarcharResults.readStringResults == null) {
-      lazySimpleReadHiveVarvarcharResults.readStringResults = new LazySimpleReadStringResults();
-    }
-    LazySimpleReadStringResults readStringResults = lazySimpleReadHiveVarvarcharResults.readStringResults;
-
-    // Read the bytes using our basic method.
-    readString(readStringResults);
-
-    // Copy the bytes into our Text object, then truncate.
-    HiveVarcharWritable hiveVarcharWritable = lazySimpleReadHiveVarvarcharResults.getHiveVarcharWritable();
-    hiveVarcharWritable.getTextValue().set(readStringResults.bytes, readStringResults.start, readStringResults.length);
-    hiveVarcharWritable.enforceMaxLength(lazySimpleReadHiveVarvarcharResults.getMaxLength());
-
-    readHiveVarcharResults.bytes = hiveVarcharWritable.getTextValue().getBytes();
-    readHiveVarcharResults.start = 0;
-    readHiveVarcharResults.length = hiveVarcharWritable.getTextValue().getLength();
-  }
-
-  /*
-   * BINARY.
-   */
-
-  // This class is for internal use.
-  private class LazySimpleReadBinaryResults extends ReadBinaryResults {
-    public LazySimpleReadBinaryResults() {
-      super();
-    }
-  }
-
-  // Reading a BINARY field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different bytes field. 
-  @Override
-  public ReadBinaryResults createReadBinaryResults() {
-    return new LazySimpleReadBinaryResults();
-  }
-
-  @Override
-  public void readBinary(ReadBinaryResults readBinaryResults) {
-    readBinaryResults.bytes = saveBytes;
-    readBinaryResults.start = saveBytesStart;
-    readBinaryResults.length = saveBytesLength;
-  }
-
-  /*
-   * DATE.
-   */
-
-  // This class is for internal use.
-  private static class LazySimpleReadDateResults extends ReadDateResults {
-
-    public LazySimpleReadDateResults() {
-      super();
-    }
-
-    public DateWritable getDateWritable() {
-      return dateWritable;
-    }
-  }
-
-  // Reading a DATE field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different DATE field. 
-  @Override
-  public ReadDateResults createReadDateResults() {
-    return new LazySimpleReadDateResults();
-  }
-
-  @Override
-  public void readDate(ReadDateResults readDateResults) {
-    LazySimpleReadDateResults lazySimpleReadDateResults = (LazySimpleReadDateResults) readDateResults;
-
-    DateWritable dateWritable = lazySimpleReadDateResults.getDateWritable();
-    dateWritable.set(saveDate);
-    saveDate = null;
-   }
-
-
-  /*
-   * INTERVAL_YEAR_MONTH.
-   */
-
-  // This class is for internal use.
-  private static class LazySimpleReadIntervalYearMonthResults extends ReadIntervalYearMonthResults {
-
-    public LazySimpleReadIntervalYearMonthResults() {
-      super();
-    }
-
-    public HiveIntervalYearMonthWritable getHiveIntervalYearMonthWritable() {
-      return hiveIntervalYearMonthWritable;
-    }
-  }
-
-  // Reading a INTERVAL_YEAR_MONTH field require a results object to receive value information.
-  // A separate results object is created by the caller at initialization per different
-  // INTERVAL_YEAR_MONTH field. 
-  @Override
-  public ReadIntervalYearMonthResults createReadIntervalYearMonthResults() {
-    return new LazySimpleReadIntervalYearMonthResults();
-  }
-
-  @Override
-  public void readIntervalYearMonth(ReadIntervalYearMonthResults readIntervalYearMonthResults)
-          throws IOException {
-    LazySimpleReadIntervalYearMonthResults lazySimpleReadIntervalYearMonthResults =
-            (LazySimpleReadIntervalYearMonthResults) readIntervalYearMonthResults;
-
-    HiveIntervalYearMonthWritable hiveIntervalYearMonthWritable = 
-            lazySimpleReadIntervalYearMonthResults.getHiveIntervalYearMonthWritable();
-    hiveIntervalYearMonthWritable.set(saveIntervalYearMonth);
-    saveIntervalYearMonth = null;
-  }
-
-  /*
-   * INTERVAL_DAY_TIME.
-   */
-
-  // This class is for internal use.
-  private static class LazySimpleReadIntervalDayTimeResults extends ReadIntervalDayTimeResults {
-
-    public LazySimpleReadIntervalDayTimeResults() {
-      super();
-    }
-
-    public HiveIntervalDayTimeWritable getHiveIntervalDayTimeWritable() {
-      return hiveIntervalDayTimeWritable;
-    }
-  }
-
-  // Reading a INTERVAL_DAY_TIME field require a results object to receive value information.
-  // A separate results object is created by the caller at initialization per different
-  // INTERVAL_DAY_TIME field. 
-  @Override
-  public ReadIntervalDayTimeResults createReadIntervalDayTimeResults() {
-    return new LazySimpleReadIntervalDayTimeResults();
-  }
-
-  @Override
-  public void readIntervalDayTime(ReadIntervalDayTimeResults readIntervalDayTimeResults)
-          throws IOException {
-    LazySimpleReadIntervalDayTimeResults lazySimpleReadIntervalDayTimeResults =
-        (LazySimpleReadIntervalDayTimeResults) readIntervalDayTimeResults;
-
-    HiveIntervalDayTimeWritable hiveIntervalDayTimeWritable = 
-            lazySimpleReadIntervalDayTimeResults.getHiveIntervalDayTimeWritable();
-    hiveIntervalDayTimeWritable.set(saveIntervalDayTime);
-    saveIntervalDayTime = null;
-  }
-
-  /*
-   * TIMESTAMP.
-   */
-
-  // This class is for internal use.
-  private static class LazySimpleReadTimestampResults extends ReadTimestampResults {
-
-    public LazySimpleReadTimestampResults() {
-      super();
-    }
-
-    public TimestampWritable getTimestampWritable() {
-      return timestampWritable;
-    }
-  }
-
-  // Reading a TIMESTAMP field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different TIMESTAMP field. 
-  @Override
-  public ReadTimestampResults createReadTimestampResults() {
-    return new LazySimpleReadTimestampResults();
-  }
-
-  @Override
-  public void readTimestamp(ReadTimestampResults readTimestampResults) {
-    LazySimpleReadTimestampResults lazySimpleReadTimestampResults = 
-            (LazySimpleReadTimestampResults) readTimestampResults;
-
-    TimestampWritable timestampWritable = lazySimpleReadTimestampResults.getTimestampWritable();
-    timestampWritable.set(saveTimestamp);
-    saveTimestamp = null;
-  }
-
-  /*
-   * DECIMAL.
-   */
-
-  // This class is for internal use.
-  private static class LazySimpleReadDecimalResults extends ReadDecimalResults {
-
-    HiveDecimal hiveDecimal;
-
-    public LazySimpleReadDecimalResults() {
-      super();
-    }
-
-    @Override
-    public HiveDecimal getHiveDecimal() {
-      return hiveDecimal;
-    }
-  }
-
-  // Reading a DECIMAL field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different DECIMAL field. 
-  @Override
-  public ReadDecimalResults createReadDecimalResults() {
-    return new LazySimpleReadDecimalResults();
-  }
-
-  @Override
-  public void readHiveDecimal(ReadDecimalResults readDecimalResults) {
-    LazySimpleReadDecimalResults lazySimpleReadDecimalResults = (LazySimpleReadDecimalResults) readDecimalResults;
-
-    if (!lazySimpleReadDecimalResults.isInit()) {
-      lazySimpleReadDecimalResults.init(saveDecimalTypeInfo);
-    }
-
-    lazySimpleReadDecimalResults.hiveDecimal = saveDecimal;
-
-    saveDecimal = null;
-    saveDecimalTypeInfo = null;
-  }
-
-  private static byte[] maxLongBytes = ((Long) Long.MAX_VALUE).toString().getBytes();
-  private static int maxLongDigitsCount = maxLongBytes.length;
-  private static byte[] minLongNoSignBytes = ((Long) Long.MIN_VALUE).toString().substring(1).getBytes();
-
-  private boolean parseLongFast() {
-
-    // Parse without using exceptions for better performance.
-    int i = fieldStart;
-    int end = fieldStart + fieldLength;
-    boolean negative = false;
-    if (i >= end) {
-      return false;    // Empty field.
-    }
-    if (bytes[i] == '+') {
-      i++;
-      if (i >= end) {
-        return false;
-      }
-    } else if (bytes[i] == '-') {
-      negative = true;
-      i++;
-      if (i >= end) {
-        return false;
-      }
-    }
-    // Skip leading zeros.
-    boolean atLeastOneZero = false;
-    while (true) {
-      if (bytes[i] != '0') {
-        break;
-      }
-      i++;
-      if (i >= end) {
-        saveLong = 0;
-        return true;
-      }
-      atLeastOneZero = true;
-    }
-    // We tolerate and ignore decimal places.
-    if (bytes[i] == '.') {
-      if (!atLeastOneZero) {
-        return false;
-      }
-      saveLong = 0;
-      // Fall through below and verify trailing decimal digits.
-    } else {
-      if (!Character.isDigit(bytes[i])) {
-        return false;
-      }
-      int nonLeadingZeroStart = i;
-      int digitCount = 1;
-      saveLong = Character.digit(bytes[i], 10);
-      i++;
-      while (i < end) {
-        if (!Character.isDigit(bytes[i])) {
-          break;
-        }
-        digitCount++;
-        if (digitCount > maxLongDigitsCount) {
-          return false;
-        } else if (digitCount == maxLongDigitsCount) {
-          // Use the old trick of comparing against number string to check for overflow.
-          if (!negative) {
-            if (byteArrayCompareRanges(bytes, nonLeadingZeroStart, maxLongBytes, 0, digitCount) >= 1) {
-              return false;
-            }
-          } else {
-            if (byteArrayCompareRanges(bytes, nonLeadingZeroStart, minLongNoSignBytes, 0, digitCount) >= 1) {
-              return false;
-            }
-          }
-        }
-        saveLong = (saveLong * 10) + Character.digit(bytes[i], 10);
-      }
-      if (negative) {
-        // Safe because of our number string comparision against min (negative) long.
-        saveLong = -saveLong;
-      }
-      if (i >= end) {
-        return true;
-      }
-      if (bytes[i] != '.') {
-        return false;
-      }
-    }
-    // Fall through to here if we detect the start of trailing decimal digits...
-    // We verify trailing digits only.
-    while (true) {
-      i++;
-      if (i >= end) {
-        break;
-      }
-      if (!Character.isDigit(bytes[i])) {
-        return false;
-      }
-    }
-    return true;
-  }
+  private static final byte[] maxLongBytes = ((Long) Long.MAX_VALUE).toString().getBytes();
 
   public static int byteArrayCompareRanges(byte[] arg1, int start1, byte[] arg2, int start2, int len) {
     for (int i = 0; i < len; i++) {

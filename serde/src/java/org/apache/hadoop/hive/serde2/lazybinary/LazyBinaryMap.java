@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,8 +21,8 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.serde2.lazy.ByteArrayRef;
 import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryUtils.RecordInfo;
 import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryUtils.VInt;
@@ -31,7 +31,7 @@ import org.apache.hadoop.hive.serde2.objectinspector.MapObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 
 /**
- * LazyBinaryMap is serialized as follows: start A b c b c b c end bytes[] ->
+ * LazyBinaryMap is serialized as follows: start A b c b c b c end bytes[] -&gt;
  * |--------|---|---|---|---| ... |---|---|
  * 
  * Section A is the null-bytes. Suppose the map has N key-value pairs, then
@@ -48,7 +48,7 @@ import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 public class LazyBinaryMap extends
     LazyBinaryNonPrimitive<LazyBinaryMapObjectInspector> {
 
-  private static Log LOG = LogFactory.getLog(LazyBinaryMap.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(LazyBinaryMap.class.getName());
 
   /**
    * Whether the data is already parsed or not.

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,12 +23,11 @@ import static org.apache.hadoop.hive.conf.HiveConf.ConfVars.HIVECONVERTJOINNOCON
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Stack;
 
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.ql.exec.GroupByOperator;
 import org.apache.hadoop.hive.ql.exec.JoinOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
@@ -46,13 +45,8 @@ import org.apache.hadoop.hive.ql.lib.RuleRegExp;
 import org.apache.hadoop.hive.ql.optimizer.Transform;
 import org.apache.hadoop.hive.ql.parse.ParseContext;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDescUtils;
-import org.apache.hadoop.hive.ql.plan.PlanUtils;
-import org.apache.hadoop.hive.ql.plan.ReduceSinkDesc;
-import org.apache.hadoop.hive.ql.plan.TableDesc;
-
-import com.google.common.collect.Lists;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * If two reducer sink operators share the same partition/sort columns and order,
@@ -61,7 +55,9 @@ import com.google.common.collect.Lists;
  *
  * This optimizer removes/replaces child-RS (not parent) which is safer way for DefaultGraphWalker.
  */
-public class ReduceSinkDeDuplication implements Transform {
+public class ReduceSinkDeDuplication extends Transform {
+
+  protected static final Logger LOG = LoggerFactory.getLogger(ReduceSinkDeDuplication.class);
 
   private static final String RS = ReduceSinkOperator.getOperatorName();
   private static final String GBY = GroupByOperator.getOperatorName();
@@ -78,7 +74,9 @@ public class ReduceSinkDeDuplication implements Transform {
 
     // for auto convert map-joins, it not safe to dedup in here (todo)
     boolean mergeJoins = !pctx.getConf().getBoolVar(HIVECONVERTJOIN) &&
-        !pctx.getConf().getBoolVar(HIVECONVERTJOINNOCONDITIONALTASK);
+        !pctx.getConf().getBoolVar(HIVECONVERTJOINNOCONDITIONALTASK) &&
+        !pctx.getConf().getBoolVar(ConfVars.HIVE_CONVERT_JOIN_BUCKET_MAPJOIN_TEZ) &&
+        !pctx.getConf().getBoolVar(ConfVars.HIVEDYNAMICPARTITIONHASHJOIN);
 
     // If multiple rules can be matched with same cost, last rule will be choosen as a processor
     // see DefaultRuleDispatcher#dispatch()
@@ -175,300 +173,6 @@ public class ReduceSinkDeDuplication implements Transform {
 
     protected abstract Object process(ReduceSinkOperator cRS, GroupByOperator cGBY,
         ReduceSinkDeduplicateProcCtx dedupCtx) throws SemanticException;
-
-    // for JOIN-RS case, it's not possible generally to merge if child has
-    // more key/partition columns than parents
-    protected boolean merge(ReduceSinkOperator cRS, JoinOperator pJoin, int minReducer)
-        throws SemanticException {
-      List<Operator<?>> parents = pJoin.getParentOperators();
-      ReduceSinkOperator[] pRSs = parents.toArray(new ReduceSinkOperator[parents.size()]);
-      ReduceSinkDesc cRSc = cRS.getConf();
-      ReduceSinkDesc pRS0c = pRSs[0].getConf();
-      if (cRSc.getKeyCols().size() > pRS0c.getKeyCols().size()) {
-        return false;
-      }
-      if (cRSc.getPartitionCols().size() > pRS0c.getPartitionCols().size()) {
-        return false;
-      }
-      Integer moveReducerNumTo = checkNumReducer(cRSc.getNumReducers(), pRS0c.getNumReducers());
-      if (moveReducerNumTo == null ||
-          moveReducerNumTo > 0 && cRSc.getNumReducers() < minReducer) {
-        return false;
-      }
-
-      Integer moveRSOrderTo = checkOrder(cRSc.getOrder(), pRS0c.getOrder());
-      if (moveRSOrderTo == null) {
-        return false;
-      }
-
-      boolean[] sorted = CorrelationUtilities.getSortedTags(pJoin);
-
-      int cKeySize = cRSc.getKeyCols().size();
-      for (int i = 0; i < cKeySize; i++) {
-        ExprNodeDesc cexpr = cRSc.getKeyCols().get(i);
-        ExprNodeDesc[] pexprs = new ExprNodeDesc[pRSs.length];
-        for (int tag = 0; tag < pRSs.length; tag++) {
-          pexprs[tag] = pRSs[tag].getConf().getKeyCols().get(i);
-        }
-        int found = CorrelationUtilities.indexOf(cexpr, pexprs, cRS, pRSs, sorted);
-        if (found < 0) {
-          return false;
-        }
-      }
-      int cPartSize = cRSc.getPartitionCols().size();
-      for (int i = 0; i < cPartSize; i++) {
-        ExprNodeDesc cexpr = cRSc.getPartitionCols().get(i);
-        ExprNodeDesc[] pexprs = new ExprNodeDesc[pRSs.length];
-        for (int tag = 0; tag < pRSs.length; tag++) {
-          pexprs[tag] = pRSs[tag].getConf().getPartitionCols().get(i);
-        }
-        int found = CorrelationUtilities.indexOf(cexpr, pexprs, cRS, pRSs, sorted);
-        if (found < 0) {
-          return false;
-        }
-      }
-
-      if (moveReducerNumTo > 0) {
-        for (ReduceSinkOperator pRS : pRSs) {
-          pRS.getConf().setNumReducers(cRS.getConf().getNumReducers());
-        }
-      }
-      return true;
-    }
-
-    /**
-     * Current RSDedup remove/replace child RS. For key columns,
-     * sorting order, and the number of reducers, copy
-     * more specific part of configurations of child RS to that of parent RS.
-     * For partitioning columns, if both child RS and parent RS have been assigned
-     * partitioning columns, we will choose the more general partitioning columns.
-     * If parent RS has not been assigned any partitioning column, we will use
-     * partitioning columns (if exist) of child RS.
-     */
-    protected boolean merge(ReduceSinkOperator cRS, ReduceSinkOperator pRS, int minReducer)
-        throws SemanticException {
-      int[] result = checkStatus(cRS, pRS, minReducer);
-      if (result == null) {
-        return false;
-      }
-
-      if (result[0] > 0) {
-        // The sorting columns of the child RS are more specific than
-        // those of the parent RS. Assign sorting columns of the child RS
-        // to the parent RS.
-        List<ExprNodeDesc> childKCs = cRS.getConf().getKeyCols();
-        pRS.getConf().setKeyCols(ExprNodeDescUtils.backtrack(childKCs, cRS, pRS));
-      }
-
-      if (result[1] < 0) {
-        // The partitioning columns of the parent RS are more specific than
-        // those of the child RS.
-        List<ExprNodeDesc> childPCs = cRS.getConf().getPartitionCols();
-        if (childPCs != null && !childPCs.isEmpty()) {
-          // If partitioning columns of the child RS are assigned,
-          // assign these to the partitioning columns of the parent RS.
-          pRS.getConf().setPartitionCols(ExprNodeDescUtils.backtrack(childPCs, cRS, pRS));
-        }
-      } else if (result[1] > 0) {
-        // The partitioning columns of the child RS are more specific than
-        // those of the parent RS.
-        List<ExprNodeDesc> parentPCs = pRS.getConf().getPartitionCols();
-        if (parentPCs == null || parentPCs.isEmpty()) {
-          // If partitioning columns of the parent RS are not assigned,
-          // assign partitioning columns of the child RS to the parent RS.
-          ArrayList<ExprNodeDesc> childPCs = cRS.getConf().getPartitionCols();
-          pRS.getConf().setPartitionCols(ExprNodeDescUtils.backtrack(childPCs, cRS, pRS));
-        }
-      }
-
-      if (result[2] > 0) {
-        // The sorting order of the child RS is more specific than
-        // that of the parent RS. Assign the sorting order of the child RS
-        // to the parent RS.
-        if (result[0] <= 0) {
-          // Sorting columns of the parent RS are more specific than those of the
-          // child RS but Sorting order of the child RS is more specific than
-          // that of the parent RS.
-          throw new SemanticException("Sorting columns and order don't match. " +
-              "Try set " + HiveConf.ConfVars.HIVEOPTREDUCEDEDUPLICATION + "=false;");
-        }
-        pRS.getConf().setOrder(cRS.getConf().getOrder());
-      }
-
-      if (result[3] > 0) {
-        // The number of reducers of the child RS is more specific than
-        // that of the parent RS. Assign the number of reducers of the child RS
-        // to the parent RS.
-        pRS.getConf().setNumReducers(cRS.getConf().getNumReducers());
-      }
-
-      if (result[4] > 0) {
-        // This case happens only when pRS key is empty in which case we can use
-        // number of distribution keys and key serialization info from cRS
-        pRS.getConf().setNumDistributionKeys(cRS.getConf().getNumDistributionKeys());
-        List<FieldSchema> fields = PlanUtils.getFieldSchemasFromColumnList(pRS.getConf()
-            .getKeyCols(), "reducesinkkey");
-        TableDesc keyTable = PlanUtils.getReduceKeyTableDesc(fields, pRS.getConf().getOrder());
-        ArrayList<String> outputKeyCols = Lists.newArrayList();
-        for (int i = 0; i < fields.size(); i++) {
-          outputKeyCols.add(fields.get(i).getName());
-        }
-        pRS.getConf().setOutputKeyColumnNames(outputKeyCols);
-        pRS.getConf().setKeySerializeInfo(keyTable);
-      }
-      return true;
-    }
-
-    /**
-     * Returns merge directions between two RSs for criterias (ordering, number of reducers,
-     * reducer keys, partition keys). Returns null if any of categories is not mergeable.
-     *
-     * Values for each index can be -1, 0, 1
-     * 1. 0 means two configuration in the category is the same
-     * 2. for -1, configuration of parent RS is more specific than child RS
-     * 3. for 1, configuration of child RS is more specific than parent RS
-     */
-    private int[] checkStatus(ReduceSinkOperator cRS, ReduceSinkOperator pRS, int minReducer)
-        throws SemanticException {
-      ReduceSinkDesc cConf = cRS.getConf();
-      ReduceSinkDesc pConf = pRS.getConf();
-      Integer moveRSOrderTo = checkOrder(cConf.getOrder(), pConf.getOrder());
-      if (moveRSOrderTo == null) {
-        return null;
-      }
-      Integer moveReducerNumTo = checkNumReducer(cConf.getNumReducers(), pConf.getNumReducers());
-      if (moveReducerNumTo == null ||
-          moveReducerNumTo > 0 && cConf.getNumReducers() < minReducer) {
-        return null;
-      }
-      List<ExprNodeDesc> ckeys = cConf.getKeyCols();
-      List<ExprNodeDesc> pkeys = pConf.getKeyCols();
-      Integer moveKeyColTo = checkExprs(ckeys, pkeys, cRS, pRS);
-      if (moveKeyColTo == null) {
-        return null;
-      }
-      List<ExprNodeDesc> cpars = cConf.getPartitionCols();
-      List<ExprNodeDesc> ppars = pConf.getPartitionCols();
-      Integer movePartitionColTo = checkExprs(cpars, ppars, cRS, pRS);
-      if (movePartitionColTo == null) {
-        return null;
-      }
-      Integer moveNumDistKeyTo = checkNumDistributionKey(cConf.getNumDistributionKeys(),
-          pConf.getNumDistributionKeys());
-      return new int[] {moveKeyColTo, movePartitionColTo, moveRSOrderTo,
-          moveReducerNumTo, moveNumDistKeyTo};
-    }
-
-    private Integer checkNumDistributionKey(int cnd, int pnd) {
-      // number of distribution keys of cRS is chosen only when numDistKeys of pRS
-      // is 0 or less. In all other cases, distribution of the keys is based on
-      // the pRS which is more generic than cRS.
-      // Examples:
-      // case 1: if pRS sort key is (a, b) and cRS sort key is (a, b, c) and number of
-      // distribution keys are 2 and 3 resp. then after merge the sort keys will
-      // be (a, b, c) while the number of distribution keys will be 2.
-      // case 2: if pRS sort key is empty and number of distribution keys is 0
-      // and if cRS sort key is (a, b) and number of distribution keys is 2 then
-      // after merge new sort key will be (a, b) and number of distribution keys
-      // will be 2.
-      if (pnd <= 0) {
-        return 1;
-      }
-      return 0;
-    }
-
-    /**
-     * Overlapping part of keys should be the same between parent and child.
-     * And if child has more keys than parent, non-overlapping part of keys
-     * should be backtrackable to parent.
-     */
-    private Integer checkExprs(List<ExprNodeDesc> ckeys, List<ExprNodeDesc> pkeys,
-        ReduceSinkOperator cRS, ReduceSinkOperator pRS) throws SemanticException {
-      Integer moveKeyColTo = 0;
-      if (ckeys == null || ckeys.isEmpty()) {
-        if (pkeys != null && !pkeys.isEmpty()) {
-          moveKeyColTo = -1;
-        }
-      } else {
-        if (pkeys == null || pkeys.isEmpty()) {
-          for (ExprNodeDesc ckey : ckeys) {
-            if (ExprNodeDescUtils.backtrack(ckey, cRS, pRS) == null) {
-              // cKey is not present in parent
-              return null;
-            }
-          }
-          moveKeyColTo = 1;
-        } else {
-          moveKeyColTo = sameKeys(ckeys, pkeys, cRS, pRS);
-        }
-      }
-      return moveKeyColTo;
-    }
-
-    // backtrack key exprs of child to parent and compare it with parent's
-    protected Integer sameKeys(List<ExprNodeDesc> cexprs, List<ExprNodeDesc> pexprs,
-        Operator<?> child, Operator<?> parent) throws SemanticException {
-      int common = Math.min(cexprs.size(), pexprs.size());
-      int limit = Math.max(cexprs.size(), pexprs.size());
-      int i = 0;
-      for (; i < common; i++) {
-        ExprNodeDesc pexpr = pexprs.get(i);
-        ExprNodeDesc cexpr = ExprNodeDescUtils.backtrack(cexprs.get(i), child, parent);
-        if (cexpr == null || !pexpr.isSame(cexpr)) {
-          return null;
-        }
-      }
-      for (; i < limit; i++) {
-        if (cexprs.size() > pexprs.size()) {
-          if (ExprNodeDescUtils.backtrack(cexprs.get(i), child, parent) == null) {
-            // cKey is not present in parent
-            return null;
-          }
-        }
-      }
-      return Integer.valueOf(cexprs.size()).compareTo(pexprs.size());
-    }
-
-    // order of overlapping keys should be exactly the same
-    protected Integer checkOrder(String corder, String porder) {
-      if (corder == null || corder.trim().equals("")) {
-        if (porder == null || porder.trim().equals("")) {
-          return 0;
-        }
-        return -1;
-      }
-      if (porder == null || porder.trim().equals("")) {
-        return 1;
-      }
-      corder = corder.trim();
-      porder = porder.trim();
-      int target = Math.min(corder.length(), porder.length());
-      if (!corder.substring(0, target).equals(porder.substring(0, target))) {
-        return null;
-      }
-      return Integer.valueOf(corder.length()).compareTo(porder.length());
-    }
-
-    /**
-     * If number of reducers for RS is -1, the RS can have any number of reducers.
-     * It's generally true except for order-by or forced bucketing cases.
-     * if both of num-reducers are not -1, those number should be the same.
-     */
-    protected Integer checkNumReducer(int creduce, int preduce) {
-      if (creduce < 0) {
-        if (preduce < 0) {
-          return 0;
-        }
-        return -1;
-      }
-      if (preduce < 0) {
-        return 1;
-      }
-      if (creduce != preduce) {
-        return null;
-      }
-      return 0;
-    }
   }
 
   static class GroupbyReducerProc extends AbsctractReducerReducerProc {
@@ -486,7 +190,7 @@ public class ReduceSinkDeDuplication implements Transform {
       ReduceSinkOperator pRS =
           CorrelationUtilities.findPossibleParent(
               pGBY, ReduceSinkOperator.class, dedupCtx.trustScript());
-      if (pRS != null && merge(cRS, pRS, dedupCtx.minReducer())) {
+      if (pRS != null && ReduceSinkDeDuplicationUtils.merge(cRS, pRS, dedupCtx.minReducer())) {
         CorrelationUtilities.replaceReduceSinkWithSelectOperator(
             cRS, dedupCtx.getPctx(), dedupCtx);
         pRS.getConf().setDeduplicated(true);
@@ -509,7 +213,7 @@ public class ReduceSinkDeDuplication implements Transform {
       }
       ReduceSinkOperator pRS =
           CorrelationUtilities.getSingleParent(pGBY, ReduceSinkOperator.class);
-      if (pRS != null && merge(cRS, pRS, dedupCtx.minReducer())) {
+      if (pRS != null && ReduceSinkDeDuplicationUtils.merge(cRS, pRS, dedupCtx.minReducer())) {
         CorrelationUtilities.removeReduceSinkForGroupBy(
             cRS, cGBY, dedupCtx.getPctx(), dedupCtx);
         pRS.getConf().setDeduplicated(true);
@@ -527,7 +231,7 @@ public class ReduceSinkDeDuplication implements Transform {
         throws SemanticException {
       JoinOperator pJoin =
           CorrelationUtilities.findPossibleParent(cRS, JoinOperator.class, dedupCtx.trustScript());
-      if (pJoin != null && merge(cRS, pJoin, dedupCtx.minReducer())) {
+      if (pJoin != null && ReduceSinkDeDuplicationUtils.merge(cRS, pJoin, dedupCtx.minReducer())) {
         pJoin.getConf().setFixedAsSorted(true);
         CorrelationUtilities.replaceReduceSinkWithSelectOperator(
             cRS, dedupCtx.getPctx(), dedupCtx);
@@ -551,7 +255,7 @@ public class ReduceSinkDeDuplication implements Transform {
       JoinOperator pJoin =
           CorrelationUtilities.findPossibleParent(
               start, JoinOperator.class, dedupCtx.trustScript());
-      if (pJoin != null && merge(cRS, pJoin, dedupCtx.minReducer())) {
+      if (pJoin != null && ReduceSinkDeDuplicationUtils.merge(cRS, pJoin, dedupCtx.minReducer())) {
         pJoin.getConf().setFixedAsSorted(true);
         CorrelationUtilities.removeReduceSinkForGroupBy(
             cRS, cGBY, dedupCtx.getPctx(), dedupCtx);
@@ -576,11 +280,18 @@ public class ReduceSinkDeDuplication implements Transform {
       ReduceSinkOperator pRS =
           CorrelationUtilities.findPossibleParent(
               cRS, ReduceSinkOperator.class, dedupCtx.trustScript());
-      if (pRS != null && merge(cRS, pRS, dedupCtx.minReducer())) {
-        CorrelationUtilities.replaceReduceSinkWithSelectOperator(
-            cRS, dedupCtx.getPctx(), dedupCtx);
-        pRS.getConf().setDeduplicated(true);
-        return true;
+      if (pRS != null) {
+        // Try extended deduplication
+        if (ReduceSinkDeDuplicationUtils.aggressiveDedup(cRS, pRS, dedupCtx)) {
+          return true;
+        }
+        // Normal deduplication
+        if (ReduceSinkDeDuplicationUtils.merge(cRS, pRS, dedupCtx.minReducer())) {
+          CorrelationUtilities.replaceReduceSinkWithSelectOperator(
+              cRS, dedupCtx.getPctx(), dedupCtx);
+          pRS.getConf().setDeduplicated(true);
+          return true;
+        }
       }
       return false;
     }
@@ -594,7 +305,7 @@ public class ReduceSinkDeDuplication implements Transform {
       ReduceSinkOperator pRS =
           CorrelationUtilities.findPossibleParent(
               start, ReduceSinkOperator.class, dedupCtx.trustScript());
-      if (pRS != null && merge(cRS, pRS, dedupCtx.minReducer())) {
+      if (pRS != null && ReduceSinkDeDuplicationUtils.merge(cRS, pRS, dedupCtx.minReducer())) {
         if (dedupCtx.getPctx().getConf().getBoolVar(HiveConf.ConfVars.HIVEGROUPBYSKEW)) {
           return false;
         }

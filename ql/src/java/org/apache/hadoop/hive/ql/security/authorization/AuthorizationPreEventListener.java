@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,14 +23,14 @@ import java.util.List;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Iterators;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.metastore.utils.MetaStoreUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.classification.InterfaceAudience.Private;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.MetaStorePreEventListener;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.InvalidOperationException;
@@ -38,6 +38,7 @@ import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.events.PreAddPartitionEvent;
+import org.apache.hadoop.hive.metastore.events.PreAlterDatabaseEvent;
 import org.apache.hadoop.hive.metastore.events.PreAlterPartitionEvent;
 import org.apache.hadoop.hive.metastore.events.PreAlterTableEvent;
 import org.apache.hadoop.hive.metastore.events.PreCreateDatabaseEvent;
@@ -65,7 +66,7 @@ import org.apache.hadoop.hive.ql.security.HiveMetastoreAuthenticationProvider;
 @Private
 public class AuthorizationPreEventListener extends MetaStorePreEventListener {
 
-  public static final Log LOG = LogFactory.getLog(
+  public static final Logger LOG = LoggerFactory.getLogger(
       AuthorizationPreEventListener.class);
 
   private static final ThreadLocal<Configuration> tConfig = new ThreadLocal<Configuration>() {
@@ -163,6 +164,9 @@ public class AuthorizationPreEventListener extends MetaStorePreEventListener {
     case CREATE_DATABASE:
       authorizeCreateDatabase((PreCreateDatabaseEvent)context);
       break;
+    case ALTER_DATABASE:
+        authorizeAlterDatabase((PreAlterDatabaseEvent) context);
+        break;
     case DROP_DATABASE:
       authorizeDropDatabase((PreDropDatabaseEvent)context);
       break;
@@ -249,6 +253,21 @@ public class AuthorizationPreEventListener extends MetaStorePreEventListener {
         authorizer.authorize(new Database(context.getDatabase()),
             HiveOperation.DROPDATABASE.getInputRequiredPrivileges(),
             HiveOperation.DROPDATABASE.getOutputRequiredPrivileges());
+      }
+    } catch (AuthorizationException e) {
+      throw invalidOperationException(e);
+    } catch (HiveException e) {
+      throw metaException(e);
+    }
+  }
+
+  private void authorizeAlterDatabase(PreAlterDatabaseEvent context)
+      throws InvalidOperationException, MetaException {
+    try {
+      for (HiveMetastoreAuthorizationProvider authorizer : tAuthorizers.get()) {
+        authorizer.authorize(new Database(context.getOldDatabase()),
+            HiveOperation.ALTERDATABASE_LOCATION.getInputRequiredPrivileges(),
+            HiveOperation.ALTERDATABASE_LOCATION.getOutputRequiredPrivileges());
       }
     } catch (AuthorizationException e) {
       throw invalidOperationException(e);
@@ -424,6 +443,8 @@ public class AuthorizationPreEventListener extends MetaStorePreEventListener {
           wrapperApiTable.setTableType(TableType.EXTERNAL_TABLE.toString());
         } else if (MetaStoreUtils.isIndexTable(wrapperApiTable)) {
           wrapperApiTable.setTableType(TableType.INDEX_TABLE.toString());
+        } else if (MetaStoreUtils.isMaterializedViewTable(wrapperApiTable)) {
+          wrapperApiTable.setTableType(TableType.MATERIALIZED_VIEW.toString());
         } else if ((wrapperApiTable.getSd() == null) || (wrapperApiTable.getSd().getLocation() == null)) {
           wrapperApiTable.setTableType(TableType.VIRTUAL_VIEW.toString());
         } else {
@@ -453,7 +474,7 @@ public class AuthorizationPreEventListener extends MetaStorePreEventListener {
         // location or an SD, but these are needed to create a ql.metadata.Partition,
         // so we use the table's SD. The only place this is used is by the
         // authorization hooks, so we will not affect code flow in the metastore itself.
-        wrapperApiPart.setSd(t.getSd());
+        wrapperApiPart.setSd(t.getSd().deepCopy());
       }
       initialize(new TableWrapper(t),wrapperApiPart);
     }

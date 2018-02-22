@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,6 +20,10 @@ package org.apache.hadoop.hive.ql.udf.generic;
 
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedExpressions;
+import org.apache.hadoop.hive.ql.exec.vector.VectorizedExpressionsSupportDecimal64;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongColGreaterLongColumn;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongColGreaterLongScalar;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongScalarGreaterLongColumn;
 import org.apache.hadoop.hive.ql.exec.vector.expressions.gen.*;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils;
@@ -35,35 +39,64 @@ import org.apache.hadoop.io.Text;
   DoubleColGreaterLongScalar.class, DoubleColGreaterDoubleScalar.class,
   LongScalarGreaterLongColumn.class, LongScalarGreaterDoubleColumn.class,
   DoubleScalarGreaterLongColumn.class, DoubleScalarGreaterDoubleColumn.class,
+
   StringGroupColGreaterStringGroupColumn.class, FilterStringGroupColGreaterStringGroupColumn.class,
   StringGroupColGreaterStringScalar.class,
   StringGroupColGreaterVarCharScalar.class, StringGroupColGreaterCharScalar.class,
   StringScalarGreaterStringGroupColumn.class,
   VarCharScalarGreaterStringGroupColumn.class, CharScalarGreaterStringGroupColumn.class,
+
   FilterStringGroupColGreaterStringScalar.class, FilterStringScalarGreaterStringGroupColumn.class,
   FilterStringGroupColGreaterVarCharScalar.class, FilterVarCharScalarGreaterStringGroupColumn.class,
   FilterStringGroupColGreaterCharScalar.class, FilterCharScalarGreaterStringGroupColumn.class,
+
   FilterLongColGreaterLongColumn.class, FilterLongColGreaterDoubleColumn.class,
   FilterDoubleColGreaterLongColumn.class, FilterDoubleColGreaterDoubleColumn.class,
   FilterLongColGreaterLongScalar.class, FilterLongColGreaterDoubleScalar.class,
   FilterDoubleColGreaterLongScalar.class, FilterDoubleColGreaterDoubleScalar.class,
   FilterLongScalarGreaterLongColumn.class, FilterLongScalarGreaterDoubleColumn.class,
   FilterDoubleScalarGreaterLongColumn.class, FilterDoubleScalarGreaterDoubleColumn.class,
+
   FilterDecimalColGreaterDecimalColumn.class, FilterDecimalColGreaterDecimalScalar.class,
   FilterDecimalScalarGreaterDecimalColumn.class,
+
+  FilterDecimal64ColGreaterDecimal64Column.class, FilterDecimal64ColGreaterDecimal64Scalar.class,
+  FilterDecimal64ScalarGreaterDecimal64Column.class,
+
+  TimestampColGreaterTimestampColumn.class,
   TimestampColGreaterTimestampScalar.class, TimestampScalarGreaterTimestampColumn.class,
+  TimestampColGreaterLongColumn.class,
+  TimestampColGreaterLongScalar.class, TimestampScalarGreaterLongColumn.class,
+  TimestampColGreaterDoubleColumn.class,
+  TimestampColGreaterDoubleScalar.class, TimestampScalarGreaterDoubleColumn.class,
+  LongColGreaterTimestampColumn.class,
+  LongColGreaterTimestampScalar.class, LongScalarGreaterTimestampColumn.class,
+  DoubleColGreaterTimestampColumn.class,
+  DoubleColGreaterTimestampScalar.class, DoubleScalarGreaterTimestampColumn.class,
+
+  FilterTimestampColGreaterTimestampColumn.class,
   FilterTimestampColGreaterTimestampScalar.class, FilterTimestampScalarGreaterTimestampColumn.class,
-  TimestampColGreaterLongScalar.class, LongScalarGreaterTimestampColumn.class,
-  FilterTimestampColGreaterLongScalar.class, FilterLongScalarGreaterTimestampColumn.class,
-  TimestampColGreaterDoubleScalar.class, DoubleScalarGreaterTimestampColumn.class,
-  FilterTimestampColGreaterDoubleScalar.class, FilterDoubleScalarGreaterTimestampColumn.class,
+  FilterTimestampColGreaterLongColumn.class,
+  FilterTimestampColGreaterLongScalar.class, FilterTimestampScalarGreaterLongColumn.class,
+  FilterTimestampColGreaterDoubleColumn.class,
+  FilterTimestampColGreaterDoubleScalar.class, FilterTimestampScalarGreaterDoubleColumn.class,
+  FilterLongColGreaterTimestampColumn.class,
+  FilterLongColGreaterTimestampScalar.class, FilterLongScalarGreaterTimestampColumn.class,
+  FilterDoubleColGreaterTimestampColumn.class,
+  FilterDoubleColGreaterTimestampScalar.class, FilterDoubleScalarGreaterTimestampColumn.class,
+
   IntervalYearMonthScalarGreaterIntervalYearMonthColumn.class, FilterIntervalYearMonthScalarGreaterIntervalYearMonthColumn.class,
   IntervalYearMonthColGreaterIntervalYearMonthScalar.class, FilterIntervalYearMonthColGreaterIntervalYearMonthScalar.class,
+
+  IntervalDayTimeColGreaterIntervalDayTimeColumn.class, FilterIntervalDayTimeColGreaterIntervalDayTimeColumn.class,
   IntervalDayTimeScalarGreaterIntervalDayTimeColumn.class, FilterIntervalDayTimeScalarGreaterIntervalDayTimeColumn.class,
   IntervalDayTimeColGreaterIntervalDayTimeScalar.class, FilterIntervalDayTimeColGreaterIntervalDayTimeScalar.class,
+
   DateColGreaterDateScalar.class,FilterDateColGreaterDateScalar.class,
   DateScalarGreaterDateColumn.class,FilterDateScalarGreaterDateColumn.class,
   })
+@VectorizedExpressionsSupportDecimal64()
+@NDV(maxNdv = 2)
 public class GenericUDFOPGreaterThan extends GenericUDFBaseCompare {
   public GenericUDFOPGreaterThan(){
     this.opName = "GREATER THAN";

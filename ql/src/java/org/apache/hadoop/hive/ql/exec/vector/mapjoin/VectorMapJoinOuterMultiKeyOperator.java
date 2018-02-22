@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,8 +21,9 @@ package org.apache.hadoop.hive.ql.exec.vector.mapjoin;
 import java.io.IOException;
 import java.util.Arrays;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
 import org.apache.hadoop.hive.ql.exec.vector.ColumnVector;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizationContext;
@@ -31,6 +32,7 @@ import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpression;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
 // Multi-Key hash table import.
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinBytesHashMap;
 
@@ -39,6 +41,8 @@ import org.apache.hadoop.hive.ql.exec.vector.VectorSerializeRow;
 import org.apache.hadoop.hive.serde2.ByteStream.Output;
 import org.apache.hadoop.hive.serde2.binarysortable.fast.BinarySortableSerializeWrite;
 
+import com.google.common.base.Preconditions;
+
 /*
  * Specialized class for doing a vectorized map join that is an outer join on Multi-Key
  * using a hash map.
@@ -46,8 +50,17 @@ import org.apache.hadoop.hive.serde2.binarysortable.fast.BinarySortableSerialize
 public class VectorMapJoinOuterMultiKeyOperator extends VectorMapJoinOuterGenerateResultOperator {
 
   private static final long serialVersionUID = 1L;
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinOuterMultiKeyOperator.class.getName());
+
+  //------------------------------------------------------------------------------------------------
+
   private static final String CLASS_NAME = VectorMapJoinOuterMultiKeyOperator.class.getName();
+  private static final Logger LOG = LoggerFactory.getLogger(CLASS_NAME);
+
+  protected String getLoggingPrefix() {
+    return super.getLoggingPrefix(CLASS_NAME);
+  }
+
+  //------------------------------------------------------------------------------------------------
 
   // (none)
 
@@ -75,12 +88,18 @@ public class VectorMapJoinOuterMultiKeyOperator extends VectorMapJoinOuterGenera
   // Pass-thru constructors.
   //
 
-  public VectorMapJoinOuterMultiKeyOperator() {
+  /** Kryo ctor. */
+  protected VectorMapJoinOuterMultiKeyOperator() {
     super();
   }
 
-  public VectorMapJoinOuterMultiKeyOperator(VectorizationContext vContext, OperatorDesc conf) throws HiveException {
-    super(vContext, conf);
+  public VectorMapJoinOuterMultiKeyOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorMapJoinOuterMultiKeyOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) throws HiveException {
+    super(ctx, conf, vContext, vectorDesc);
   }
 
   //---------------------------------------------------------------------------
@@ -105,7 +124,7 @@ public class VectorMapJoinOuterMultiKeyOperator extends VectorMapJoinOuterGenera
 
         keyVectorSerializeWrite = new VectorSerializeRow(
                         new BinarySortableSerializeWrite(bigTableKeyColumnMap.length));
-        keyVectorSerializeWrite.init(bigTableKeyTypeNames, bigTableKeyColumnMap);
+        keyVectorSerializeWrite.init(bigTableKeyTypeInfos, bigTableKeyColumnMap);
 
         currentKeyOutput = new Output();
         saveKeyOutput = new Output();
@@ -294,9 +313,8 @@ public class VectorMapJoinOuterMultiKeyOperator extends VectorMapJoinOuterGenera
 
           // Generate binary sortable key for current row in vectorized row batch.
           keyVectorSerializeWrite.setOutput(currentKeyOutput);
-          boolean isNull = keyVectorSerializeWrite.serializeWrite(batch, batchIndex);
-
-          if (isNull) {
+          keyVectorSerializeWrite.serializeWrite(batch, batchIndex);
+          if (keyVectorSerializeWrite.getHasAnyNulls()) {
 
             // Have that the NULL does not interfere with the current equal key series, if there
             // is one. We do not set saveJoinResult.

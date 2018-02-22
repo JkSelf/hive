@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -34,8 +34,10 @@ import org.apache.hadoop.hive.ql.exec.vector.VectorExpressionDescriptor;
  */
 public class <ClassName> extends LongCol<OperatorName>LongColumn {
 
-  public <ClassName>(int colNum1, int colNum2, int outputColumn) {
-    super(colNum1, colNum2, outputColumn);
+  private static final long serialVersionUID = 1L;
+
+  public <ClassName>(int colNum1, int colNum2, int outputColumnNum) {
+    super(colNum1, colNum2, outputColumnNum);
   }
 
   public <ClassName>() {
@@ -56,5 +58,3 @@ public class <ClassName> extends LongCol<OperatorName>LongColumn {
             VectorExpressionDescriptor.InputExpressionType.COLUMN).build();
   }
 }
-
-

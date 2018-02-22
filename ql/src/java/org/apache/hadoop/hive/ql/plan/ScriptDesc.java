@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,6 +21,8 @@ package org.apache.hadoop.hive.ql.plan;
 import org.apache.hadoop.hive.ql.exec.RecordReader;
 import org.apache.hadoop.hive.ql.exec.RecordWriter;
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
+
+import java.util.Objects;
 
 
 /**
@@ -143,4 +145,13 @@ public class ScriptDesc extends AbstractOperatorDesc {
     this.inRecordWriterClass = inRecordWriterClass;
   }
 
+  @Override
+  public boolean isSame(OperatorDesc other) {
+    if (getClass().getName().equals(other.getClass().getName())) {
+      ScriptDesc otherDesc = (ScriptDesc) other;
+      return Objects.equals(getScriptCmd(), otherDesc.getScriptCmd()) &&
+          Objects.equals(getScriptOutputInfo(), otherDesc.getScriptOutputInfo());
+    }
+    return false;
+  }
 }

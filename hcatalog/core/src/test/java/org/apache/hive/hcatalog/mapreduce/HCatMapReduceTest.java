@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -34,9 +34,10 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
 import org.apache.hadoop.hive.metastore.TableType;
+import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -55,7 +56,6 @@ import org.apache.hadoop.mapreduce.JobStatus;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
-
 import org.apache.hive.hcatalog.common.HCatConstants;
 import org.apache.hive.hcatalog.common.HCatUtil;
 import org.apache.hive.hcatalog.data.DefaultHCatRecord;
@@ -71,7 +71,6 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,7 +88,7 @@ import static org.junit.Assert.assertTrue;
 public abstract class HCatMapReduceTest extends HCatBaseTest {
   private static final Logger LOG = LoggerFactory.getLogger(HCatMapReduceTest.class);
 
-  protected static String dbName = MetaStoreUtils.DEFAULT_DATABASE_NAME;
+  protected static String dbName = Warehouse.DEFAULT_DATABASE_NAME;
   protected static final String TABLE_NAME = "testHCatMapReduceTable";
 
   private static List<HCatRecord> writeRecords = new ArrayList<HCatRecord>();
@@ -156,7 +155,7 @@ public abstract class HCatMapReduceTest extends HCatBaseTest {
   @After
   public void deleteTable() throws Exception {
     try {
-      String databaseName = (dbName == null) ? MetaStoreUtils.DEFAULT_DATABASE_NAME : dbName;
+      String databaseName = (dbName == null) ? Warehouse.DEFAULT_DATABASE_NAME : dbName;
 
       client.dropTable(databaseName, tableName);
       // in case of external table, drop the table contents as well
@@ -177,7 +176,7 @@ public abstract class HCatMapReduceTest extends HCatBaseTest {
     // SerDe is in the disabled serdes list.
     Assume.assumeTrue(!DISABLED_SERDES.contains(serdeClass));
 
-    String databaseName = (dbName == null) ? MetaStoreUtils.DEFAULT_DATABASE_NAME : dbName;
+    String databaseName = (dbName == null) ? Warehouse.DEFAULT_DATABASE_NAME : dbName;
     try {
       client.dropTable(databaseName, tableName);
     } catch (Exception e) {
@@ -217,6 +216,8 @@ public abstract class HCatMapReduceTest extends HCatBaseTest {
     if (isTableImmutable()){
       tableParams.put(hive_metastoreConstants.IS_IMMUTABLE,"true");
     }
+    StatsSetupConst.setBasicStatsState(tableParams, StatsSetupConst.TRUE);
+    tableParams.put(hive_metastoreConstants.TABLE_IS_TRANSACTIONAL, "false");
     tbl.setParameters(tableParams);
 
     client.createTable(tbl);

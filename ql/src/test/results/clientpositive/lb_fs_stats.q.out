@@ -1,16 +1,8 @@
-PREHOOK: query: -- Tests truncating a column from a list bucketing table
-
--- INCLUDE_HADOOP_MAJOR_VERSIONS(0.23)
-
-CREATE TABLE test_tab (key STRING, value STRING) PARTITIONED BY (part STRING) STORED AS RCFILE
+PREHOOK: query: CREATE TABLE test_tab (key STRING, value STRING) PARTITIONED BY (part STRING) STORED AS RCFILE
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@test_tab
-POSTHOOK: query: -- Tests truncating a column from a list bucketing table
-
--- INCLUDE_HADOOP_MAJOR_VERSIONS(0.23)
-
-CREATE TABLE test_tab (key STRING, value STRING) PARTITIONED BY (part STRING) STORED AS RCFILE
+POSTHOOK: query: CREATE TABLE test_tab (key STRING, value STRING) PARTITIONED BY (part STRING) STORED AS RCFILE
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@test_tab
@@ -39,13 +31,11 @@ POSTHOOK: query: describe formatted test_tab partition (part='1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 part                	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -54,7 +44,7 @@ Database:           	default
 Table:              	test_tab            	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 	numFiles            	2                   
 	numRows             	500                 
 	rawDataSize         	4812                

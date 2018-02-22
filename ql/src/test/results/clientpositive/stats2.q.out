@@ -83,13 +83,11 @@ POSTHOOK: query: desc formatted analyze_t1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@analyze_t1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	default             
 value               	string              	default             
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -100,6 +98,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	numFiles            	4                   
+	numPartitions       	4                   
+	numRows             	0                   
+	rawDataSize         	0                   
+	totalSize           	23248               
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -126,10 +129,11 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: analyze_t1
-            Statistics: Num rows: 1 Data size: 23248 Basic stats: PARTIAL Column stats: NONE
+            Statistics: Num rows: 392 Data size: 232480 Basic stats: COMPLETE Column stats: NONE
 
   Stage: Stage-1
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
 
 PREHOOK: query: analyze table analyze_t1 partition (ds, hr) compute statistics
 PREHOOK: type: QUERY
@@ -162,13 +166,11 @@ POSTHOOK: query: describe formatted analyze_t1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@analyze_t1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	default             
 value               	string              	default             
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -179,6 +181,12 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+	numFiles            	4                   
+	numPartitions       	4                   
+	numRows             	2000                
+	rawDataSize         	21248               
+	totalSize           	23248               
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 

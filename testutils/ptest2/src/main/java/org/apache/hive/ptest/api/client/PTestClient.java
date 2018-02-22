@@ -90,13 +90,21 @@ public class PTestClient {
   private final String mLogsEndpoint;
   private final ObjectMapper mMapper;
   private final DefaultHttpClient mHttpClient;
+  private final String testOutputDir;
 
-  public PTestClient(String logsEndpoint, String apiEndPoint, String password)
+  public PTestClient(String logsEndpoint, String apiEndPoint, String password, String testOutputDir)
       throws MalformedURLException {
-    if (logsEndpoint.endsWith("/")) {
-      this.mLogsEndpoint = logsEndpoint;
+    this.testOutputDir = testOutputDir;
+    if (!Strings.isNullOrEmpty(testOutputDir)) {
+      Preconditions.checkArgument(!Strings.isNullOrEmpty(logsEndpoint),
+          "logsEndPoint must be specified if " + OUTPUT_DIR + " is specified");
+      if (logsEndpoint.endsWith("/")) {
+        this.mLogsEndpoint = logsEndpoint;
+      } else {
+        this.mLogsEndpoint = logsEndpoint + "/";
+      }
     } else {
-      this.mLogsEndpoint = logsEndpoint + "/";
+      this.mLogsEndpoint = null;
     }
     if(apiEndPoint.endsWith("/")) {
       this.mApiEndPoint = apiEndPoint + "api/v1";
@@ -111,7 +119,7 @@ public class PTestClient {
         new UsernamePasswordCredentials("hive", password));
   }
   public boolean testStart(String profile, String testHandle,
-      String jira, String patch, String testOutputDir, boolean clearLibraryCache)
+      String jira, String patch, boolean clearLibraryCache)
           throws Exception {
     patch = Strings.nullToEmpty(patch).trim();
     if(!patch.isEmpty()) {
@@ -275,6 +283,8 @@ public class PTestClient {
     }
   }
   public static void main(String[] args) throws Exception {
+    //TODO This line can be removed once precommit jenkins jobs move to Java 8
+    System.setProperty("https.protocols", "TLSv1,TLSv1.1,TLSv1.2");
     CommandLineParser parser = new GnuParser();
     Options options = new Options();
     options.addOption(HELP_SHORT, HELP_LONG, false, "Display help text and exit");
@@ -301,7 +311,7 @@ public class PTestClient {
         ENDPOINT
     });
     PTestClient client = new PTestClient(commandLine.getOptionValue(LOGS_ENDPOINT), commandLine.getOptionValue(ENDPOINT),
-        commandLine.getOptionValue(PASSWORD));
+        commandLine.getOptionValue(PASSWORD), commandLine.getOptionValue(OUTPUT_DIR));
     String command = commandLine.getOptionValue(COMMAND);
     boolean result;
     if("testStart".equalsIgnoreCase(command)) {
@@ -310,7 +320,7 @@ public class PTestClient {
           TEST_HANDLE
       });
       result = client.testStart(commandLine.getOptionValue(PROFILE), commandLine.getOptionValue(TEST_HANDLE),
-          commandLine.getOptionValue(JIRA), commandLine.getOptionValue(PATCH), commandLine.getOptionValue(OUTPUT_DIR),
+          commandLine.getOptionValue(JIRA), commandLine.getOptionValue(PATCH),
           commandLine.hasOption(CLEAR_LIBRARY_CACHE));
     } else if("testTailLog".equalsIgnoreCase(command)) {
       result = client.testTailLog(commandLine.getOptionValue(TEST_HANDLE));

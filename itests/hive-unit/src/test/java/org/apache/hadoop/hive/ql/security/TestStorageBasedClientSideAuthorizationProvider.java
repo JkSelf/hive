@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -74,6 +74,12 @@ public class TestStorageBasedClientSideAuthorizationProvider extends
   protected void allowDropOnDb(String dbName, String userName, String location)
       throws Exception {
     setPermissions(location,"-rwxr--r--");
+  }
+
+  @Override
+  protected void allowSelectOnTable(String tblName, String userName, String location)
+      throws Exception {
+    setPermissions(location,"-r--r--r--");
   }
 
   private void setPermissions(String locn, String permissions) throws Exception {

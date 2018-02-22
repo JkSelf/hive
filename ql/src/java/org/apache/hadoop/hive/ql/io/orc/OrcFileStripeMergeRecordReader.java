@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,6 +27,8 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapred.RecordReader;
+import org.apache.orc.OrcProto;
+import org.apache.orc.StripeInformation;
 
 public class OrcFileStripeMergeRecordReader implements
     RecordReader<OrcFileKeyWrapper, OrcFileValueWrapper> {
@@ -98,11 +100,12 @@ public class OrcFileStripeMergeRecordReader implements
           valueWrapper.setUserMetadata(((ReaderImpl) reader).getOrcProtoUserMetadata());
         }
         keyWrapper.setInputPath(path);
-        keyWrapper.setCompression(reader.getCompression());
+        keyWrapper.setCompression(reader.getCompressionKind());
         keyWrapper.setCompressBufferSize(reader.getCompressionSize());
-        keyWrapper.setVersion(reader.getFileVersion());
+        keyWrapper.setFileVersion(reader.getFileVersion());
+        keyWrapper.setWriterVersion(reader.getWriterVersion());
         keyWrapper.setRowIndexStride(reader.getRowIndexStride());
-        keyWrapper.setTypes(reader.getTypes());
+        keyWrapper.setFileSchema(reader.getSchema());
       } else {
         stripeIdx++;
         continue;

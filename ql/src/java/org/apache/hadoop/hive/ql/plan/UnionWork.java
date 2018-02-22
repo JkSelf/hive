@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -62,6 +62,11 @@ public class UnionWork extends BaseWork {
   @Override
   public Set<Operator<?>> getAllRootOperators() {
     return new HashSet<Operator<?>>();
+  }
+
+  @Override
+  public Operator<? extends OperatorDesc> getAnyRootOperator() {
+    return null;
   }
 
   public void addUnionOperators(Collection<UnionOperator> unions) {

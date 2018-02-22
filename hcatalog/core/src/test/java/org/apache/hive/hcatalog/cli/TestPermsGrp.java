@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,19 +19,18 @@
 package org.apache.hive.hcatalog.cli;
 
 import java.io.FileNotFoundException;
+import java.security.Policy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import junit.framework.TestCase;
-
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
+import org.apache.hadoop.hive.metastore.MetaStoreTestUtils;
 import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.AlreadyExistsException;
 import org.apache.hadoop.hive.metastore.api.Database;
@@ -49,7 +48,7 @@ import org.apache.hadoop.hive.ql.io.HiveOutputFormat;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe;
-import org.apache.hadoop.hive.shims.ShimLoader;
+import org.apache.hive.hcatalog.DerbyPolicy;
 import org.apache.hive.hcatalog.ExitException;
 import org.apache.hive.hcatalog.NoExitSecurityManager;
 import org.apache.hive.hcatalog.cli.SemanticAnalysis.HCatSemanticAnalyzer;
@@ -57,6 +56,8 @@ import org.apache.hive.hcatalog.common.HCatConstants;
 import org.apache.thrift.TException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import junit.framework.TestCase;
 
 public class TestPermsGrp extends TestCase {
 
@@ -79,14 +80,13 @@ public class TestPermsGrp extends TestCase {
       return;
     }
 
-
-    msPort = MetaStoreUtils.findFreePort();
-    MetaStoreUtils.startMetaStore(msPort, ShimLoader.getHadoopThriftAuthBridge());
+    msPort = MetaStoreTestUtils.startMetaStoreWithRetry();
 
     isServerRunning = true;
 
     securityManager = System.getSecurityManager();
     System.setSecurityManager(new NoExitSecurityManager());
+    Policy.setPolicy(new DerbyPolicy());
 
     hcatConf = new HiveConf(this.getClass());
     hcatConf.setVar(HiveConf.ConfVars.METASTOREURIS, "thrift://127.0.0.1:" + msPort);
@@ -99,14 +99,14 @@ public class TestPermsGrp extends TestCase {
     hcatConf.setTimeVar(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT, 60, TimeUnit.SECONDS);
     hcatConf.setBoolVar(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY, false);
     clientWH = new Warehouse(hcatConf);
-    msc = new HiveMetaStoreClient(hcatConf, null);
+    msc = new HiveMetaStoreClient(hcatConf);
     System.setProperty(HiveConf.ConfVars.PREEXECHOOKS.varname, " ");
     System.setProperty(HiveConf.ConfVars.POSTEXECHOOKS.varname, " ");
   }
 
   public void testCustomPerms() throws Exception {
 
-    String dbName = MetaStoreUtils.DEFAULT_DATABASE_NAME;
+    String dbName = Warehouse.DEFAULT_DATABASE_NAME;
     String tblName = "simptbl";
     String typeName = "Person";
 
@@ -116,18 +116,19 @@ public class TestPermsGrp extends TestCase {
       Table tbl = getTable(dbName, tblName, typeName);
       msc.createTable(tbl);
       Database db = Hive.get(hcatConf).getDatabase(dbName);
-      Path dfsPath = clientWH.getTablePath(db, tblName);
+      Path dfsPath = clientWH.getDefaultTablePath(db, tblName);
       cleanupTbl(dbName, tblName, typeName);
 
       // Next user did specify perms.
       try {
         callHCatCli(new String[]{"-e", "create table simptbl (name string) stored as RCFILE", "-p", "rwx-wx---"});
+        fail();
       } catch (Exception e) {
         assertTrue(e instanceof ExitException);
         assertEquals(((ExitException) e).getStatus(), 0);
       }
-      dfsPath = clientWH.getTablePath(db, tblName);
-      assertTrue(dfsPath.getFileSystem(hcatConf).getFileStatus(dfsPath).getPermission().equals(FsPermission.valueOf("drwx-wx---")));
+      dfsPath = clientWH.getDefaultTablePath(db, tblName);
+      assertEquals(FsPermission.valueOf("drwx-wx---"), dfsPath.getFileSystem(hcatConf).getFileStatus(dfsPath).getPermission());
 
       cleanupTbl(dbName, tblName, typeName);
 
@@ -136,23 +137,23 @@ public class TestPermsGrp extends TestCase {
       // make sure create table fails.
       try {
         callHCatCli(new String[]{"-e", "create table simptbl (name string) stored as RCFILE", "-p", "rwx"});
-        assert false;
+        fail();
       } catch (Exception me) {
         assertTrue(me instanceof ExitException);
       }
       // No physical dir gets created.
-      dfsPath = clientWH.getTablePath(db, tblName);
+      dfsPath = clientWH.getDefaultTablePath(db, tblName);
       try {
         dfsPath.getFileSystem(hcatConf).getFileStatus(dfsPath);
-        assert false;
+        fail();
       } catch (Exception fnfe) {
         assertTrue(fnfe instanceof FileNotFoundException);
       }
 
       // And no metadata gets created.
       try {
-        msc.getTable(MetaStoreUtils.DEFAULT_DATABASE_NAME, tblName);
-        assert false;
+        msc.getTable(Warehouse.DEFAULT_DATABASE_NAME, tblName);
+        fail();
       } catch (Exception e) {
         assertTrue(e instanceof NoSuchObjectException);
         assertEquals("default.simptbl table not found", e.getMessage());
@@ -165,7 +166,7 @@ public class TestPermsGrp extends TestCase {
       try {
         // create table must fail.
         callHCatCli(new String[]{"-e", "create table simptbl (name string) stored as RCFILE", "-p", "rw-rw-rw-", "-g", "THIS_CANNOT_BE_A_VALID_GRP_NAME_EVER"});
-        assert false;
+        fail();
       } catch (Exception me) {
         assertTrue(me instanceof SecurityException);
       }
@@ -173,7 +174,7 @@ public class TestPermsGrp extends TestCase {
       try {
         // no metadata should get created.
         msc.getTable(dbName, tblName);
-        assert false;
+        fail();
       } catch (Exception e) {
         assertTrue(e instanceof NoSuchObjectException);
         assertEquals("default.simptbl table not found", e.getMessage());
@@ -181,7 +182,7 @@ public class TestPermsGrp extends TestCase {
       try {
         // neither dir should get created.
         dfsPath.getFileSystem(hcatConf).getFileStatus(dfsPath);
-        assert false;
+        fail();
       } catch (Exception e) {
         assertTrue(e instanceof FileNotFoundException);
       }
@@ -195,6 +196,8 @@ public class TestPermsGrp extends TestCase {
   private void callHCatCli(String[] args) {
     List<String> argsList = new ArrayList<String>();
     argsList.add("-Dhive.support.concurrency=false");
+    argsList
+        .add("-Dhive.security.authorization.manager=org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
     argsList.addAll(Arrays.asList(args));
     HCatCli.main(argsList.toArray(new String[]{}));
   }

@@ -13,7 +13,6 @@ POSTHOOK: query: describe formatted original
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@original
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -24,6 +23,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
+	numFiles            	0                   
+	numRows             	0                   
+	rawDataSize         	0                   
+	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -51,7 +55,6 @@ POSTHOOK: query: describe formatted original
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@original
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -62,11 +65,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -111,7 +114,6 @@ POSTHOOK: query: describe formatted skew_test.original2
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: skew_test@original2
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -122,6 +124,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
+	numFiles            	0                   
+	numRows             	0                   
+	rawDataSize         	0                   
+	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -149,7 +156,6 @@ POSTHOOK: query: describe formatted skew_test.original2
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: skew_test@original2
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -160,11 +166,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -203,7 +209,6 @@ POSTHOOK: query: describe formatted skew_test.original3
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: skew_test@original3
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -214,6 +219,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
+	numFiles            	0                   
+	numRows             	0                   
+	rawDataSize         	0                   
+	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -243,7 +253,6 @@ POSTHOOK: query: describe formatted skew_test.original3
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: skew_test@original3
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -254,11 +263,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 

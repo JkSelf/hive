@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,26 +25,25 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import com.google.common.annotations.VisibleForTesting;
+
+import org.apache.hadoop.hive.common.StringInternUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
-import org.apache.hadoop.hive.common.FileUtils;
-import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.Driver.LockedDriverState;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.log.PerfLogger;
@@ -52,19 +51,18 @@ import org.apache.hadoop.hive.ql.parse.SplitSample;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 import org.apache.hadoop.hive.ql.plan.PartitionDesc;
 import org.apache.hadoop.hive.ql.plan.TableDesc;
+import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.hive.shims.HadoopShims.CombineFileInputFormatShim;
 import org.apache.hadoop.hive.shims.HadoopShimsSecure.InputSplitShim;
 import org.apache.hadoop.hive.shims.ShimLoader;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
-import org.apache.hadoop.io.compress.CompressionCodecFactory;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
-import org.apache.hadoop.mapred.TextInputFormat;
 import org.apache.hadoop.mapred.lib.CombineFileSplit;
 
 
@@ -78,7 +76,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
     extends HiveInputFormat<K, V> {
 
   private static final String CLASS_NAME = CombineHiveInputFormat.class.getName();
-  public static final Log LOG = LogFactory.getLog(CLASS_NAME);
+  public static final Logger LOG = LoggerFactory.getLogger(CLASS_NAME);
 
   // max number of threads we can use to check non-combinable paths
   private static final int MAX_CHECK_NONCOMBINABLE_THREAD_NUM = 50;
@@ -89,33 +87,43 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
     private final int start;
     private final int length;
     private final JobConf conf;
+    private final boolean isMerge;
 
-    public CheckNonCombinablePathCallable(Path[] paths, int start, int length, JobConf conf) {
+    public CheckNonCombinablePathCallable(
+        Path[] paths, int start, int length, JobConf conf, boolean isMerge) {
       this.paths = paths;
       this.start = start;
       this.length = length;
       this.conf = conf;
+      this.isMerge = isMerge;
     }
 
     @Override
     public Set<Integer> call() throws Exception {
       Set<Integer> nonCombinablePathIndices = new HashSet<Integer>();
       for (int i = 0; i < length; i++) {
-        PartitionDesc part =
-            HiveFileFormatUtils.getPartitionDescFromPathRecursively(
+        PartitionDesc part = HiveFileFormatUtils.getFromPathRecursively(
                 pathToPartitionInfo, paths[i + start],
                 IOPrepareCache.get().allocatePartitionDescMap());
         // Use HiveInputFormat if any of the paths is not splittable
         Class<? extends InputFormat> inputFormatClass = part.getInputFileFormatClass();
         InputFormat<WritableComparable, Writable> inputFormat =
             getInputFormatFromCache(inputFormatClass, conf);
-        if (inputFormat instanceof AvoidSplitCombination &&
-            ((AvoidSplitCombination) inputFormat).shouldSkipCombine(paths[i + start], conf)) {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("The path [" + paths[i + start] +
-                "] is being parked for HiveInputFormat.getSplits");
-          }
-          nonCombinablePathIndices.add(i);
+        boolean isAvoidSplitCombine = inputFormat instanceof AvoidSplitCombination &&
+            ((AvoidSplitCombination) inputFormat).shouldSkipCombine(paths[i + start], conf);
+        TableDesc tbl = part.getTableDesc();
+        boolean isMmNonMerge = false;
+        if (tbl != null) {
+          isMmNonMerge = !isMerge && AcidUtils.isInsertOnlyTable(tbl.getProperties());
+        } else {
+          // This would be the case for obscure tasks like truncate column (unsupported for MM).
+          Utilities.FILE_OP_LOGGER.warn("Assuming not insert-only; no table in partition spec " + part);
+        }
+
+        if (isAvoidSplitCombine || isMmNonMerge) {
+          Utilities.FILE_OP_LOGGER.info("The path [" + paths[i + start] +
+              "] is being parked for HiveInputFormat.getSplits");
+          nonCombinablePathIndices.add(i + start);
         }
       }
       return nonCombinablePathIndices;
@@ -132,7 +140,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
 
     private String inputFormatClassName;
     private CombineFileSplit inputSplitShim;
-    private Map<String, PartitionDesc> pathToPartitionInfo;
+    private Map<Path, PartitionDesc> pathToPartitionInfo;
 
     public CombineHiveInputSplit() throws IOException {
       this(ShimLoader.getHadoopShims().getCombineFileInputFormat()
@@ -147,7 +155,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
       this(job, inputSplitShim, null);
     }
     public CombineHiveInputSplit(JobConf job, CombineFileSplit inputSplitShim,
-        Map<String, PartitionDesc> pathToPartitionInfo) throws IOException {
+        Map<Path, PartitionDesc> pathToPartitionInfo) throws IOException {
       this.inputSplitShim = inputSplitShim;
       this.pathToPartitionInfo = pathToPartitionInfo;
       if (job != null) {
@@ -160,7 +168,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
         Path[] ipaths = inputSplitShim.getPaths();
         if (ipaths.length > 0) {
           PartitionDesc part = HiveFileFormatUtils
-              .getPartitionDescFromPathRecursively(this.pathToPartitionInfo,
+              .getFromPathRecursively(this.pathToPartitionInfo,
                   ipaths[0], IOPrepareCache.get().getPartitionDescMap());
           inputFormatClassName = part.getInputFileFormatClass().getName();
         }
@@ -267,7 +275,6 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
     @Override
     public void write(DataOutput out) throws IOException {
       inputSplitShim.write(out);
-
       if (inputFormatClassName == null) {
         if (pathToPartitionInfo == null) {
           pathToPartitionInfo = Utilities.getMapWork(getJob()).getPathToPartitionInfo();
@@ -275,7 +282,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
 
         // extract all the inputFormatClass names for each chunk in the
         // CombinedSplit.
-        PartitionDesc part = HiveFileFormatUtils.getPartitionDescFromPathRecursively(pathToPartitionInfo,
+        PartitionDesc part = HiveFileFormatUtils.getFromPathRecursively(pathToPartitionInfo,
             inputSplitShim.getPath(0), IOPrepareCache.get().getPartitionDescMap());
 
         // create a new InputFormat instance if this is the first time to see
@@ -324,10 +331,10 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
    * Create Hive splits based on CombineFileSplit.
    */
   private InputSplit[] getCombineSplits(JobConf job, int numSplits,
-      Map<String, PartitionDesc> pathToPartitionInfo)
+      Map<Path, PartitionDesc> pathToPartitionInfo)
       throws IOException {
     init(job);
-    Map<String, ArrayList<String>> pathToAliases = mrwork.getPathToAliases();
+    Map<Path, ArrayList<String>> pathToAliases = mrwork.getPathToAliases();
     Map<String, Operator<? extends OperatorDesc>> aliasToWork =
       mrwork.getAliasToWork();
     CombineFileInputFormatShim combine = ShimLoader.getHadoopShims()
@@ -346,16 +353,21 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
 
     // combine splits only from same tables and same partitions. Do not combine splits from multiple
     // tables or multiple partitions.
-    Path[] paths = combine.getInputPathsShim(job);
+    Path[] paths = StringInternUtils.internUriStringsInPathArray(combine.getInputPathsShim(job));
 
     List<Path> inpDirs = new ArrayList<Path>();
     List<Path> inpFiles = new ArrayList<Path>();
     Map<CombinePathInputFormat, CombineFilter> poolMap =
       new HashMap<CombinePathInputFormat, CombineFilter>();
     Set<Path> poolSet = new HashSet<Path>();
+    LockedDriverState lDrvStat = LockedDriverState.getLockedDriverState();
 
     for (Path path : paths) {
-      PartitionDesc part = HiveFileFormatUtils.getPartitionDescFromPathRecursively(
+      if (lDrvStat != null && lDrvStat.isAborted()) {
+        throw new IOException("Operation is Canceled. ");
+      }
+
+      PartitionDesc part = HiveFileFormatUtils.getFromPathRecursively(
           pathToPartitionInfo, path, IOPrepareCache.get().allocatePartitionDescMap());
       TableDesc tableDesc = part.getTableDesc();
       if ((tableDesc != null) && tableDesc.isNonNative()) {
@@ -403,7 +415,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
           combine.createPool(job, f);
           poolMap.put(combinePathInputFormat, f);
         } else {
-          LOG.info("CombineHiveInputSplit: pool is already created for " + path +
+          LOG.debug("CombineHiveInputSplit: pool is already created for " + path +
                    "; using filter path " + filterPath);
           f.addPath(filterPath);
         }
@@ -452,9 +464,38 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
       CombineHiveInputSplit csplit = new CombineHiveInputSplit(job, is, pathToPartitionInfo);
       result.add(csplit);
     }
-
     LOG.info("number of splits " + result.size());
-    return result.toArray(new CombineHiveInputSplit[result.size()]);
+    return result.toArray(new InputSplit[result.size()]);
+  }
+
+  /**
+   * Gets all the path indices that should not be combined
+   */
+  @VisibleForTesting
+  public Set<Integer> getNonCombinablePathIndices(JobConf job, Path[] paths, int numThreads)
+      throws ExecutionException, InterruptedException {
+    LOG.info("Total number of paths: " + paths.length +
+        ", launching " + numThreads + " threads to check non-combinable ones.");
+    int numPathPerThread = (int) Math.ceil((double) paths.length / numThreads);
+
+    ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+    List<Future<Set<Integer>>> futureList = new ArrayList<Future<Set<Integer>>>(numThreads);
+    try {
+      boolean isMerge = mrwork != null && mrwork.isMergeFromResolver();
+      for (int i = 0; i < numThreads; i++) {
+        int start = i * numPathPerThread;
+        int length = i != numThreads - 1 ? numPathPerThread : paths.length - start;
+        futureList.add(executor.submit(new CheckNonCombinablePathCallable(
+            paths, start, length, job, isMerge)));
+      }
+      Set<Integer> nonCombinablePathIndices = new HashSet<Integer>();
+      for (Future<Set<Integer>> future : futureList) {
+        nonCombinablePathIndices.addAll(future.get());
+      }
+      return nonCombinablePathIndices;
+    } finally {
+      executor.shutdownNow();
+    }
   }
 
   /**
@@ -462,7 +503,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
    */
   @Override
   public InputSplit[] getSplits(JobConf job, int numSplits) throws IOException {
-    PerfLogger perfLogger = PerfLogger.getPerfLogger();
+    PerfLogger perfLogger = SessionState.getPerfLogger();
     perfLogger.PerfLogBegin(CLASS_NAME, PerfLogger.GET_SPLITS);
     init(job);
 
@@ -475,27 +516,13 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
 
     int numThreads = Math.min(MAX_CHECK_NONCOMBINABLE_THREAD_NUM,
         (int) Math.ceil((double) paths.length / DEFAULT_NUM_PATH_PER_THREAD));
-    int numPathPerThread = (int) Math.ceil((double) paths.length / numThreads);
 
     // This check is necessary because for Spark branch, the result array from
     // getInputPaths() above could be empty, and therefore numThreads could be 0.
     // In that case, Executors.newFixedThreadPool will fail.
     if (numThreads > 0) {
-      LOG.info("Total number of paths: " + paths.length +
-          ", launching " + numThreads + " threads to check non-combinable ones.");
-      ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-      List<Future<Set<Integer>>> futureList = new ArrayList<Future<Set<Integer>>>(numThreads);
       try {
-        for (int i = 0; i < numThreads; i++) {
-          int start = i * numPathPerThread;
-          int length = i != numThreads - 1 ? numPathPerThread : paths.length - start;
-          futureList.add(executor.submit(
-              new CheckNonCombinablePathCallable(paths, start, length, job)));
-        }
-        Set<Integer> nonCombinablePathIndices = new HashSet<Integer>();
-        for (Future<Set<Integer>> future : futureList) {
-          nonCombinablePathIndices.addAll(future.get());
-        }
+        Set<Integer> nonCombinablePathIndices = getNonCombinablePathIndices(job, paths, numThreads);
         for (int i = 0; i < paths.length; i++) {
           if (nonCombinablePathIndices.contains(i)) {
             nonCombinablePaths.add(paths[i]);
@@ -507,17 +534,15 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
         LOG.error("Error checking non-combinable path", e);
         perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.GET_SPLITS);
         throw new IOException(e);
-      } finally {
-        executor.shutdownNow();
       }
     }
 
     // Store the previous value for the path specification
-    String oldPaths = job.get(HiveConf.ConfVars.HADOOPMAPREDINPUTDIR.varname);
+    String oldPaths = job.get(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR);
     if (LOG.isDebugEnabled()) {
       LOG.debug("The received input paths are: [" + oldPaths +
           "] against the property "
-          + HiveConf.ConfVars.HADOOPMAPREDINPUTDIR.varname);
+          + org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR);
     }
 
     // Process the normal splits
@@ -534,7 +559,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
     if (combinablePaths.size() > 0) {
       FileInputFormat.setInputPaths(job, combinablePaths.toArray
           (new Path[combinablePaths.size()]));
-      Map<String, PartitionDesc> pathToPartitionInfo = this.pathToPartitionInfo != null ?
+      Map<Path, PartitionDesc> pathToPartitionInfo = this.pathToPartitionInfo != null ?
           this.pathToPartitionInfo : Utilities.getMapWork(job).getPathToPartitionInfo();
       InputSplit[] splits = getCombineSplits(job, numSplits, pathToPartitionInfo);
       for (InputSplit split : splits) {
@@ -546,11 +571,18 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
     // This is just to prevent incompatibilities with previous versions Hive
     // if some application depends on the original value being set.
     if (oldPaths != null) {
-      job.set(HiveConf.ConfVars.HADOOPMAPREDINPUTDIR.varname, oldPaths);
+      job.set(org.apache.hadoop.mapreduce.lib.input.FileInputFormat.INPUT_DIR, oldPaths);
     }
 
     // clear work from ThreadLocal after splits generated in case of thread is reused in pool.
     Utilities.clearWorkMapForConf(job);
+
+    if (result.isEmpty() && paths.length > 0 && job.getBoolean(Utilities.ENSURE_OPERATORS_EXECUTED, false)) {
+      // If there are no inputs; the Execution engine skips the operator tree.
+      // To prevent it from happening; an opaque  ZeroRows input is added here - when needed.
+      result.add(
+          new HiveInputSplit(new NullRowsInputFormat.DummyInputSplit(paths[0]), ZeroRowsInputFormat.class.getName()));
+    }
 
     LOG.info("Number of all splits " + result.size());
     perfLogger.PerfLogEnd(CLASS_NAME, PerfLogger.GET_SPLITS);
@@ -579,8 +611,8 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
     HashMap<String, SplitSample> nameToSamples = mrwork.getNameToSplitSample();
     List<CombineFileSplit> retLists = new ArrayList<CombineFileSplit>();
     Map<String, ArrayList<CombineFileSplit>> aliasToSplitList = new HashMap<String, ArrayList<CombineFileSplit>>();
-    Map<String, ArrayList<String>> pathToAliases = mrwork.getPathToAliases();
-    Map<String, ArrayList<String>> pathToAliasesNoScheme = removeScheme(pathToAliases);
+    Map<Path, ArrayList<String>> pathToAliases = mrwork.getPathToAliases();
+    Map<Path, ArrayList<String>> pathToAliasesNoScheme = removeScheme(pathToAliases);
 
     // Populate list of exclusive splits for every sampled alias
     //
@@ -595,7 +627,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
         // 2. the alias it serves is not sampled
         // 3. it serves different alias than another path for the same split
         if (l.size() != 1 || !nameToSamples.containsKey(l.get(0)) ||
-            (alias != null && l.get(0) != alias)) {
+            (alias != null && !alias.equals(l.get(0)))) {
           alias = null;
           break;
         }
@@ -649,10 +681,11 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
     return retLists;
   }
 
-  Map<String, ArrayList<String>> removeScheme(Map<String, ArrayList<String>> pathToAliases) {
-    Map<String, ArrayList<String>> result = new HashMap<String, ArrayList<String>>();
-    for (Map.Entry <String, ArrayList<String>> entry : pathToAliases.entrySet()) {
-      String newKey = new Path(entry.getKey()).toUri().getPath();
+  Map<Path, ArrayList<String>> removeScheme(Map<Path, ArrayList<String>> pathToAliases) {
+    Map<Path, ArrayList<String>> result = new HashMap<>();
+    for (Map.Entry <Path, ArrayList<String>> entry : pathToAliases.entrySet()) {
+      Path newKey = Path.getPathWithoutSchemeAndAuthority(entry.getKey());
+      StringInternUtils.internUriStringsInPath(newKey);
       result.put(newKey, entry.getValue());
     }
     return result;
@@ -680,9 +713,7 @@ public class CombineHiveInputFormat<K extends WritableComparable, V extends Writ
       throw new IOException("cannot find class " + inputFormatClassName);
     }
 
-    pushProjectionsAndFilters(job, inputFormatClass,
-        hsplit.getPath(0).toString(),
-        hsplit.getPath(0).toUri().getPath());
+    pushProjectionsAndFilters(job, inputFormatClass, hsplit.getPath(0));
 
     return ShimLoader.getHadoopShims().getCombineFileInputFormat()
         .getRecordReader(job,

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -37,7 +37,12 @@ public class JavaHiveCharObjectInspector extends AbstractPrimitiveJavaObjectInsp
     if (o == null) {
       return null;
     }
-    HiveChar value = (HiveChar) o;
+    HiveChar value;
+    if (o instanceof String) {
+      value = new HiveChar((String) o, getMaxLength());
+    } else {
+      value = (HiveChar) o;
+    }
     if (BaseCharUtils.doesPrimitiveMatchTypeParams(value, (CharTypeInfo) typeInfo)) {
       return value;
     }
@@ -49,7 +54,13 @@ public class JavaHiveCharObjectInspector extends AbstractPrimitiveJavaObjectInsp
     if (o == null) {
       return null;
     }
-    return getWritableWithParams((HiveChar) o);
+    HiveChar var;
+    if (o instanceof String) {
+      var = new HiveChar((String) o, getMaxLength());
+    } else {
+      var = (HiveChar) o;
+    }
+    return getWritableWithParams(var);
   }
 
   private HiveChar getPrimitiveWithParams(HiveChar val) {

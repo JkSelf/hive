@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -24,7 +24,9 @@ import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.io.BytesWritable;
 
 /*
- * An single byte array value hash map optimized for vector map join.
+ * An single STRING key hash multi-set optimized for vector map join.
+ *
+ * The key will be deserialized and just the bytes will be stored.
  */
 public class VectorMapJoinFastStringHashMultiSet extends VectorMapJoinFastBytesHashMultiSet {
 
@@ -37,8 +39,16 @@ public class VectorMapJoinFastStringHashMultiSet extends VectorMapJoinFastBytesH
 
   public VectorMapJoinFastStringHashMultiSet(
       boolean isOuterJoin,
-      int initialCapacity, float loadFactor, int writeBuffersSize) {
-    super(initialCapacity, loadFactor, writeBuffersSize);
+      int initialCapacity, float loadFactor, int writeBuffersSize, long estimatedKeyCount) {
+    super(initialCapacity, loadFactor, writeBuffersSize, estimatedKeyCount);
     stringCommon = new VectorMapJoinFastStringCommon(isOuterJoin);
+  }
+
+  @Override
+  public long getEstimatedMemorySize() {
+    // adding 16KB constant memory for stringCommon as the rabit hole is deep to implement
+    // MemoryEstimate interface, also it is constant overhead
+    long size = (16 * 1024L);
+    return super.getEstimatedMemorySize() + size;
   }
 }

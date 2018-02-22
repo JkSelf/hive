@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,13 +27,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Stack;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.ql.exec.FilterOperator;
 import org.apache.hadoop.hive.ql.exec.TableScanOperator;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.hive.ql.lib.DefaultGraphWalker;
 import org.apache.hadoop.hive.ql.lib.DefaultRuleDispatcher;
 import org.apache.hadoop.hive.ql.lib.Dispatcher;
@@ -54,7 +55,7 @@ import org.apache.hadoop.hive.ql.plan.FilterDesc.SampleDesc;
  * The transformation step that does sample pruning.
  *
  */
-public class SamplePruner implements Transform {
+public class SamplePruner extends Transform {
 
   /**
    * SamplePrunerCtx.
@@ -86,8 +87,8 @@ public class SamplePruner implements Transform {
   }
 
   // The log
-  private static final Log LOG = LogFactory
-      .getLog("hive.ql.optimizer.SamplePruner");
+  private static final Logger LOG = LoggerFactory
+      .getLogger("hive.ql.optimizer.SamplePruner");
 
   /*
    * (non-Javadoc)
@@ -190,7 +191,9 @@ public class SamplePruner implements Transform {
     String fullScanMsg = "";
 
     // check if input pruning is possible
-    if (sampleDescr.getInputPruning()) {
+    // TODO: this code is buggy - it relies on having one file per bucket; no MM support (by design).
+    boolean isMmTable = AcidUtils.isInsertOnlyTable(part.getTable().getParameters());
+    if (sampleDescr.getInputPruning() && !isMmTable) {
       LOG.trace("numerator = " + num);
       LOG.trace("denominator = " + den);
       LOG.trace("bucket count = " + bucketCount);
@@ -217,7 +220,7 @@ public class SamplePruner implements Transform {
       }
     } else {
       // need to do full scan
-      fullScanMsg = "Tablesample not on clustered columns";
+      fullScanMsg = isMmTable ? "MM table" : "Tablesample not on clustered columns";
     }
     LOG.warn(fullScanMsg + ", using full table scan");
     Path[] ret = part.getPath();

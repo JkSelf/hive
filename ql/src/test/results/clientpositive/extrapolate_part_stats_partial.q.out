@@ -67,514 +67,70 @@ PREHOOK: query: analyze table loc_orc_1d partition(year='2001') compute statisti
 PREHOOK: type: QUERY
 PREHOOK: Input: default@loc_orc_1d
 PREHOOK: Input: default@loc_orc_1d@year=2001
+PREHOOK: Output: default@loc_orc_1d
+PREHOOK: Output: default@loc_orc_1d@year=2001
 #### A masked pattern was here ####
 POSTHOOK: query: analyze table loc_orc_1d partition(year='2001') compute statistics for columns state,locid
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@loc_orc_1d
 POSTHOOK: Input: default@loc_orc_1d@year=2001
+POSTHOOK: Output: default@loc_orc_1d
+POSTHOOK: Output: default@loc_orc_1d@year=2001
 #### A masked pattern was here ####
 PREHOOK: query: analyze table loc_orc_1d partition(year='2002') compute statistics for columns state,locid
 PREHOOK: type: QUERY
 PREHOOK: Input: default@loc_orc_1d
 PREHOOK: Input: default@loc_orc_1d@year=2002
+PREHOOK: Output: default@loc_orc_1d
+PREHOOK: Output: default@loc_orc_1d@year=2002
 #### A masked pattern was here ####
 POSTHOOK: query: analyze table loc_orc_1d partition(year='2002') compute statistics for columns state,locid
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@loc_orc_1d
 POSTHOOK: Input: default@loc_orc_1d@year=2002
+POSTHOOK: Output: default@loc_orc_1d
+POSTHOOK: Output: default@loc_orc_1d@year=2002
 #### A masked pattern was here ####
-PREHOOK: query: describe formatted loc_orc_1d.state PARTITION(year='2001')
+PREHOOK: query: describe formatted loc_orc_1d PARTITION(year='2001') state
 PREHOOK: type: DESCTABLE
 PREHOOK: Input: default@loc_orc_1d
-POSTHOOK: query: describe formatted loc_orc_1d.state PARTITION(year='2001')
+POSTHOOK: query: describe formatted loc_orc_1d PARTITION(year='2001') state
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@loc_orc_1d
-# col_name            	data_type           	min                 	max                 	num_nulls           	distinct_count      	avg_col_len         	max_col_len         	num_trues           	num_falses          	comment             
-	 	 	 	 	 	 	 	 	 	 
-state               	string              	                    	                    	0                   	3                   	0.75                	2                   	                    	                    	from deserializer   
-PREHOOK: query: describe formatted loc_orc_1d.state PARTITION(year='2002')
+col_name            	state               	 	 	 	 	 	 	 	 	 	 
+data_type           	string              	 	 	 	 	 	 	 	 	 	 
+min                 	                    	 	 	 	 	 	 	 	 	 	 
+max                 	                    	 	 	 	 	 	 	 	 	 	 
+num_nulls           	0                   	 	 	 	 	 	 	 	 	 	 
+distinct_count      	3                   	 	 	 	 	 	 	 	 	 	 
+avg_col_len         	0.75                	 	 	 	 	 	 	 	 	 	 
+max_col_len         	2                   	 	 	 	 	 	 	 	 	 	 
+num_trues           	                    	 	 	 	 	 	 	 	 	 	 
+num_falses          	                    	 	 	 	 	 	 	 	 	 	 
+bitVector           	HL                  	 	 	 	 	 	 	 	 	 	 
+comment             	from deserializer   	 	 	 	 	 	 	 	 	 	 
+PREHOOK: query: describe formatted loc_orc_1d PARTITION(year='2002') state
 PREHOOK: type: DESCTABLE
 PREHOOK: Input: default@loc_orc_1d
-POSTHOOK: query: describe formatted loc_orc_1d.state PARTITION(year='2002')
+POSTHOOK: query: describe formatted loc_orc_1d PARTITION(year='2002') state
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@loc_orc_1d
-# col_name            	data_type           	min                 	max                 	num_nulls           	distinct_count      	avg_col_len         	max_col_len         	num_trues           	num_falses          	comment             
-	 	 	 	 	 	 	 	 	 	 
-state               	string              	                    	                    	0                   	6                   	3.0                 	3                   	                    	                    	from deserializer   
-PREHOOK: query: -- basicStatState: COMPLETE colStatState: PARTIAL
-explain extended select state from loc_orc_1d
-PREHOOK: type: QUERY
-POSTHOOK: query: -- basicStatState: COMPLETE colStatState: PARTIAL
-explain extended select state from loc_orc_1d
-POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_TABREF
-         TOK_TABNAME
-            loc_orc_1d
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               state
-
-
-STAGE DEPENDENCIES:
-  Stage-0 is a root stage
-
-STAGE PLANS:
-  Stage: Stage-0
-    Fetch Operator
-      limit: -1
-      Partition Description:
-          Partition
-            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-            partition values:
-              year 2000
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns state,locid,zip
-              columns.comments 
-              columns.types string:int:int
-#### A masked pattern was here ####
-              name default.loc_orc_1d
-              numFiles 1
-              numRows 2
-              partition_columns year
-              partition_columns.types string
-              rawDataSize 184
-              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 362
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-          
-              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-              properties:
-                bucket_count -1
-                columns state,locid,zip
-                columns.comments 
-                columns.types string:int:int
-#### A masked pattern was here ####
-                name default.loc_orc_1d
-                partition_columns year
-                partition_columns.types string
-                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              name: default.loc_orc_1d
-            name: default.loc_orc_1d
-          Partition
-            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-            partition values:
-              year 2001
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns state,locid,zip
-              columns.comments 
-              columns.types string:int:int
-#### A masked pattern was here ####
-              name default.loc_orc_1d
-              numFiles 1
-              numRows 4
-              partition_columns year
-              partition_columns.types string
-              rawDataSize 368
-              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 383
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-          
-              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-              properties:
-                bucket_count -1
-                columns state,locid,zip
-                columns.comments 
-                columns.types string:int:int
-#### A masked pattern was here ####
-                name default.loc_orc_1d
-                partition_columns year
-                partition_columns.types string
-                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              name: default.loc_orc_1d
-            name: default.loc_orc_1d
-          Partition
-            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-            partition values:
-              year 2002
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns state,locid,zip
-              columns.comments 
-              columns.types string:int:int
-#### A masked pattern was here ####
-              name default.loc_orc_1d
-              numFiles 1
-              numRows 6
-              partition_columns year
-              partition_columns.types string
-              rawDataSize 570
-              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 404
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-          
-              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-              properties:
-                bucket_count -1
-                columns state,locid,zip
-                columns.comments 
-                columns.types string:int:int
-#### A masked pattern was here ####
-                name default.loc_orc_1d
-                partition_columns year
-                partition_columns.types string
-                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              name: default.loc_orc_1d
-            name: default.loc_orc_1d
-          Partition
-            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-            partition values:
-              year 2003
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns state,locid,zip
-              columns.comments 
-              columns.types string:int:int
-#### A masked pattern was here ####
-              name default.loc_orc_1d
-              numFiles 1
-              numRows 8
-              partition_columns year
-              partition_columns.types string
-              rawDataSize 744
-              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 412
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-          
-              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-              properties:
-                bucket_count -1
-                columns state,locid,zip
-                columns.comments 
-                columns.types string:int:int
-#### A masked pattern was here ####
-                name default.loc_orc_1d
-                partition_columns year
-                partition_columns.types string
-                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              name: default.loc_orc_1d
-            name: default.loc_orc_1d
-      Processor Tree:
-        TableScan
-          alias: loc_orc_1d
-          Statistics: Num rows: 20 Data size: 1866 Basic stats: COMPLETE Column stats: PARTIAL
-          GatherStats: false
-          Select Operator
-            expressions: state (type: string)
-            outputColumnNames: _col0
-            Statistics: Num rows: 20 Data size: 1780 Basic stats: COMPLETE Column stats: PARTIAL
-            ListSink
-
-PREHOOK: query: -- column statistics for __HIVE_DEFAULT_PARTITION__ is not supported yet. Hence colStatState reports PARTIAL
--- basicStatState: COMPLETE colStatState: PARTIAL
-explain extended select state,locid from loc_orc_1d
-PREHOOK: type: QUERY
-POSTHOOK: query: -- column statistics for __HIVE_DEFAULT_PARTITION__ is not supported yet. Hence colStatState reports PARTIAL
--- basicStatState: COMPLETE colStatState: PARTIAL
-explain extended select state,locid from loc_orc_1d
-POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_TABREF
-         TOK_TABNAME
-            loc_orc_1d
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               state
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               locid
-
-
-STAGE DEPENDENCIES:
-  Stage-0 is a root stage
-
-STAGE PLANS:
-  Stage: Stage-0
-    Fetch Operator
-      limit: -1
-      Partition Description:
-          Partition
-            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-            partition values:
-              year 2000
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns state,locid,zip
-              columns.comments 
-              columns.types string:int:int
-#### A masked pattern was here ####
-              name default.loc_orc_1d
-              numFiles 1
-              numRows 2
-              partition_columns year
-              partition_columns.types string
-              rawDataSize 184
-              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 362
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-          
-              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-              properties:
-                bucket_count -1
-                columns state,locid,zip
-                columns.comments 
-                columns.types string:int:int
-#### A masked pattern was here ####
-                name default.loc_orc_1d
-                partition_columns year
-                partition_columns.types string
-                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              name: default.loc_orc_1d
-            name: default.loc_orc_1d
-          Partition
-            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-            partition values:
-              year 2001
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns state,locid,zip
-              columns.comments 
-              columns.types string:int:int
-#### A masked pattern was here ####
-              name default.loc_orc_1d
-              numFiles 1
-              numRows 4
-              partition_columns year
-              partition_columns.types string
-              rawDataSize 368
-              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 383
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-          
-              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-              properties:
-                bucket_count -1
-                columns state,locid,zip
-                columns.comments 
-                columns.types string:int:int
-#### A masked pattern was here ####
-                name default.loc_orc_1d
-                partition_columns year
-                partition_columns.types string
-                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              name: default.loc_orc_1d
-            name: default.loc_orc_1d
-          Partition
-            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-            partition values:
-              year 2002
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns state,locid,zip
-              columns.comments 
-              columns.types string:int:int
-#### A masked pattern was here ####
-              name default.loc_orc_1d
-              numFiles 1
-              numRows 6
-              partition_columns year
-              partition_columns.types string
-              rawDataSize 570
-              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 404
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-          
-              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-              properties:
-                bucket_count -1
-                columns state,locid,zip
-                columns.comments 
-                columns.types string:int:int
-#### A masked pattern was here ####
-                name default.loc_orc_1d
-                partition_columns year
-                partition_columns.types string
-                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              name: default.loc_orc_1d
-            name: default.loc_orc_1d
-          Partition
-            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-            partition values:
-              year 2003
-            properties:
-              COLUMN_STATS_ACCURATE true
-              bucket_count -1
-              columns state,locid,zip
-              columns.comments 
-              columns.types string:int:int
-#### A masked pattern was here ####
-              name default.loc_orc_1d
-              numFiles 1
-              numRows 8
-              partition_columns year
-              partition_columns.types string
-              rawDataSize 744
-              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-              serialization.format 1
-              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 412
-#### A masked pattern was here ####
-            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-          
-              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
-              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
-              properties:
-                bucket_count -1
-                columns state,locid,zip
-                columns.comments 
-                columns.types string:int:int
-#### A masked pattern was here ####
-                name default.loc_orc_1d
-                partition_columns year
-                partition_columns.types string
-                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
-                serialization.format 1
-                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-#### A masked pattern was here ####
-              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              name: default.loc_orc_1d
-            name: default.loc_orc_1d
-      Processor Tree:
-        TableScan
-          alias: loc_orc_1d
-          Statistics: Num rows: 20 Data size: 1866 Basic stats: COMPLETE Column stats: PARTIAL
-          GatherStats: false
-          Select Operator
-            expressions: state (type: string), locid (type: int)
-            outputColumnNames: _col0, _col1
-            Statistics: Num rows: 20 Data size: 1860 Basic stats: COMPLETE Column stats: PARTIAL
-            ListSink
-
-PREHOOK: query: analyze table loc_orc_1d partition(year='2000') compute statistics for columns state
-PREHOOK: type: QUERY
-PREHOOK: Input: default@loc_orc_1d
-PREHOOK: Input: default@loc_orc_1d@year=2000
-#### A masked pattern was here ####
-POSTHOOK: query: analyze table loc_orc_1d partition(year='2000') compute statistics for columns state
-POSTHOOK: type: QUERY
-POSTHOOK: Input: default@loc_orc_1d
-POSTHOOK: Input: default@loc_orc_1d@year=2000
-#### A masked pattern was here ####
-PREHOOK: query: analyze table loc_orc_1d partition(year='2003') compute statistics for columns state
-PREHOOK: type: QUERY
-PREHOOK: Input: default@loc_orc_1d
-PREHOOK: Input: default@loc_orc_1d@year=2003
-#### A masked pattern was here ####
-POSTHOOK: query: analyze table loc_orc_1d partition(year='2003') compute statistics for columns state
-POSTHOOK: type: QUERY
-POSTHOOK: Input: default@loc_orc_1d
-POSTHOOK: Input: default@loc_orc_1d@year=2003
-#### A masked pattern was here ####
+col_name            	state               	 	 	 	 	 	 	 	 	 	 
+data_type           	string              	 	 	 	 	 	 	 	 	 	 
+min                 	                    	 	 	 	 	 	 	 	 	 	 
+max                 	                    	 	 	 	 	 	 	 	 	 	 
+num_nulls           	0                   	 	 	 	 	 	 	 	 	 	 
+distinct_count      	6                   	 	 	 	 	 	 	 	 	 	 
+avg_col_len         	3.0                 	 	 	 	 	 	 	 	 	 	 
+max_col_len         	3                   	 	 	 	 	 	 	 	 	 	 
+num_trues           	                    	 	 	 	 	 	 	 	 	 	 
+num_falses          	                    	 	 	 	 	 	 	 	 	 	 
+bitVector           	HL                  	 	 	 	 	 	 	 	 	 	 
+comment             	from deserializer   	 	 	 	 	 	 	 	 	 	 
 PREHOOK: query: explain extended select state from loc_orc_1d
 PREHOOK: type: QUERY
 POSTHOOK: query: explain extended select state from loc_orc_1d
 POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_TABREF
-         TOK_TABNAME
-            loc_orc_1d
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               state
-
-
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
 
@@ -589,8 +145,9 @@ STAGE PLANS:
             partition values:
               year 2000
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid,zip
               columns.comments 
               columns.types string:int:int
@@ -604,7 +161,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 362
+              totalSize 369
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -612,6 +169,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid,zip
                 columns.comments 
                 columns.types string:int:int
@@ -632,8 +190,9 @@ STAGE PLANS:
             partition values:
               year 2001
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid,zip
               columns.comments 
               columns.types string:int:int
@@ -647,7 +206,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 383
+              totalSize 390
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -655,6 +214,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid,zip
                 columns.comments 
                 columns.types string:int:int
@@ -675,8 +235,9 @@ STAGE PLANS:
             partition values:
               year 2002
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid,zip
               columns.comments 
               columns.types string:int:int
@@ -690,7 +251,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 404
+              totalSize 410
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -698,6 +259,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid,zip
                 columns.comments 
                 columns.types string:int:int
@@ -718,8 +280,9 @@ STAGE PLANS:
             partition values:
               year 2003
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid,zip
               columns.comments 
               columns.types string:int:int
@@ -733,7 +296,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 412
+              totalSize 419
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -741,6 +304,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid,zip
                 columns.comments 
                 columns.types string:int:int
@@ -758,7 +322,7 @@ STAGE PLANS:
       Processor Tree:
         TableScan
           alias: loc_orc_1d
-          Statistics: Num rows: 20 Data size: 1866 Basic stats: COMPLETE Column stats: COMPLETE
+          Statistics: Num rows: 20 Data size: 1740 Basic stats: COMPLETE Column stats: COMPLETE
           GatherStats: false
           Select Operator
             expressions: state (type: string)
@@ -770,26 +334,6 @@ PREHOOK: query: explain extended select state,locid from loc_orc_1d
 PREHOOK: type: QUERY
 POSTHOOK: query: explain extended select state,locid from loc_orc_1d
 POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_TABREF
-         TOK_TABNAME
-            loc_orc_1d
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               state
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               locid
-
-
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
 
@@ -804,8 +348,9 @@ STAGE PLANS:
             partition values:
               year 2000
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid,zip
               columns.comments 
               columns.types string:int:int
@@ -819,7 +364,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 362
+              totalSize 369
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -827,6 +372,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid,zip
                 columns.comments 
                 columns.types string:int:int
@@ -847,8 +393,9 @@ STAGE PLANS:
             partition values:
               year 2001
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid,zip
               columns.comments 
               columns.types string:int:int
@@ -862,7 +409,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 383
+              totalSize 390
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -870,6 +417,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid,zip
                 columns.comments 
                 columns.types string:int:int
@@ -890,8 +438,9 @@ STAGE PLANS:
             partition values:
               year 2002
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid,zip
               columns.comments 
               columns.types string:int:int
@@ -905,7 +454,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 404
+              totalSize 410
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -913,6 +462,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid,zip
                 columns.comments 
                 columns.types string:int:int
@@ -933,8 +483,9 @@ STAGE PLANS:
             partition values:
               year 2003
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid,zip
               columns.comments 
               columns.types string:int:int
@@ -948,7 +499,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 412
+              totalSize 419
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -956,6 +507,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid,zip
                 columns.comments 
                 columns.types string:int:int
@@ -973,12 +525,446 @@ STAGE PLANS:
       Processor Tree:
         TableScan
           alias: loc_orc_1d
-          Statistics: Num rows: 20 Data size: 1866 Basic stats: COMPLETE Column stats: PARTIAL
+          Statistics: Num rows: 20 Data size: 1820 Basic stats: COMPLETE Column stats: COMPLETE
           GatherStats: false
           Select Operator
             expressions: state (type: string), locid (type: int)
             outputColumnNames: _col0, _col1
-            Statistics: Num rows: 20 Data size: 1820 Basic stats: COMPLETE Column stats: PARTIAL
+            Statistics: Num rows: 20 Data size: 1820 Basic stats: COMPLETE Column stats: COMPLETE
+            ListSink
+
+PREHOOK: query: analyze table loc_orc_1d partition(year='2000') compute statistics for columns state
+PREHOOK: type: QUERY
+PREHOOK: Input: default@loc_orc_1d
+PREHOOK: Input: default@loc_orc_1d@year=2000
+PREHOOK: Output: default@loc_orc_1d
+PREHOOK: Output: default@loc_orc_1d@year=2000
+#### A masked pattern was here ####
+POSTHOOK: query: analyze table loc_orc_1d partition(year='2000') compute statistics for columns state
+POSTHOOK: type: QUERY
+POSTHOOK: Input: default@loc_orc_1d
+POSTHOOK: Input: default@loc_orc_1d@year=2000
+POSTHOOK: Output: default@loc_orc_1d
+POSTHOOK: Output: default@loc_orc_1d@year=2000
+#### A masked pattern was here ####
+PREHOOK: query: analyze table loc_orc_1d partition(year='2003') compute statistics for columns state
+PREHOOK: type: QUERY
+PREHOOK: Input: default@loc_orc_1d
+PREHOOK: Input: default@loc_orc_1d@year=2003
+PREHOOK: Output: default@loc_orc_1d
+PREHOOK: Output: default@loc_orc_1d@year=2003
+#### A masked pattern was here ####
+POSTHOOK: query: analyze table loc_orc_1d partition(year='2003') compute statistics for columns state
+POSTHOOK: type: QUERY
+POSTHOOK: Input: default@loc_orc_1d
+POSTHOOK: Input: default@loc_orc_1d@year=2003
+POSTHOOK: Output: default@loc_orc_1d
+POSTHOOK: Output: default@loc_orc_1d@year=2003
+#### A masked pattern was here ####
+PREHOOK: query: explain extended select state from loc_orc_1d
+PREHOOK: type: QUERY
+POSTHOOK: query: explain extended select state from loc_orc_1d
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-0 is a root stage
+
+STAGE PLANS:
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Partition Description:
+          Partition
+            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+            partition values:
+              year 2000
+            properties:
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
+              bucket_count -1
+              column.name.delimiter ,
+              columns state,locid,zip
+              columns.comments 
+              columns.types string:int:int
+#### A masked pattern was here ####
+              name default.loc_orc_1d
+              numFiles 1
+              numRows 2
+              partition_columns year
+              partition_columns.types string
+              rawDataSize 184
+              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+              serialization.format 1
+              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              totalSize 369
+#### A masked pattern was here ####
+            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+          
+              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+              properties:
+                bucket_count -1
+                column.name.delimiter ,
+                columns state,locid,zip
+                columns.comments 
+                columns.types string:int:int
+#### A masked pattern was here ####
+                name default.loc_orc_1d
+                partition_columns year
+                partition_columns.types string
+                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+                serialization.format 1
+                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+#### A masked pattern was here ####
+              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              name: default.loc_orc_1d
+            name: default.loc_orc_1d
+          Partition
+            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+            partition values:
+              year 2001
+            properties:
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
+              bucket_count -1
+              column.name.delimiter ,
+              columns state,locid,zip
+              columns.comments 
+              columns.types string:int:int
+#### A masked pattern was here ####
+              name default.loc_orc_1d
+              numFiles 1
+              numRows 4
+              partition_columns year
+              partition_columns.types string
+              rawDataSize 368
+              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+              serialization.format 1
+              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              totalSize 390
+#### A masked pattern was here ####
+            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+          
+              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+              properties:
+                bucket_count -1
+                column.name.delimiter ,
+                columns state,locid,zip
+                columns.comments 
+                columns.types string:int:int
+#### A masked pattern was here ####
+                name default.loc_orc_1d
+                partition_columns year
+                partition_columns.types string
+                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+                serialization.format 1
+                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+#### A masked pattern was here ####
+              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              name: default.loc_orc_1d
+            name: default.loc_orc_1d
+          Partition
+            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+            partition values:
+              year 2002
+            properties:
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
+              bucket_count -1
+              column.name.delimiter ,
+              columns state,locid,zip
+              columns.comments 
+              columns.types string:int:int
+#### A masked pattern was here ####
+              name default.loc_orc_1d
+              numFiles 1
+              numRows 6
+              partition_columns year
+              partition_columns.types string
+              rawDataSize 570
+              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+              serialization.format 1
+              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              totalSize 410
+#### A masked pattern was here ####
+            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+          
+              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+              properties:
+                bucket_count -1
+                column.name.delimiter ,
+                columns state,locid,zip
+                columns.comments 
+                columns.types string:int:int
+#### A masked pattern was here ####
+                name default.loc_orc_1d
+                partition_columns year
+                partition_columns.types string
+                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+                serialization.format 1
+                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+#### A masked pattern was here ####
+              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              name: default.loc_orc_1d
+            name: default.loc_orc_1d
+          Partition
+            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+            partition values:
+              year 2003
+            properties:
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
+              bucket_count -1
+              column.name.delimiter ,
+              columns state,locid,zip
+              columns.comments 
+              columns.types string:int:int
+#### A masked pattern was here ####
+              name default.loc_orc_1d
+              numFiles 1
+              numRows 8
+              partition_columns year
+              partition_columns.types string
+              rawDataSize 744
+              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+              serialization.format 1
+              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              totalSize 419
+#### A masked pattern was here ####
+            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+          
+              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+              properties:
+                bucket_count -1
+                column.name.delimiter ,
+                columns state,locid,zip
+                columns.comments 
+                columns.types string:int:int
+#### A masked pattern was here ####
+                name default.loc_orc_1d
+                partition_columns year
+                partition_columns.types string
+                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+                serialization.format 1
+                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+#### A masked pattern was here ####
+              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              name: default.loc_orc_1d
+            name: default.loc_orc_1d
+      Processor Tree:
+        TableScan
+          alias: loc_orc_1d
+          Statistics: Num rows: 20 Data size: 1740 Basic stats: COMPLETE Column stats: COMPLETE
+          GatherStats: false
+          Select Operator
+            expressions: state (type: string)
+            outputColumnNames: _col0
+            Statistics: Num rows: 20 Data size: 1740 Basic stats: COMPLETE Column stats: COMPLETE
+            ListSink
+
+PREHOOK: query: explain extended select state,locid from loc_orc_1d
+PREHOOK: type: QUERY
+POSTHOOK: query: explain extended select state,locid from loc_orc_1d
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-0 is a root stage
+
+STAGE PLANS:
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Partition Description:
+          Partition
+            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+            partition values:
+              year 2000
+            properties:
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
+              bucket_count -1
+              column.name.delimiter ,
+              columns state,locid,zip
+              columns.comments 
+              columns.types string:int:int
+#### A masked pattern was here ####
+              name default.loc_orc_1d
+              numFiles 1
+              numRows 2
+              partition_columns year
+              partition_columns.types string
+              rawDataSize 184
+              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+              serialization.format 1
+              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              totalSize 369
+#### A masked pattern was here ####
+            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+          
+              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+              properties:
+                bucket_count -1
+                column.name.delimiter ,
+                columns state,locid,zip
+                columns.comments 
+                columns.types string:int:int
+#### A masked pattern was here ####
+                name default.loc_orc_1d
+                partition_columns year
+                partition_columns.types string
+                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+                serialization.format 1
+                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+#### A masked pattern was here ####
+              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              name: default.loc_orc_1d
+            name: default.loc_orc_1d
+          Partition
+            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+            partition values:
+              year 2001
+            properties:
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
+              bucket_count -1
+              column.name.delimiter ,
+              columns state,locid,zip
+              columns.comments 
+              columns.types string:int:int
+#### A masked pattern was here ####
+              name default.loc_orc_1d
+              numFiles 1
+              numRows 4
+              partition_columns year
+              partition_columns.types string
+              rawDataSize 368
+              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+              serialization.format 1
+              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              totalSize 390
+#### A masked pattern was here ####
+            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+          
+              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+              properties:
+                bucket_count -1
+                column.name.delimiter ,
+                columns state,locid,zip
+                columns.comments 
+                columns.types string:int:int
+#### A masked pattern was here ####
+                name default.loc_orc_1d
+                partition_columns year
+                partition_columns.types string
+                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+                serialization.format 1
+                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+#### A masked pattern was here ####
+              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              name: default.loc_orc_1d
+            name: default.loc_orc_1d
+          Partition
+            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+            partition values:
+              year 2002
+            properties:
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
+              bucket_count -1
+              column.name.delimiter ,
+              columns state,locid,zip
+              columns.comments 
+              columns.types string:int:int
+#### A masked pattern was here ####
+              name default.loc_orc_1d
+              numFiles 1
+              numRows 6
+              partition_columns year
+              partition_columns.types string
+              rawDataSize 570
+              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+              serialization.format 1
+              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              totalSize 410
+#### A masked pattern was here ####
+            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+          
+              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+              properties:
+                bucket_count -1
+                column.name.delimiter ,
+                columns state,locid,zip
+                columns.comments 
+                columns.types string:int:int
+#### A masked pattern was here ####
+                name default.loc_orc_1d
+                partition_columns year
+                partition_columns.types string
+                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+                serialization.format 1
+                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+#### A masked pattern was here ####
+              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              name: default.loc_orc_1d
+            name: default.loc_orc_1d
+          Partition
+            input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+            output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+            partition values:
+              year 2003
+            properties:
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true","zip":"true"}}
+              bucket_count -1
+              column.name.delimiter ,
+              columns state,locid,zip
+              columns.comments 
+              columns.types string:int:int
+#### A masked pattern was here ####
+              name default.loc_orc_1d
+              numFiles 1
+              numRows 8
+              partition_columns year
+              partition_columns.types string
+              rawDataSize 744
+              serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+              serialization.format 1
+              serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              totalSize 419
+#### A masked pattern was here ####
+            serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+          
+              input format: org.apache.hadoop.hive.ql.io.orc.OrcInputFormat
+              output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
+              properties:
+                bucket_count -1
+                column.name.delimiter ,
+                columns state,locid,zip
+                columns.comments 
+                columns.types string:int:int
+#### A masked pattern was here ####
+                name default.loc_orc_1d
+                partition_columns year
+                partition_columns.types string
+                serialization.ddl struct loc_orc_1d { string state, i32 locid, i32 zip}
+                serialization.format 1
+                serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
+#### A masked pattern was here ####
+              serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
+              name: default.loc_orc_1d
+            name: default.loc_orc_1d
+      Processor Tree:
+        TableScan
+          alias: loc_orc_1d
+          Statistics: Num rows: 20 Data size: 1820 Basic stats: COMPLETE Column stats: COMPLETE
+          GatherStats: false
+          Select Operator
+            expressions: state (type: string), locid (type: int)
+            outputColumnNames: _col0, _col1
+            Statistics: Num rows: 20 Data size: 1820 Basic stats: COMPLETE Column stats: COMPLETE
             ListSink
 
 PREHOOK: query: create table if not exists loc_orc_2d (
@@ -1039,43 +1025,34 @@ PREHOOK: query: analyze table loc_orc_2d partition(zip=94086, year='2001') compu
 PREHOOK: type: QUERY
 PREHOOK: Input: default@loc_orc_2d
 PREHOOK: Input: default@loc_orc_2d@zip=94086/year=2001
+PREHOOK: Output: default@loc_orc_2d
+PREHOOK: Output: default@loc_orc_2d@zip=94086/year=2001
 #### A masked pattern was here ####
 POSTHOOK: query: analyze table loc_orc_2d partition(zip=94086, year='2001') compute statistics for columns state,locid
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@loc_orc_2d
 POSTHOOK: Input: default@loc_orc_2d@zip=94086/year=2001
+POSTHOOK: Output: default@loc_orc_2d
+POSTHOOK: Output: default@loc_orc_2d@zip=94086/year=2001
 #### A masked pattern was here ####
 PREHOOK: query: analyze table loc_orc_2d partition(zip=94087, year='2002') compute statistics for columns state,locid
 PREHOOK: type: QUERY
 PREHOOK: Input: default@loc_orc_2d
 PREHOOK: Input: default@loc_orc_2d@zip=94087/year=2002
+PREHOOK: Output: default@loc_orc_2d
+PREHOOK: Output: default@loc_orc_2d@zip=94087/year=2002
 #### A masked pattern was here ####
 POSTHOOK: query: analyze table loc_orc_2d partition(zip=94087, year='2002') compute statistics for columns state,locid
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@loc_orc_2d
 POSTHOOK: Input: default@loc_orc_2d@zip=94087/year=2002
+POSTHOOK: Output: default@loc_orc_2d
+POSTHOOK: Output: default@loc_orc_2d@zip=94087/year=2002
 #### A masked pattern was here ####
 PREHOOK: query: explain extended select state from loc_orc_2d
 PREHOOK: type: QUERY
 POSTHOOK: query: explain extended select state from loc_orc_2d
 POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_TABREF
-         TOK_TABNAME
-            loc_orc_2d
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               state
-
-
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
 
@@ -1091,8 +1068,9 @@ STAGE PLANS:
               year 2001
               zip 43201
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1106,7 +1084,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 281
+              totalSize 286
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1114,6 +1092,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1135,8 +1114,9 @@ STAGE PLANS:
               year 2002
               zip 43201
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1150,7 +1130,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 291
+              totalSize 295
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1158,6 +1138,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1179,8 +1160,9 @@ STAGE PLANS:
               year 2003
               zip 43201
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1194,7 +1176,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 298
+              totalSize 302
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1202,6 +1184,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1223,8 +1206,9 @@ STAGE PLANS:
               year 2000
               zip 94086
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1238,7 +1222,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 277
+              totalSize 281
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1246,6 +1230,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1267,8 +1252,9 @@ STAGE PLANS:
               year 2001
               zip 94086
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1282,7 +1268,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 272
+              totalSize 276
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1290,6 +1276,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1311,8 +1298,9 @@ STAGE PLANS:
               year 2002
               zip 94086
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1326,7 +1314,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 283
+              totalSize 288
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1334,6 +1322,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1355,8 +1344,9 @@ STAGE PLANS:
               year 2003
               zip 94086
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1370,7 +1360,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 292
+              totalSize 297
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1378,6 +1368,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1399,8 +1390,9 @@ STAGE PLANS:
               year 2000
               zip 94087
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1414,7 +1406,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 261
+              totalSize 265
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1422,6 +1414,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1443,8 +1436,9 @@ STAGE PLANS:
               year 2001
               zip 94087
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1458,7 +1452,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 261
+              totalSize 265
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1466,6 +1460,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1487,8 +1482,9 @@ STAGE PLANS:
               year 2002
               zip 94087
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1502,7 +1498,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 294
+              totalSize 298
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1510,6 +1506,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1531,8 +1528,9 @@ STAGE PLANS:
               year 2003
               zip 94087
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1546,7 +1544,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 291
+              totalSize 295
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1554,6 +1552,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1571,38 +1570,18 @@ STAGE PLANS:
       Processor Tree:
         TableScan
           alias: loc_orc_2d
-          Statistics: Num rows: 20 Data size: 1788 Basic stats: COMPLETE Column stats: PARTIAL
+          Statistics: Num rows: 20 Data size: 1740 Basic stats: COMPLETE Column stats: COMPLETE
           GatherStats: false
           Select Operator
             expressions: state (type: string)
             outputColumnNames: _col0
-            Statistics: Num rows: 20 Data size: 1760 Basic stats: COMPLETE Column stats: PARTIAL
+            Statistics: Num rows: 20 Data size: 1740 Basic stats: COMPLETE Column stats: COMPLETE
             ListSink
 
 PREHOOK: query: explain extended select state,locid from loc_orc_2d
 PREHOOK: type: QUERY
 POSTHOOK: query: explain extended select state,locid from loc_orc_2d
 POSTHOOK: type: QUERY
-ABSTRACT SYNTAX TREE:
-  
-TOK_QUERY
-   TOK_FROM
-      TOK_TABREF
-         TOK_TABNAME
-            loc_orc_2d
-   TOK_INSERT
-      TOK_DESTINATION
-         TOK_DIR
-            TOK_TMP_FILE
-      TOK_SELECT
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               state
-         TOK_SELEXPR
-            TOK_TABLE_OR_COL
-               locid
-
-
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
 
@@ -1618,8 +1597,9 @@ STAGE PLANS:
               year 2001
               zip 43201
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1633,7 +1613,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 281
+              totalSize 286
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1641,6 +1621,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1662,8 +1643,9 @@ STAGE PLANS:
               year 2002
               zip 43201
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1677,7 +1659,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 291
+              totalSize 295
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1685,6 +1667,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1706,8 +1689,9 @@ STAGE PLANS:
               year 2003
               zip 43201
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1721,7 +1705,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 298
+              totalSize 302
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1729,6 +1713,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1750,8 +1735,9 @@ STAGE PLANS:
               year 2000
               zip 94086
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1765,7 +1751,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 277
+              totalSize 281
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1773,6 +1759,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1794,8 +1781,9 @@ STAGE PLANS:
               year 2001
               zip 94086
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1809,7 +1797,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 272
+              totalSize 276
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1817,6 +1805,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1838,8 +1827,9 @@ STAGE PLANS:
               year 2002
               zip 94086
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1853,7 +1843,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 283
+              totalSize 288
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1861,6 +1851,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1882,8 +1873,9 @@ STAGE PLANS:
               year 2003
               zip 94086
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1897,7 +1889,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 292
+              totalSize 297
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1905,6 +1897,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1926,8 +1919,9 @@ STAGE PLANS:
               year 2000
               zip 94087
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1941,7 +1935,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 261
+              totalSize 265
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1949,6 +1943,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -1970,8 +1965,9 @@ STAGE PLANS:
               year 2001
               zip 94087
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -1985,7 +1981,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 261
+              totalSize 265
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -1993,6 +1989,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -2014,8 +2011,9 @@ STAGE PLANS:
               year 2002
               zip 94087
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -2029,7 +2027,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 294
+              totalSize 298
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -2037,6 +2035,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -2058,8 +2057,9 @@ STAGE PLANS:
               year 2003
               zip 94087
             properties:
-              COLUMN_STATS_ACCURATE true
+              COLUMN_STATS_ACCURATE {"BASIC_STATS":"true","COLUMN_STATS":{"locid":"true","state":"true"}}
               bucket_count -1
+              column.name.delimiter ,
               columns state,locid
               columns.comments 
               columns.types string:int
@@ -2073,7 +2073,7 @@ STAGE PLANS:
               serialization.ddl struct loc_orc_2d { string state, i32 locid}
               serialization.format 1
               serialization.lib org.apache.hadoop.hive.ql.io.orc.OrcSerde
-              totalSize 291
+              totalSize 295
 #### A masked pattern was here ####
             serde: org.apache.hadoop.hive.ql.io.orc.OrcSerde
           
@@ -2081,6 +2081,7 @@ STAGE PLANS:
               output format: org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat
               properties:
                 bucket_count -1
+                column.name.delimiter ,
                 columns state,locid
                 columns.comments 
                 columns.types string:int
@@ -2098,11 +2099,11 @@ STAGE PLANS:
       Processor Tree:
         TableScan
           alias: loc_orc_2d
-          Statistics: Num rows: 20 Data size: 1788 Basic stats: COMPLETE Column stats: PARTIAL
+          Statistics: Num rows: 20 Data size: 1820 Basic stats: COMPLETE Column stats: COMPLETE
           GatherStats: false
           Select Operator
             expressions: state (type: string), locid (type: int)
             outputColumnNames: _col0, _col1
-            Statistics: Num rows: 20 Data size: 1840 Basic stats: COMPLETE Column stats: PARTIAL
+            Statistics: Num rows: 20 Data size: 1820 Basic stats: COMPLETE Column stats: COMPLETE
             ListSink
 

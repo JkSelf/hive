@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -29,6 +29,7 @@ import java.util.Map;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.io.HiveCharWritable;
+import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
 import org.apache.hadoop.hive.serde2.io.HiveVarcharWritable;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
@@ -47,6 +48,7 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.LongObjectInspect
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.ShortObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.StringObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampLocalTZObjectInspector;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Text;
 
@@ -78,6 +80,46 @@ public final class LazyUtils {
       r = -1;
     }
     return r;
+  }
+
+  /**
+   * returns false, when the bytes definitely cannot be parsed into a base-10
+   * Number (Long or a Double)
+   * 
+   * If it returns true, the bytes might still be invalid, but not obviously.
+   */
+
+  public static boolean isNumberMaybe(byte[] buf, int offset, int len) {
+    switch (len) {
+    case 0:
+      return false;
+    case 1:
+      // space usually
+      return Character.isDigit(buf[offset]);
+    case 2:
+      // \N or -1 (allow latter)
+      return Character.isDigit(buf[offset + 1])
+          || Character.isDigit(buf[offset + 0]);
+    case 4:
+      // null or NULL
+      if (buf[offset] == 'N' || buf[offset] == 'n') {
+        return false;
+      }
+    }
+    // maybe valid - too expensive to check without a parse
+    return true;
+  }
+
+  /**
+   * returns false, when the bytes definitely cannot be parsed into a date/timestamp.
+   * 
+   * Y2k requirements and dash requirements say the string has to be at least
+   * yyyy-m-m = 8 bytes or more minimum; Timestamp needs to be at least 1 byte longer,
+   * but the Date check is necessary, but not sufficient.
+   */
+  public static boolean isDateMaybe(byte[] buf, int offset, int len) {
+    // maybe valid - too expensive to check without a parse
+    return len >= 8;
   }
 
   /**
@@ -153,10 +195,19 @@ public final class LazyUtils {
           if (i > start) {
             out.write(bytes, start, i - start);
           }
-          start = i;
-          if (i < len) {
-            out.write(escapeChar);
+
+          if (i == end) break;
+
+          out.write(escapeChar);
+          if (bytes[i] == '\r') {
+            out.write('r');
+            start = i + 1;
+          } else if (bytes[i] == '\n') {
+            out.write('n');
+            start = i + 1;
+          } else {
             // the current char will be written out later.
+            start = i;
           }
         }
       }
@@ -180,7 +231,8 @@ public final class LazyUtils {
       PrimitiveObjectInspector oi, boolean escaped, byte escapeChar,
       boolean[] needsEscape) throws IOException {
 
-    switch (oi.getPrimitiveCategory()) {
+    PrimitiveObjectInspector.PrimitiveCategory category = oi.getPrimitiveCategory();
+    switch (category) {
     case BOOLEAN: {
       boolean b = ((BooleanObjectInspector) oi).get(o);
       if (b) {
@@ -256,6 +308,11 @@ public final class LazyUtils {
           ((TimestampObjectInspector) oi).getPrimitiveWritableObject(o));
       break;
     }
+    case TIMESTAMPLOCALTZ: {
+      LazyTimestampLocalTZ.writeUTF8(out, ((TimestampLocalTZObjectInspector) oi).
+          getPrimitiveWritableObject(o));
+      break;
+    }
     case INTERVAL_YEAR_MONTH: {
       LazyHiveIntervalYearMonth.writeUTF8(out,
           ((HiveIntervalYearMonthObjectInspector) oi).getPrimitiveWritableObject(o));
@@ -267,12 +324,13 @@ public final class LazyUtils {
       break;
     }
     case DECIMAL: {
+      HiveDecimalObjectInspector decimalOI = (HiveDecimalObjectInspector) oi;
       LazyHiveDecimal.writeUTF8(out,
-        ((HiveDecimalObjectInspector) oi).getPrimitiveJavaObject(o));
+        decimalOI.getPrimitiveJavaObject(o), decimalOI.scale());
       break;
     }
     default: {
-      throw new RuntimeException("Hive internal error.");
+      throw new RuntimeException("Unknown primitive type: " + category);
     }
     }
   }
@@ -329,6 +387,18 @@ public final class LazyUtils {
         double d = ((DoubleObjectInspector) oi).get(o);
         dos.writeDouble(d);
         break;
+
+      case BINARY: {
+        BytesWritable bw = ((BinaryObjectInspector) oi).getPrimitiveWritableObject(o);
+        out.write(bw.getBytes(), 0, bw.getLength());
+        break;
+      }
+
+      case DECIMAL: {
+        HiveDecimalWritable hdw = ((HiveDecimalObjectInspector) oi).getPrimitiveWritableObject(o);
+        hdw.write(dos);
+        break;
+      }
 
       default:
         throw new RuntimeException("Hive internal error.");
@@ -415,12 +485,19 @@ public final class LazyUtils {
       byte[] outputBytes = data.getBytes();
       for (int i = 0; i < length; i++) {
         byte b = inputBytes[start + i];
-        if (b != escapeChar || i == length - 1) {
-          outputBytes[k++] = b;
+        if (b == escapeChar && i < length - 1) {
+          ++i;
+          // Check if it's '\r' or '\n'
+          if (inputBytes[start + i] == 'r') {
+            outputBytes[k++] = '\r';
+          } else if (inputBytes[start + i] == 'n') {
+            outputBytes[k++] = '\n';
+          } else {
+            // get the next byte
+            outputBytes[k++] = inputBytes[start + i];
+          }
         } else {
-          // get the next byte
-          i++;
-          outputBytes[k++] = inputBytes[start + i];
+          outputBytes[k++] = b;
         }
       }
       assert (k == outputLength);
@@ -439,7 +516,7 @@ public final class LazyUtils {
   public static byte getByte(String altValue, byte defaultVal) {
     if (altValue != null && altValue.length() > 0) {
       try {
-        return Byte.valueOf(altValue).byteValue();
+        return Byte.parseByte(altValue);
       } catch (NumberFormatException e) {
         return (byte) altValue.charAt(0);
       }

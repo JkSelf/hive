@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -28,7 +28,9 @@ import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.common.type.HiveIntervalDayTime;
 import org.apache.hadoop.hive.common.type.HiveIntervalYearMonth;
 import org.apache.hadoop.hive.common.type.HiveVarchar;
+import org.apache.hadoop.hive.common.type.RandomTypeUtil;
 import org.apache.hadoop.hive.serde2.binarysortable.MyTestPrimitiveClass.ExtraTypeInfo;
+import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector.PrimitiveCategory;
 
 public class MyTestClass {
 
@@ -77,7 +79,7 @@ public class MyTestClass {
       myBinary = MyTestPrimitiveClass.getRandBinary(r, r.nextInt(1000));
       myDecimal = (randField == field++) ? null : MyTestPrimitiveClass.getRandHiveDecimal(r, extraTypeInfo);
       myDate = (randField == field++) ? null : MyTestPrimitiveClass.getRandDate(r);
-      myTimestamp = (randField == field++) ? null : MyTestPrimitiveClass.getRandTimestamp(r);
+      myTimestamp = (randField == field++) ? null : RandomTypeUtil.getRandTimestamp(r);
       myIntervalYearMonth = (randField == field++) ? null : MyTestPrimitiveClass.getRandIntervalYearMonth(r);
       myIntervalDayTime = (randField == field++) ? null : MyTestPrimitiveClass.getRandIntervalDayTime(r);
 
@@ -201,4 +203,69 @@ public class MyTestClass {
     static Object[] nrIntervalDayTime = {
       HiveIntervalDayTime.valueOf("1 0:0:0")
     };
+
+    public static void nonRandomRowFill(Object[][] rows, PrimitiveCategory[] primitiveCategories) {
+      int minCount = Math.min(rows.length, nrDecimal.length);
+      for (int i = 0; i < minCount; i++) {
+        Object[] row = rows[i];
+        for (int c = 0; c < primitiveCategories.length; c++) {
+          if (primitiveCategories[c] == null) {
+            continue;
+          }
+          Object object = row[c];  // Current value.
+          switch (primitiveCategories[c]) {
+          case BOOLEAN:
+            // Use current for now.
+            break;
+          case BYTE:
+            object = nrByte;
+            break;
+          case SHORT:
+            object = nrShort;
+            break;
+          case INT:
+            object = nrInt;
+            break;
+          case LONG:
+            object = nrLong;
+            break;
+          case DATE:
+            object = nrDate;
+            break;
+          case FLOAT:
+            object = nrFloat;
+            break;
+          case DOUBLE:
+            object = nrDouble;
+            break;
+          case STRING:
+            object = nrString;
+            break;
+          case CHAR:
+            // Use current for now.
+            break;
+          case VARCHAR:
+            // Use current for now.
+            break;
+          case BINARY:
+            // Use current for now.
+            break;
+          case TIMESTAMP:
+            // Use current for now.
+            break;
+          case INTERVAL_YEAR_MONTH:
+            object = nrIntervalYearMonth;
+            break;
+          case INTERVAL_DAY_TIME:
+            object = nrIntervalDayTime;
+            break;
+          case DECIMAL:
+            object = nrDecimal[i];
+            break;
+          default:
+            throw new Error("Unknown primitive category " + primitiveCategories[c]);
+          }
+        }
+      }
+    }
 }

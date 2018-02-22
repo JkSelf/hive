@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,23 +18,30 @@
 
 package org.apache.hadoop.hive.ql.exec.vector;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.MapJoinOperator;
 import org.apache.hadoop.hive.ql.exec.persistence.HybridHashTableContainer;
 import org.apache.hadoop.hive.ql.exec.persistence.MapJoinTableContainer;
 import org.apache.hadoop.hive.ql.exec.persistence.ObjectContainer;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.MapJoinDesc;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorMapJoinDesc;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.io.DataOutputBuffer;
 
 /**
@@ -43,9 +50,13 @@ import org.apache.hadoop.io.DataOutputBuffer;
  *
  * It has common variables and code for the output batch, Hybrid Grace spill batch, and more.
  */
-public class VectorMapJoinBaseOperator extends MapJoinOperator implements VectorizationContextRegion {
+public class VectorMapJoinBaseOperator extends MapJoinOperator
+    implements VectorizationOperator, VectorizationContextRegion {
 
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinBaseOperator.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(VectorMapJoinBaseOperator.class.getName());
+
+  protected VectorizationContext vContext;
+  protected VectorMapJoinDesc vectorDesc;
 
   private static final long serialVersionUID = 1L;
 
@@ -58,22 +69,29 @@ public class VectorMapJoinBaseOperator extends MapJoinOperator implements Vector
   protected transient VectorizedRowBatch outputBatch;
   protected transient VectorizedRowBatch scratchBatch;  // holds restored (from disk) big table rows
 
-  protected transient Map<ObjectInspector, VectorAssignRowSameBatch> outputVectorAssignRowMap;
+  protected transient Map<ObjectInspector, VectorAssignRow> outputVectorAssignRowMap;
 
   protected transient VectorizedRowBatchCtx vrbCtx = null;
 
   protected transient int tag;  // big table alias
 
-  public VectorMapJoinBaseOperator() {
+  /** Kryo ctor. */
+  protected VectorMapJoinBaseOperator() {
     super();
   }
 
-  public VectorMapJoinBaseOperator (VectorizationContext vContext, OperatorDesc conf)
-    throws HiveException {
-    super();
+  public VectorMapJoinBaseOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorMapJoinBaseOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) throws HiveException {
+    super(ctx);
 
     MapJoinDesc desc = (MapJoinDesc) conf;
     this.conf = desc;
+    this.vContext = vContext;
+    this.vectorDesc = (VectorMapJoinDesc) vectorDesc;
 
     order = desc.getTagOrder();
     numAliases = desc.getExprs().size();
@@ -82,22 +100,133 @@ public class VectorMapJoinBaseOperator extends MapJoinOperator implements Vector
     noOuterJoin = desc.isNoOuterJoin();
 
      // We are making a new output vectorized row batch.
-    vOutContext = new VectorizationContext(getName(), desc.getOutputColumnNames());
+    vOutContext = new VectorizationContext(getName(), desc.getOutputColumnNames(),
+        /* vContextEnvironment */ vContext);
+    vOutContext.setInitialTypeInfos(Arrays.asList(getOutputTypeInfos(desc)));
   }
 
   @Override
-  public Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
+  public VectorizationContext getInputVectorizationContext() {
+    return vContext;
+  }
 
-    Collection<Future<?>> result = super.initializeOp(hconf);
+  public static TypeInfo[] getOutputTypeInfos(MapJoinDesc desc) {
+
+    final byte posBigTable = (byte) desc.getPosBigTable();
+
+    List<ExprNodeDesc> keyDesc = desc.getKeys().get(posBigTable);
+    List<ExprNodeDesc> bigTableExprs = desc.getExprs().get(posBigTable);
+
+    Byte[] order = desc.getTagOrder();
+    Byte posSingleVectorMapJoinSmallTable = (order[0] == posBigTable ? order[1] : order[0]);
+
+    final int outputColumnCount = desc.getOutputColumnNames().size();
+    TypeInfo[] outputTypeInfos = new TypeInfo[outputColumnCount];
+
+    /*
+     * Gather up big and small table output result information from the MapJoinDesc.
+     */
+    List<Integer> bigTableRetainList = desc.getRetainList().get(posBigTable);
+    final int bigTableRetainSize = bigTableRetainList.size();
+
+    int[] smallTableIndices;
+    int smallTableIndicesSize;
+    List<ExprNodeDesc> smallTableExprs = desc.getExprs().get(posSingleVectorMapJoinSmallTable);
+    if (desc.getValueIndices() != null && desc.getValueIndices().get(posSingleVectorMapJoinSmallTable) != null) {
+      smallTableIndices = desc.getValueIndices().get(posSingleVectorMapJoinSmallTable);
+      smallTableIndicesSize = smallTableIndices.length;
+    } else {
+      smallTableIndices = null;
+      smallTableIndicesSize = 0;
+    }
+
+    List<Integer> smallTableRetainList = desc.getRetainList().get(posSingleVectorMapJoinSmallTable);
+    final int smallTableRetainSize = smallTableRetainList.size();
+
+    int smallTableResultSize = 0;
+    if (smallTableIndicesSize > 0) {
+      smallTableResultSize = smallTableIndicesSize;
+    } else if (smallTableRetainSize > 0) {
+      smallTableResultSize = smallTableRetainSize;
+    }
+
+    /*
+     * Determine the big table retained mapping first so we can optimize out (with
+     * projection) copying inner join big table keys in the subsequent small table results section.
+     */
+
+    int nextOutputColumn = (order[0] == posBigTable ? 0 : smallTableResultSize);
+    for (int i = 0; i < bigTableRetainSize; i++) {
+
+      TypeInfo typeInfo = bigTableExprs.get(i).getTypeInfo();
+      outputTypeInfos[nextOutputColumn] = typeInfo;
+
+      nextOutputColumn++;
+    }
+
+    /*
+     * Now determine the small table results.
+     */
+    int firstSmallTableOutputColumn;
+    firstSmallTableOutputColumn = (order[0] == posBigTable ? bigTableRetainSize : 0);
+    int smallTableOutputCount = 0;
+    nextOutputColumn = firstSmallTableOutputColumn;
+
+    // Small table indices has more information (i.e. keys) than retain, so use it if it exists...
+    if (smallTableIndicesSize > 0) {
+      smallTableOutputCount = smallTableIndicesSize;
+
+      for (int i = 0; i < smallTableIndicesSize; i++) {
+        if (smallTableIndices[i] >= 0) {
+
+          // Zero and above numbers indicate a big table key is needed for
+          // small table result "area".
+
+          int keyIndex = smallTableIndices[i];
+
+          TypeInfo typeInfo = keyDesc.get(keyIndex).getTypeInfo();
+          outputTypeInfos[nextOutputColumn] = typeInfo;
+
+        } else {
+
+          // Negative numbers indicate a column to be (deserialize) read from the small table's
+          // LazyBinary value row.
+          int smallTableValueIndex = -smallTableIndices[i] - 1;
+
+          TypeInfo typeInfo = smallTableExprs.get(smallTableValueIndex).getTypeInfo();
+          outputTypeInfos[nextOutputColumn] = typeInfo;
+
+        }
+        nextOutputColumn++;
+      }
+    } else if (smallTableRetainSize > 0) {
+      smallTableOutputCount = smallTableRetainSize;
+
+      // Only small table values appear in join output result.
+
+      for (int i = 0; i < smallTableRetainSize; i++) {
+        int smallTableValueIndex = smallTableRetainList.get(i);
+
+        TypeInfo typeInfo = smallTableExprs.get(smallTableValueIndex).getTypeInfo();
+        outputTypeInfos[nextOutputColumn] = typeInfo;
+
+        nextOutputColumn++;
+      }
+    }
+    return outputTypeInfos;
+  }
+
+  @Override
+  public void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
 
     vrbCtx = new VectorizedRowBatchCtx();
-    vrbCtx.init(vOutContext.getScratchColumnTypeMap(), (StructObjectInspector) this.outputObjInspector);
+    vrbCtx.init((StructObjectInspector) this.outputObjInspector,
+        vOutContext.getScratchColumnTypeNames(), vOutContext.getScratchDataTypePhysicalVariations());
 
     outputBatch = vrbCtx.createVectorizedRowBatch();
 
-    outputVectorAssignRowMap = new HashMap<ObjectInspector, VectorAssignRowSameBatch>();
-
-    return result;
+    outputVectorAssignRowMap = new HashMap<ObjectInspector, VectorAssignRow>();
   }
 
   /**
@@ -106,15 +235,14 @@ public class VectorMapJoinBaseOperator extends MapJoinOperator implements Vector
   @Override
   protected void internalForward(Object row, ObjectInspector outputOI) throws HiveException {
     Object[] values = (Object[]) row;
-    VectorAssignRowSameBatch va = outputVectorAssignRowMap.get(outputOI);
+    VectorAssignRow va = outputVectorAssignRowMap.get(outputOI);
     if (va == null) {
-      va = new VectorAssignRowSameBatch();
+      va = new VectorAssignRow();
       va.init((StructObjectInspector) outputOI, vOutContext.getProjectedColumns());
-      va.setOneBatch(outputBatch);
       outputVectorAssignRowMap.put(outputOI, va);
     }
 
-    va.assignRow(outputBatch.size, values);
+    va.assignRow(outputBatch, outputBatch.size, values);
 
     ++outputBatch.size;
     if (outputBatch.size == VectorizedRowBatch.DEFAULT_SIZE) {
@@ -123,7 +251,7 @@ public class VectorMapJoinBaseOperator extends MapJoinOperator implements Vector
   }
 
   private void flushOutput() throws HiveException {
-    forward(outputBatch, null);
+    forward(outputBatch, null, true);
     outputBatch.reset();
   }
 
@@ -179,7 +307,12 @@ public class VectorMapJoinBaseOperator extends MapJoinOperator implements Vector
   }
 
   @Override
-  public VectorizationContext getOuputVectorizationContext() {
+  public VectorizationContext getOutputVectorizationContext() {
     return vOutContext;
+  }
+
+  @Override
+  public VectorDesc getVectorDesc() {
+    return vectorDesc;
   }
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -24,6 +24,7 @@ import java.io.UnsupportedEncodingException;
 import java.sql.Date;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -32,67 +33,86 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Properties;
 import java.util.Set;
 
-import org.antlr.runtime.tree.CommonTree;
 import org.antlr.runtime.tree.Tree;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
-import org.apache.hadoop.hive.metastore.HiveMetaStore;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Order;
+import org.apache.hadoop.hive.metastore.api.SQLForeignKey;
+import org.apache.hadoop.hive.metastore.api.SQLNotNullConstraint;
+import org.apache.hadoop.hive.metastore.api.SQLPrimaryKey;
+import org.apache.hadoop.hive.metastore.api.SQLUniqueConstraint;
+import org.apache.hadoop.hive.metastore.utils.MetaStoreUtils;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.Context;
 import org.apache.hadoop.hive.ql.ErrorMsg;
 import org.apache.hadoop.hive.ql.QueryProperties;
+import org.apache.hadoop.hive.ql.QueryState;
+import org.apache.hadoop.hive.ql.cache.results.CacheUsage;
+import org.apache.hadoop.hive.ql.cache.results.QueryResultsCache;
 import org.apache.hadoop.hive.ql.exec.FetchTask;
 import org.apache.hadoop.hive.ql.exec.Task;
+import org.apache.hadoop.hive.ql.exec.TaskFactory;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.hooks.LineageInfo;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
+import org.apache.hadoop.hive.ql.io.IgnoreKeyTextOutputFormat;
 import org.apache.hadoop.hive.ql.lib.Node;
+import org.apache.hadoop.hive.ql.lockmgr.HiveTxnManager;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.InvalidTableException;
 import org.apache.hadoop.hive.ql.metadata.Partition;
 import org.apache.hadoop.hive.ql.metadata.Table;
+import org.apache.hadoop.hive.ql.metadata.VirtualColumn;
 import org.apache.hadoop.hive.ql.optimizer.listbucketingpruner.ListBucketingPrunerUtils;
 import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
+import org.apache.hadoop.hive.ql.plan.FetchWork;
 import org.apache.hadoop.hive.ql.plan.FileSinkDesc;
 import org.apache.hadoop.hive.ql.plan.ListBucketingCtx;
 import org.apache.hadoop.hive.ql.plan.PlanUtils;
+import org.apache.hadoop.hive.ql.plan.TableDesc;
+import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.hive.ql.session.SessionState.LogHelper;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
+import org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorConverters;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
-import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
+import org.apache.hadoop.mapred.TextInputFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 
 /**
  * BaseSemanticAnalyzer.
  *
  */
 public abstract class BaseSemanticAnalyzer {
-  protected static final Log STATIC_LOG = LogFactory.getLog(BaseSemanticAnalyzer.class.getName());
+  protected static final Logger STATIC_LOG = LoggerFactory.getLogger(BaseSemanticAnalyzer.class.getName());
+  // Assumes one instance of this + single-threaded compilation for each query.
   protected final Hive db;
   protected final HiveConf conf;
+  protected final QueryState queryState;
   protected List<Task<? extends Serializable>> rootTasks;
   protected FetchTask fetchTask;
-  protected final Log LOG;
+  protected final Logger LOG;
   protected final LogHelper console;
 
+  protected CompilationOpContext cContext;
   protected Context ctx;
   protected HashMap<String, String> idToTableNameMap;
   protected QueryProperties queryProperties;
@@ -101,14 +121,23 @@ public abstract class BaseSemanticAnalyzer {
    * A set of FileSinkOperators being written to in an ACID compliant way.  We need to remember
    * them here because when we build them we don't yet know the transaction id.  We need to go
    * back and set it once we actually start running the query.
+   * This also contains insert-only sinks.
    */
   protected Set<FileSinkDesc> acidFileSinks = new HashSet<FileSinkDesc>();
 
-  public static int HIVE_COLUMN_ORDER_ASC = 1;
-  public static int HIVE_COLUMN_ORDER_DESC = 0;
+  // whether any ACID table or Insert-only (mm) table is involved in a query
+  // They both require DbTxnManager and both need to recordValidTxns when acquiring locks in Driver
+  protected boolean transactionalInQuery;
+
+  protected HiveTxnManager txnManager;
+
+  public static final int HIVE_COLUMN_ORDER_ASC = 1;
+  public static final int HIVE_COLUMN_ORDER_DESC = 0;
+  public static final int HIVE_COLUMN_NULLS_FIRST = 0;
+  public static final int HIVE_COLUMN_NULLS_LAST = 1;
 
   /**
-   * ReadEntitites that are passed to the hooks.
+   * ReadEntities that are passed to the hooks.
    */
   protected HashSet<ReadEntity> inputs;
   /**
@@ -121,6 +150,9 @@ public abstract class BaseSemanticAnalyzer {
   protected LineageInfo linfo;
   protected TableAccessInfo tableAccessInfo;
   protected ColumnAccessInfo columnAccessInfo;
+
+  protected CacheUsage cacheUsage;
+
   /**
    * Columns accessed by updates
    */
@@ -138,7 +170,6 @@ public abstract class BaseSemanticAnalyzer {
   void setAutoCommitValue(Boolean autoCommit) {
     autoCommitValue = autoCommit;
   }
-
 
   public boolean skipAuthorization() {
     return false;
@@ -194,20 +225,22 @@ public abstract class BaseSemanticAnalyzer {
     }
   }
 
-  public BaseSemanticAnalyzer(HiveConf conf) throws SemanticException {
-   this(conf, createHiveDB(conf));
+  public BaseSemanticAnalyzer(QueryState queryState) throws SemanticException {
+    this(queryState, createHiveDB(queryState.getConf()));
   }
 
-  public BaseSemanticAnalyzer(HiveConf conf, Hive db) throws SemanticException {
+  public BaseSemanticAnalyzer(QueryState queryState, Hive db) throws SemanticException {
     try {
-      this.conf = conf;
+      this.queryState = queryState;
+      this.conf = queryState.getConf();
       this.db = db;
       rootTasks = new ArrayList<Task<? extends Serializable>>();
-      LOG = LogFactory.getLog(this.getClass().getName());
+      LOG = LoggerFactory.getLogger(this.getClass().getName());
       console = new LogHelper(LOG);
       idToTableNameMap = new HashMap<String, String>();
       inputs = new LinkedHashSet<ReadEntity>();
       outputs = new LinkedHashSet<WriteEntity>();
+      txnManager = queryState.getTxnManager();
     } catch (Exception e) {
       throw new SemanticException(e);
     }
@@ -433,8 +466,6 @@ public abstract class BaseSemanticAnalyzer {
     }
   }
 
-  private static final int[] multiplier = new int[] {1000, 100, 10, 1};
-
   @SuppressWarnings("nls")
   public static String unescapeSQLString(String b) {
     Character enclosure = null;
@@ -464,7 +495,7 @@ public abstract class BaseSemanticAnalyzer {
         int base = i + 2;
         for (int j = 0; j < 4; j++) {
           int digit = Character.digit(b.charAt(j + base), 16);
-          code += digit * multiplier[j];
+          code = (code << 4) + digit;
         }
         sb.append((char)code);
         i += 5;
@@ -611,29 +642,380 @@ public abstract class BaseSemanticAnalyzer {
    * Get the list of FieldSchema out of the ASTNode.
    */
   public static List<FieldSchema> getColumns(ASTNode ast, boolean lowerCase) throws SemanticException {
-    List<FieldSchema> colList = new ArrayList<FieldSchema>();
-    int numCh = ast.getChildCount();
-    for (int i = 0; i < numCh; i++) {
-      FieldSchema col = new FieldSchema();
-      ASTNode child = (ASTNode) ast.getChild(i);
-      Tree grandChild = child.getChild(0);
-      if(grandChild != null) {
-        String name = grandChild.getText();
-        if(lowerCase) {
-          name = name.toLowerCase();
-        }
-        // child 0 is the name of the column
-        col.setName(unescapeIdentifier(name));
-        // child 1 is the type of the column
-        ASTNode typeChild = (ASTNode) (child.getChild(1));
-        col.setType(getTypeStringFromAST(typeChild));
+    return getColumns(ast, lowerCase, new ArrayList<SQLPrimaryKey>(), new ArrayList<SQLForeignKey>(),
+            new ArrayList<SQLUniqueConstraint>(), new ArrayList<SQLNotNullConstraint>());
+  }
 
-        // child 2 is the optional comment of the column
-        if (child.getChildCount() == 3) {
-          col.setComment(unescapeSQLString(child.getChild(2).getText()));
+  private static class ConstraintInfo {
+    final String colName;
+    final String constraintName;
+    final boolean enable;
+    final boolean validate;
+    final boolean rely;
+
+    ConstraintInfo(String colName, String constraintName,
+        boolean enable, boolean validate, boolean rely) {
+      this.colName = colName;
+      this.constraintName = constraintName;
+      this.enable = enable;
+      this.validate = validate;
+      this.rely = rely;
+    }
+  }
+
+  /**
+   * Process the primary keys from the ast node and populate the SQLPrimaryKey list.
+   */
+  protected static void processPrimaryKeys(String databaseName, String tableName,
+      ASTNode child, List<SQLPrimaryKey> primaryKeys) throws SemanticException {
+    List<ConstraintInfo> primaryKeyInfos = new ArrayList<ConstraintInfo>();
+    generateConstraintInfos(child, primaryKeyInfos);
+    constraintInfosToPrimaryKeys(databaseName, tableName, primaryKeyInfos, primaryKeys);
+  }
+
+  protected static void processPrimaryKeys(String databaseName, String tableName,
+      ASTNode child, List<String> columnNames, List<SQLPrimaryKey> primaryKeys)
+          throws SemanticException {
+    List<ConstraintInfo> primaryKeyInfos = new ArrayList<ConstraintInfo>();
+    generateConstraintInfos(child, columnNames, primaryKeyInfos);
+    constraintInfosToPrimaryKeys(databaseName, tableName, primaryKeyInfos, primaryKeys);
+  }
+
+  private static void constraintInfosToPrimaryKeys(String databaseName, String tableName,
+          List<ConstraintInfo> primaryKeyInfos, List<SQLPrimaryKey> primaryKeys) {
+    int i = 1;
+    for (ConstraintInfo primaryKeyInfo : primaryKeyInfos) {
+      primaryKeys.add(new SQLPrimaryKey(databaseName, tableName, primaryKeyInfo.colName,
+              i++, primaryKeyInfo.constraintName, primaryKeyInfo.enable,
+              primaryKeyInfo.validate, primaryKeyInfo.rely));
+    }
+  }
+
+  /**
+   * Process the unique constraints from the ast node and populate the SQLUniqueConstraint list.
+   */
+  protected static void processUniqueConstraints(String databaseName, String tableName,
+      ASTNode child, List<SQLUniqueConstraint> uniqueConstraints) throws SemanticException {
+    List<ConstraintInfo> uniqueInfos = new ArrayList<ConstraintInfo>();
+    generateConstraintInfos(child, uniqueInfos);
+    constraintInfosToUniqueConstraints(databaseName, tableName, uniqueInfos, uniqueConstraints);
+  }
+
+  protected static void processUniqueConstraints(String databaseName, String tableName,
+      ASTNode child, List<String> columnNames, List<SQLUniqueConstraint> uniqueConstraints)
+          throws SemanticException {
+    List<ConstraintInfo> uniqueInfos = new ArrayList<ConstraintInfo>();
+    generateConstraintInfos(child, columnNames, uniqueInfos);
+    constraintInfosToUniqueConstraints(databaseName, tableName, uniqueInfos, uniqueConstraints);
+  }
+
+  private static void constraintInfosToUniqueConstraints(String databaseName, String tableName,
+          List<ConstraintInfo> uniqueInfos, List<SQLUniqueConstraint> uniqueConstraints) {
+    int i = 1;
+    for (ConstraintInfo uniqueInfo : uniqueInfos) {
+      uniqueConstraints.add(new SQLUniqueConstraint(databaseName, tableName, uniqueInfo.colName,
+              i++, uniqueInfo.constraintName, uniqueInfo.enable, uniqueInfo.validate, uniqueInfo.rely));
+    }
+  }
+
+  protected static void processNotNullConstraints(String databaseName, String tableName,
+      ASTNode child, List<String> columnNames, List<SQLNotNullConstraint> notNullConstraints)
+          throws SemanticException {
+    List<ConstraintInfo> notNullInfos = new ArrayList<ConstraintInfo>();
+    generateConstraintInfos(child, columnNames, notNullInfos);
+    constraintInfosToNotNullConstraints(databaseName, tableName, notNullInfos, notNullConstraints);
+  }
+
+  private static void constraintInfosToNotNullConstraints(String databaseName, String tableName,
+          List<ConstraintInfo> notNullInfos, List<SQLNotNullConstraint> notNullConstraints) {
+    for (ConstraintInfo notNullInfo : notNullInfos) {
+      notNullConstraints.add(new SQLNotNullConstraint(databaseName, tableName, notNullInfo.colName,
+              notNullInfo.constraintName, notNullInfo.enable, notNullInfo.validate, notNullInfo.rely));
+    }
+  }
+
+  /**
+   * Get the constraint from the AST and populate the cstrInfos with the required
+   * information.
+   * @param child  The node with the constraint token
+   * @param cstrInfos Constraint information
+   * @throws SemanticException
+   */
+  private static void generateConstraintInfos(ASTNode child,
+      List<ConstraintInfo> cstrInfos) throws SemanticException {
+    ImmutableList.Builder<String> columnNames = ImmutableList.builder();
+    for (int j = 0; j < child.getChild(0).getChildCount(); j++) {
+      Tree columnName = child.getChild(0).getChild(j);
+      checkColumnName(columnName.getText());
+      columnNames.add(unescapeIdentifier(columnName.getText().toLowerCase()));
+    }
+    generateConstraintInfos(child, columnNames.build(), cstrInfos);
+  }
+
+  /**
+   * Get the constraint from the AST and populate the cstrInfos with the required
+   * information.
+   * @param child  The node with the constraint token
+   * @param columnNames The name of the columns for the primary key
+   * @param cstrInfos Constraint information
+   * @throws SemanticException
+   */
+  private static void generateConstraintInfos(ASTNode child, List<String> columnNames,
+      List<ConstraintInfo> cstrInfos) throws SemanticException {
+    // The ANTLR grammar looks like :
+    // 1. KW_CONSTRAINT idfr=identifier KW_PRIMARY KW_KEY pkCols=columnParenthesesList
+    //  constraintOptsCreate?
+    // -> ^(TOK_PRIMARY_KEY $pkCols $idfr constraintOptsCreate?)
+    // when the user specifies the constraint name.
+    // 2.  KW_PRIMARY KW_KEY columnParenthesesList
+    // constraintOptsCreate?
+    // -> ^(TOK_PRIMARY_KEY columnParenthesesList constraintOptsCreate?)
+    // when the user does not specify the constraint name.
+    // Default values
+    String constraintName = null;
+    boolean enable = true;
+    boolean validate = true;
+    boolean rely = false;
+    for (int i = 0; i < child.getChildCount(); i++) {
+      ASTNode grandChild = (ASTNode) child.getChild(i);
+      int type = grandChild.getToken().getType();
+      if (type == HiveParser.TOK_CONSTRAINT_NAME) {
+        constraintName = unescapeIdentifier(grandChild.getChild(0).getText().toLowerCase());
+      } else if (type == HiveParser.TOK_ENABLE) {
+        enable = true;
+        // validate is false by default if we enable the constraint
+        // TODO: A constraint like NOT NULL could be enabled using ALTER but VALIDATE remains
+        //  false in such cases. Ideally VALIDATE should be set to true to validate existing data
+        validate = false;
+      } else if (type == HiveParser.TOK_DISABLE) {
+        enable = false;
+        // validate is false by default if we disable the constraint
+        validate = false;
+      } else if (type == HiveParser.TOK_VALIDATE) {
+        validate = true;
+      } else if (type == HiveParser.TOK_NOVALIDATE) {
+        validate = false;
+      } else if (type == HiveParser.TOK_RELY) {
+        rely = true;
+      }
+    }
+
+    // NOT NULL constraint could be enforced/enabled
+    if (child.getToken().getType() != HiveParser.TOK_NOT_NULL
+        && enable) {
+      throw new SemanticException(
+          ErrorMsg.INVALID_CSTR_SYNTAX.getMsg("ENABLE/ENFORCED feature not supported yet. "
+              + "Please use DISABLE/NOT ENFORCED instead."));
+    }
+    if (validate) {
+      throw new SemanticException(
+        ErrorMsg.INVALID_CSTR_SYNTAX.getMsg("VALIDATE feature not supported yet. "
+              + "Please use NOVALIDATE instead."));
+    }
+
+    for (String columnName : columnNames) {
+      cstrInfos.add(new ConstraintInfo(columnName, constraintName,
+          enable, validate, rely));
+    }
+  }
+
+  /**
+   * Process the foreign keys from the AST and populate the foreign keys in the SQLForeignKey list
+   * @param parent  Parent of the foreign key token node
+   * @param child Foreign Key token node
+   * @param foreignKeys SQLForeignKey list
+   * @throws SemanticException
+   */
+  protected static void processForeignKeys(String databaseName, String tableName,
+      ASTNode child, List<SQLForeignKey> foreignKeys) throws SemanticException {
+    // The ANTLR grammar looks like :
+    // 1.  KW_CONSTRAINT idfr=identifier KW_FOREIGN KW_KEY fkCols=columnParenthesesList
+    // KW_REFERENCES tabName=tableName parCols=columnParenthesesList
+    // enableSpec=enableSpecification validateSpec=validateSpecification relySpec=relySpecification
+    // -> ^(TOK_FOREIGN_KEY $idfr $fkCols $tabName $parCols $relySpec $enableSpec $validateSpec)
+    // when the user specifies the constraint name (i.e. child.getChildCount() == 7)
+    // 2.  KW_FOREIGN KW_KEY fkCols=columnParenthesesList
+    // KW_REFERENCES tabName=tableName parCols=columnParenthesesList
+    // enableSpec=enableSpecification validateSpec=validateSpecification relySpec=relySpecification
+    // -> ^(TOK_FOREIGN_KEY $fkCols  $tabName $parCols $relySpec $enableSpec $validateSpec)
+    // when the user does not specify the constraint name (i.e. child.getChildCount() == 6)
+    String constraintName = null;
+    boolean enable = true;
+    boolean validate = true;
+    boolean rely = false;
+    int fkIndex = -1;
+    for (int i = 0; i < child.getChildCount(); i++) {
+      ASTNode grandChild = (ASTNode) child.getChild(i);
+      int type = grandChild.getToken().getType();
+      if (type == HiveParser.TOK_CONSTRAINT_NAME) {
+        constraintName = unescapeIdentifier(grandChild.getChild(0).getText().toLowerCase());
+      } else if (type == HiveParser.TOK_ENABLE) {
+        enable = true;
+        // validate is true by default if we enable the constraint
+        validate = true;
+      } else if (type == HiveParser.TOK_DISABLE) {
+        enable = false;
+        // validate is false by default if we disable the constraint
+        validate = false;
+      } else if (type == HiveParser.TOK_VALIDATE) {
+        validate = true;
+      } else if (type == HiveParser.TOK_NOVALIDATE) {
+        validate = false;
+      } else if (type == HiveParser.TOK_RELY) {
+        rely = true;
+      } else if (type == HiveParser.TOK_TABCOLNAME && fkIndex == -1) {
+        fkIndex = i;
+      }
+    }
+    if (enable) {
+      throw new SemanticException(
+          ErrorMsg.INVALID_FK_SYNTAX.getMsg("ENABLE feature not supported yet. "
+              + "Please use DISABLE instead."));
+    }
+    if (validate) {
+      throw new SemanticException(
+        ErrorMsg.INVALID_FK_SYNTAX.getMsg("VALIDATE feature not supported yet. "
+              + "Please use NOVALIDATE instead."));
+    }
+
+    int ptIndex = fkIndex + 1;
+    int pkIndex = ptIndex + 1;
+    if (child.getChild(fkIndex).getChildCount() != child.getChild(pkIndex).getChildCount()) {
+      throw new SemanticException(ErrorMsg.INVALID_FK_SYNTAX.getMsg(
+        " The number of foreign key columns should be same as number of parent key columns "));
+    }
+
+    String[] parentDBTbl = getQualifiedTableName((ASTNode) child.getChild(ptIndex));
+    for (int j = 0; j < child.getChild(fkIndex).getChildCount(); j++) {
+      SQLForeignKey sqlForeignKey = new SQLForeignKey();
+      sqlForeignKey.setFktable_db(databaseName);
+      sqlForeignKey.setFktable_name(tableName);
+      Tree fkgrandChild = child.getChild(fkIndex).getChild(j);
+      checkColumnName(fkgrandChild.getText());
+      sqlForeignKey.setFkcolumn_name(unescapeIdentifier(fkgrandChild.getText().toLowerCase()));
+      sqlForeignKey.setPktable_db(parentDBTbl[0]);
+      sqlForeignKey.setPktable_name(parentDBTbl[1]);
+      Tree pkgrandChild = child.getChild(pkIndex).getChild(j);
+      sqlForeignKey.setPkcolumn_name(unescapeIdentifier(pkgrandChild.getText().toLowerCase()));
+      sqlForeignKey.setKey_seq(j+1);
+      sqlForeignKey.setFk_name(constraintName);
+      sqlForeignKey.setEnable_cstr(enable);
+      sqlForeignKey.setValidate_cstr(validate);
+      sqlForeignKey.setRely_cstr(rely);
+      foreignKeys.add(sqlForeignKey);
+    }
+  }
+
+  protected boolean hasEnabledOrValidatedConstraints(List<SQLNotNullConstraint> notNullConstraints){
+    if(notNullConstraints != null) {
+      for (SQLNotNullConstraint nnC : notNullConstraints) {
+        if (nnC.isEnable_cstr() || nnC.isValidate_cstr()) {
+          return true;
         }
       }
-      colList.add(col);
+    }
+    return false;
+  }
+
+  private static void checkColumnName(String columnName) throws SemanticException {
+    if (VirtualColumn.VIRTUAL_COLUMN_NAMES.contains(columnName.toUpperCase())) {
+      throw new SemanticException(ErrorMsg.INVALID_COLUMN_NAME.getMsg(columnName));
+    }
+  }
+
+  /**
+   * Get the list of FieldSchema out of the ASTNode.
+   * Additionally, populate the primaryKeys and foreignKeys if any.
+   */
+  public static List<FieldSchema> getColumns(ASTNode ast, boolean lowerCase,
+    List<SQLPrimaryKey> primaryKeys, List<SQLForeignKey> foreignKeys,
+    List<SQLUniqueConstraint> uniqueConstraints, List<SQLNotNullConstraint> notNullConstraints)
+        throws SemanticException {
+    List<FieldSchema> colList = new ArrayList<FieldSchema>();
+    Tree parent = ast.getParent();
+
+    for (int i = 0; i < ast.getChildCount(); i++) {
+      FieldSchema col = new FieldSchema();
+      ASTNode child = (ASTNode) ast.getChild(i);
+      switch (child.getToken().getType()) {
+        case HiveParser.TOK_UNIQUE: {
+            String[] qualifiedTabName = getQualifiedTableName((ASTNode) parent.getChild(0));
+            processUniqueConstraints(qualifiedTabName[0], qualifiedTabName[1], child, uniqueConstraints);
+          }
+          break;
+        case HiveParser.TOK_PRIMARY_KEY: {
+            if (!primaryKeys.isEmpty()) {
+              throw new SemanticException(ErrorMsg.INVALID_CONSTRAINT.getMsg(
+                  "Cannot exist more than one primary key definition for the same table"));
+            }
+            String[] qualifiedTabName = getQualifiedTableName((ASTNode) parent.getChild(0));
+            processPrimaryKeys(qualifiedTabName[0], qualifiedTabName[1], child, primaryKeys);
+          }
+          break;
+        case HiveParser.TOK_FOREIGN_KEY: {
+            String[] qualifiedTabName = getQualifiedTableName((ASTNode) parent.getChild(0));
+            processForeignKeys(qualifiedTabName[0], qualifiedTabName[1], child, foreignKeys);
+          }
+          break;
+        default:
+          Tree grandChild = child.getChild(0);
+          if(grandChild != null) {
+            String name = grandChild.getText();
+            if(lowerCase) {
+              name = name.toLowerCase();
+            }
+            checkColumnName(name);
+            // child 0 is the name of the column
+            col.setName(unescapeIdentifier(name));
+            // child 1 is the type of the column
+            ASTNode typeChild = (ASTNode) (child.getChild(1));
+            col.setType(getTypeStringFromAST(typeChild));
+
+            // child 2 is the optional comment of the column
+            // child 3 is the optional constraint
+            ASTNode constraintChild = null;
+            if (child.getChildCount() == 4) {
+              col.setComment(unescapeSQLString(child.getChild(2).getText()));
+              constraintChild = (ASTNode) child.getChild(3);
+            } else if (child.getChildCount() == 3
+                && ((ASTNode) child.getChild(2)).getToken().getType() == HiveParser.StringLiteral) {
+              col.setComment(unescapeSQLString(child.getChild(2).getText()));
+            } else if (child.getChildCount() == 3) {
+              constraintChild = (ASTNode) child.getChild(2);
+            }
+            if (constraintChild != null) {
+              String[] qualifiedTabName = getQualifiedTableName((ASTNode) parent.getChild(0));
+              // Process column constraint
+              switch (constraintChild.getToken().getType()) {
+                case HiveParser.TOK_NOT_NULL:
+                  processNotNullConstraints(qualifiedTabName[0], qualifiedTabName[1], constraintChild,
+                          ImmutableList.of(col.getName()), notNullConstraints);
+                  break;
+                case HiveParser.TOK_UNIQUE:
+                  processUniqueConstraints(qualifiedTabName[0], qualifiedTabName[1], constraintChild,
+                          ImmutableList.of(col.getName()), uniqueConstraints);
+                  break;
+                case HiveParser.TOK_PRIMARY_KEY:
+                  if (!primaryKeys.isEmpty()) {
+                    throw new SemanticException(ErrorMsg.INVALID_CONSTRAINT.getMsg(
+                        "Cannot exist more than one primary key definition for the same table"));
+                  }
+                  processPrimaryKeys(qualifiedTabName[0], qualifiedTabName[1], constraintChild,
+                          ImmutableList.of(col.getName()), primaryKeys);
+                  break;
+                case HiveParser.TOK_FOREIGN_KEY:
+                  processForeignKeys(qualifiedTabName[0], qualifiedTabName[1], constraintChild,
+                          foreignKeys);
+                  break;
+                default:
+                  throw new SemanticException(ErrorMsg.NOT_RECOGNIZED_CONSTRAINT.getMsg(
+                      constraintChild.getToken().getText()));
+              }
+            }
+          }
+          colList.add(col);
+          break;
+      }
     }
     return colList;
   }
@@ -648,17 +1030,29 @@ public abstract class BaseSemanticAnalyzer {
     return colList;
   }
 
-  protected List<Order> getColumnNamesOrder(ASTNode ast) {
+  protected List<Order> getColumnNamesOrder(ASTNode ast) throws SemanticException {
     List<Order> colList = new ArrayList<Order>();
     int numCh = ast.getChildCount();
     for (int i = 0; i < numCh; i++) {
       ASTNode child = (ASTNode) ast.getChild(i);
       if (child.getToken().getType() == HiveParser.TOK_TABSORTCOLNAMEASC) {
-        colList.add(new Order(unescapeIdentifier(child.getChild(0).getText()).toLowerCase(),
-            HIVE_COLUMN_ORDER_ASC));
+        child = (ASTNode) child.getChild(0);
+        if (child.getToken().getType() == HiveParser.TOK_NULLS_FIRST) {
+          colList.add(new Order(unescapeIdentifier(child.getChild(0).getText()).toLowerCase(),
+              HIVE_COLUMN_ORDER_ASC));
+        } else {
+          throw new SemanticException("create/alter table: "
+                  + "not supported NULLS LAST for ORDER BY in ASC order");
+        }
       } else {
-        colList.add(new Order(unescapeIdentifier(child.getChild(0).getText()).toLowerCase(),
-            HIVE_COLUMN_ORDER_DESC));
+        child = (ASTNode) child.getChild(0);
+        if (child.getToken().getType() == HiveParser.TOK_NULLS_LAST) {
+          colList.add(new Order(unescapeIdentifier(child.getChild(0).getText()).toLowerCase(),
+              HIVE_COLUMN_ORDER_DESC));
+        } else {
+          throw new SemanticException("create/alter table: "
+                  + "not supported NULLS FIRST for ORDER BY in DESC order");
+        }
       }
     }
     return colList;
@@ -744,15 +1138,42 @@ public abstract class BaseSemanticAnalyzer {
       this(db, conf, ast, true, false);
     }
 
-    public TableSpec(Hive db, HiveConf conf, String tableName, Map<String, String> partSpec)
+    public TableSpec(Table table) {
+      tableHandle = table;
+      tableName = table.getDbName() + "." + table.getTableName();
+      specType = SpecType.TABLE_ONLY;
+    }
+
+    public TableSpec(Hive db, String tableName, Map<String, String> partSpec)
         throws HiveException {
-      this.tableName = tableName;
-      this.partSpec = partSpec;
-      this.tableHandle = db.getTable(tableName);
-      if (partSpec != null) {
+      Table table = db.getTable(tableName);
+      tableHandle = table;
+      this.tableName = table.getDbName() + "." + table.getTableName();
+      if (partSpec == null) {
+        specType = SpecType.TABLE_ONLY;
+      } else {
+        Partition partition = db.getPartition(table, partSpec, false);
+        if (partition == null) {
+          throw new SemanticException("partition is unknown: " + table + "/" + partSpec);
+        }
+        partHandle = partition;
+        partitions = Collections.singletonList(partHandle);
+        specType = SpecType.STATIC_PARTITION;
+      }
+    }
+
+    public TableSpec(Table tableHandle, List<Partition> partitions)
+        throws HiveException {
+      this.tableHandle = tableHandle;
+      this.tableName = tableHandle.getTableName();
+      if (partitions != null && !partitions.isEmpty()) {
         this.specType = SpecType.STATIC_PARTITION;
-        this.partHandle = db.getPartition(tableHandle, partSpec, false);
-        this.partitions = Arrays.asList(partHandle);
+        this.partitions = partitions;
+        List<FieldSchema> partCols = this.tableHandle.getPartCols();
+        this.partSpec = new LinkedHashMap<>();
+        for (FieldSchema partCol : partCols) {
+          partSpec.put(partCol.getName(), null);
+        }
       } else {
         this.specType = SpecType.TABLE_ONLY;
       }
@@ -763,7 +1184,8 @@ public abstract class BaseSemanticAnalyzer {
       assert (ast.getToken().getType() == HiveParser.TOK_TAB
           || ast.getToken().getType() == HiveParser.TOK_TABLE_PARTITION
           || ast.getToken().getType() == HiveParser.TOK_TABTYPE
-          || ast.getToken().getType() == HiveParser.TOK_CREATETABLE);
+          || ast.getToken().getType() == HiveParser.TOK_CREATETABLE
+          || ast.getToken().getType() == HiveParser.TOK_CREATE_MATERIALIZED_VIEW);
       int childIndex = 0;
       numDynParts = 0;
 
@@ -775,19 +1197,23 @@ public abstract class BaseSemanticAnalyzer {
           tableName = conf.getVar(HiveConf.ConfVars.HIVETESTMODEPREFIX)
               + tableName;
         }
-        if (ast.getToken().getType() != HiveParser.TOK_CREATETABLE) {
+        if (ast.getToken().getType() != HiveParser.TOK_CREATETABLE &&
+            ast.getToken().getType() != HiveParser.TOK_CREATE_MATERIALIZED_VIEW &&
+            ast.getToken().getType() != HiveParser.TOK_ALTER_MATERIALIZED_VIEW) {
           tableHandle = db.getTable(tableName);
         }
       } catch (InvalidTableException ite) {
         throw new SemanticException(ErrorMsg.INVALID_TABLE.getMsg(ast
             .getChild(0)), ite);
       } catch (HiveException e) {
-        throw new SemanticException(ErrorMsg.GENERIC_ERROR.getMsg(ast
+        throw new SemanticException(ErrorMsg.CANNOT_RETRIEVE_TABLE_METADATA.getMsg(ast
             .getChild(childIndex), e.getMessage()), e);
       }
 
       // get partition metadata if partition specified
-      if (ast.getChildCount() == 2 && ast.getToken().getType() != HiveParser.TOK_CREATETABLE) {
+      if (ast.getChildCount() == 2 && ast.getToken().getType() != HiveParser.TOK_CREATETABLE &&
+          ast.getToken().getType() != HiveParser.TOK_CREATE_MATERIALIZED_VIEW &&
+          ast.getToken().getType() != HiveParser.TOK_ALTER_MATERIALIZED_VIEW) {
         childIndex = 1;
         ASTNode partspec = (ASTNode) ast.getChild(1);
         partitions = new ArrayList<Partition>();
@@ -904,7 +1330,6 @@ public abstract class BaseSemanticAnalyzer {
     private List<String> colType;
     private boolean tblLvl;
 
-
     public String getTableName() {
       return tableName;
     }
@@ -936,6 +1361,7 @@ public abstract class BaseSemanticAnalyzer {
     public void setColType(List<String> colType) {
       this.colType = colType;
     }
+
   }
 
   /**
@@ -1078,6 +1504,10 @@ public abstract class BaseSemanticAnalyzer {
 
   public Set<FileSinkDesc> getAcidFileSinks() {
     return acidFileSinks;
+  }
+
+  public boolean hasTransactionalInQuery() {
+    return transactionalInQuery;
   }
 
   /**
@@ -1328,7 +1758,9 @@ public abstract class BaseSemanticAnalyzer {
   @VisibleForTesting
   static void normalizeColSpec(Map<String, String> partSpec, String colName,
       String colType, String originalColSpec, Object colValue) throws SemanticException {
-    if (colValue == null) return; // nothing to do with nulls
+    if (colValue == null) {
+      return; // nothing to do with nulls
+    }
     String normalizedColSpec = originalColSpec;
     if (colType.equals(serdeConstants.DATE_TYPE_NAME)) {
       normalizedColSpec = normalizeDateCol(colValue, originalColSpec);
@@ -1344,13 +1776,13 @@ public abstract class BaseSemanticAnalyzer {
       Object colValue, String originalColSpec) throws SemanticException {
     Date value;
     if (colValue instanceof DateWritable) {
-      value = ((DateWritable) colValue).get();
+      value = ((DateWritable) colValue).get(false); // Time doesn't matter.
     } else if (colValue instanceof Date) {
       value = (Date) colValue;
     } else {
       throw new SemanticException("Unexpected date type " + colValue.getClass());
     }
-    return HiveMetaStore.PARTITION_DATE_FORMAT.get().format(value);
+    return MetaStoreUtils.PARTITION_DATE_FORMAT.get().format(value);
   }
 
   protected WriteEntity toWriteEntity(String location) throws SemanticException {
@@ -1358,8 +1790,12 @@ public abstract class BaseSemanticAnalyzer {
   }
 
   protected WriteEntity toWriteEntity(Path location) throws SemanticException {
+    return toWriteEntity(location,conf);
+  }
+
+  public static WriteEntity toWriteEntity(Path location, HiveConf conf) throws SemanticException {
     try {
-      Path path = tryQualifyPath(location);
+      Path path = tryQualifyPath(location,conf);
       return new WriteEntity(path, FileUtils.isLocalFile(conf, path.toUri()));
     } catch (Exception e) {
       throw new SemanticException(e);
@@ -1371,8 +1807,12 @@ public abstract class BaseSemanticAnalyzer {
   }
 
   protected ReadEntity toReadEntity(Path location) throws SemanticException {
+    return toReadEntity(location, conf);
+  }
+
+  public static ReadEntity toReadEntity(Path location, HiveConf conf) throws SemanticException {
     try {
-      Path path = tryQualifyPath(location);
+      Path path = tryQualifyPath(location, conf);
       return new ReadEntity(path, FileUtils.isLocalFile(conf, path.toUri()));
     } catch (Exception e) {
       throw new SemanticException(e);
@@ -1380,6 +1820,10 @@ public abstract class BaseSemanticAnalyzer {
   }
 
   private Path tryQualifyPath(Path path) throws IOException {
+    return tryQualifyPath(path,conf);
+  }
+
+  public static Path tryQualifyPath(Path path, HiveConf conf) throws IOException {
     try {
       return path.getFileSystem(conf).makeQualified(path);
     } catch (IOException e) {
@@ -1470,5 +1914,57 @@ public abstract class BaseSemanticAnalyzer {
 
   protected String toMessage(ErrorMsg message, Object detail) {
     return detail == null ? message.getMsg() : message.getMsg(detail.toString());
+  }
+
+  public List<Task<? extends Serializable>> getAllRootTasks() {
+    return rootTasks;
+  }
+
+  public HashSet<ReadEntity> getAllInputs() {
+    return inputs;
+  }
+
+  public HashSet<WriteEntity> getAllOutputs() {
+    return outputs;
+  }
+
+  public QueryState getQueryState() {
+    return queryState;
+  }
+
+  /**
+   * Create a FetchTask for a given schema.
+   *
+   * @param schema string
+   */
+  protected FetchTask createFetchTask(String schema) {
+    Properties prop = new Properties();
+    // Sets delimiter to tab (ascii 9)
+    prop.setProperty(serdeConstants.SERIALIZATION_FORMAT, Integer.toString(Utilities.tabCode));
+    prop.setProperty(serdeConstants.SERIALIZATION_NULL_FORMAT, " ");
+    String[] colTypes = schema.split("#");
+    prop.setProperty("columns", colTypes[0]);
+    prop.setProperty("columns.types", colTypes[1]);
+    prop.setProperty(serdeConstants.SERIALIZATION_LIB, LazySimpleSerDe.class.getName());
+    FetchWork fetch =
+        new FetchWork(ctx.getResFile(), new TableDesc(TextInputFormat.class,
+            IgnoreKeyTextOutputFormat.class, prop), -1);
+    fetch.setSerializationNullFormat(" ");
+    return (FetchTask) TaskFactory.get(fetch, conf);
+  }
+
+  protected HiveTxnManager getTxnMgr() {
+    if (txnManager != null) {
+      return txnManager;
+    }
+    return SessionState.get().getTxnMgr();
+  }
+
+  public CacheUsage getCacheUsage() {
+    return cacheUsage;
+  }
+
+  public void setCacheUsage(CacheUsage cacheUsage) {
+    this.cacheUsage = cacheUsage;
   }
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -24,8 +24,10 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.common.classification.InterfaceAudience;
+import org.apache.hadoop.hive.common.classification.InterfaceStability;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.ql.exec.tez.TezContext;
@@ -40,7 +42,7 @@ import org.apache.hadoop.mapred.Reporter;
  */
 public class MapredContext {
 
-  private static final Log logger = LogFactory.getLog("MapredContext");
+  private static final Logger logger = LoggerFactory.getLogger("MapredContext");
   private static final ThreadLocal<MapredContext> contexts = new ThreadLocal<MapredContext>();
 
   public static MapredContext get() {
@@ -52,7 +54,9 @@ public class MapredContext {
         HiveConf.getVar(jobConf, ConfVars.HIVE_EXECUTION_ENGINE).equals("tez") ?
             new TezContext(isMap, jobConf) : new MapredContext(isMap, jobConf);
     contexts.set(context);
-    logger.info("MapredContext initialized.");
+    if (logger.isDebugEnabled()) {
+      logger.debug("MapredContext initialized.");
+    }
     return context;
   }
 
@@ -116,7 +120,7 @@ public class MapredContext {
     udfs.clear();
   }
 
-  void setup(GenericUDF genericUDF) {
+  public void setup(GenericUDF genericUDF) {
     if (needConfigure(genericUDF)) {
       genericUDF.configure(this);
     }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -39,8 +39,8 @@ public class CuckooSetBytes {
   private int salt = 0;
   private Random gen = new Random(676983475);
   private int rehashCount = 0;
-  private static long INT_MASK  = 0x00000000ffffffffL;
-  private static long BYTE_MASK = 0x00000000000000ffL;
+  private static final long INT_MASK  = 0x00000000ffffffffL;
+  private static final long BYTE_MASK = 0x00000000000000ffL;
 
   /**
    * Allocate a new set to hold expectedSize values. Re-allocation to expand
@@ -82,7 +82,7 @@ public class CuckooSetBytes {
   }
 
   private static boolean entryEqual(byte[][] t, int hash, byte[] b, int start, int len) {
-    return t[hash] != null && StringExpr.compare(t[hash], 0, t[hash].length, b, start, len) == 0;
+    return t[hash] != null && StringExpr.equal(t[hash], 0, t[hash].length, b, start, len);
   }
 
   public void insert(byte[] x) {

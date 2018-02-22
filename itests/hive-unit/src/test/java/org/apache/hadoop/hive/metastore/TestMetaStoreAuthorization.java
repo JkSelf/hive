@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -22,8 +22,6 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.util.concurrent.TimeUnit;
 
-import junit.framework.TestCase;
-
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
@@ -32,7 +30,9 @@ import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
-import org.apache.hadoop.hive.shims.ShimLoader;
+import org.apache.hadoop.hive.metastore.security.HadoopThriftAuthBridge;
+
+import junit.framework.TestCase;
 
 
 public class TestMetaStoreAuthorization extends TestCase {
@@ -75,7 +75,7 @@ public class TestMetaStoreAuthorization extends TestCase {
 
   public void testMetaStoreAuthorization() throws Exception {
     setup();
-    MetaStoreUtils.startMetaStore(port, ShimLoader.getHadoopThriftAuthBridge());
+    MetaStoreTestUtils.startMetaStore(port, HadoopThriftAuthBridge.getBridge());
     HiveMetaStoreClient client = new HiveMetaStoreClient(conf);
 
     FileSystem fs = null;

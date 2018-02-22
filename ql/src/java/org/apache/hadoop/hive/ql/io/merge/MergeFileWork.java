@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,8 +18,8 @@
 
 package org.apache.hadoop.hive.ql.io.merge;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -46,7 +46,7 @@ import java.util.List;
 @Explain(displayName = "Merge File Operator", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
 public class MergeFileWork extends MapWork {
 
-  private static final Log LOG = LogFactory.getLog(MergeFileWork.class);
+  private static final Logger LOG = LoggerFactory.getLogger(MergeFileWork.class);
   private List<Path> inputPaths;
   private Path outputDir;
   private boolean hasDynamicPartitions;
@@ -60,13 +60,13 @@ public class MergeFileWork extends MapWork {
   private Class<? extends InputFormat> internalInputFormat;
 
   public MergeFileWork(List<Path> inputPaths, Path outputDir,
-      String srcTblInputFormat) {
-    this(inputPaths, outputDir, false, srcTblInputFormat);
+      String srcTblInputFormat, TableDesc tbl) {
+    this(inputPaths, outputDir, false, srcTblInputFormat, tbl);
   }
 
   public MergeFileWork(List<Path> inputPaths, Path outputDir,
       boolean hasDynamicPartitions,
-      String srcTblInputFormat) {
+      String srcTblInputFormat, TableDesc tbl) {
     this.inputPaths = inputPaths;
     this.outputDir = outputDir;
     this.hasDynamicPartitions = hasDynamicPartitions;
@@ -78,11 +78,9 @@ public class MergeFileWork extends MapWork {
       this.internalInputFormat = RCFileBlockMergeInputFormat.class;
     }
     partDesc.setInputFileFormatClass(internalInputFormat);
-    if (this.getPathToPartitionInfo() == null) {
-      this.setPathToPartitionInfo(new LinkedHashMap<String, PartitionDesc>());
-    }
+    partDesc.setTableDesc(tbl);
     for (Path path : this.inputPaths) {
-      this.getPathToPartitionInfo().put(path.toString(), partDesc);
+      this.addPathToPartitionInfo(path, partDesc);
     }
     this.isListBucketingAlterTableConcatenate = false;
   }

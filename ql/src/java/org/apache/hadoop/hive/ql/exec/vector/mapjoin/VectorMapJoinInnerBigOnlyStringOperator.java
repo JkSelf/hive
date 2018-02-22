@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,8 +21,9 @@ package org.apache.hadoop.hive.ql.exec.vector.mapjoin;
 import java.io.IOException;
 import java.util.Arrays;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizationContext;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
@@ -31,6 +32,7 @@ import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHash
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
 // Single-Column String hash table import.
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinBytesHashMultiSet;
 
@@ -45,8 +47,17 @@ import org.apache.hadoop.hive.ql.exec.vector.expressions.StringExpr;
 public class VectorMapJoinInnerBigOnlyStringOperator extends VectorMapJoinInnerBigOnlyGenerateResultOperator {
 
   private static final long serialVersionUID = 1L;
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinInnerBigOnlyStringOperator.class.getName());
+
+  //------------------------------------------------------------------------------------------------
+
   private static final String CLASS_NAME = VectorMapJoinInnerBigOnlyStringOperator.class.getName();
+  private static final Logger LOG = LoggerFactory.getLogger(CLASS_NAME);
+
+  protected String getLoggingPrefix() {
+    return super.getLoggingPrefix(CLASS_NAME);
+  }
+
+  //------------------------------------------------------------------------------------------------
 
   // (none)
 
@@ -68,12 +79,18 @@ public class VectorMapJoinInnerBigOnlyStringOperator extends VectorMapJoinInnerB
   // Pass-thru constructors.
   //
 
-  public VectorMapJoinInnerBigOnlyStringOperator() {
+  /** Kryo ctor. */
+  protected VectorMapJoinInnerBigOnlyStringOperator() {
     super();
   }
 
-  public VectorMapJoinInnerBigOnlyStringOperator(VectorizationContext vContext, OperatorDesc conf) throws HiveException {
-    super(vContext, conf);
+  public VectorMapJoinInnerBigOnlyStringOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorMapJoinInnerBigOnlyStringOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) throws HiveException {
+    super(ctx, conf, vContext, vectorDesc);
   }
 
   //---------------------------------------------------------------------------
@@ -175,10 +192,15 @@ public class VectorMapJoinInnerBigOnlyStringOperator extends VectorMapJoinInnerB
          * Single-Column String specific repeated lookup.
          */
 
-        byte[] keyBytes = vector[0];
-        int keyStart = start[0];
-        int keyLength = length[0];
-        JoinUtil.JoinResult joinResult = hashMultiSet.contains(keyBytes, keyStart, keyLength, hashMultiSetResults[0]);
+        JoinUtil.JoinResult joinResult;
+        if (!joinColVector.noNulls && joinColVector.isNull[0]) {
+          joinResult = JoinUtil.JoinResult.NOMATCH;
+        } else {
+          byte[] keyBytes = vector[0];
+          int keyStart = start[0];
+          int keyLength = length[0];
+          joinResult = hashMultiSet.contains(keyBytes, keyStart, keyLength, hashMultiSetResults[0]);
+        }
 
         /*
          * Common repeated join result processing.
@@ -228,14 +250,15 @@ public class VectorMapJoinInnerBigOnlyStringOperator extends VectorMapJoinInnerB
            */
 
           // Implicit -- use batchIndex.
+          boolean isNull = !joinColVector.noNulls && joinColVector.isNull[batchIndex];
 
           /*
            * Equal key series checking.
            */
 
-          if (!haveSaveKey ||
-              StringExpr.compare(vector[saveKeyBatchIndex], start[saveKeyBatchIndex], length[saveKeyBatchIndex],
-                                 vector[batchIndex], start[batchIndex], length[batchIndex]) != 0) {
+          if (isNull || !haveSaveKey ||
+              StringExpr.equal(vector[saveKeyBatchIndex], start[saveKeyBatchIndex], length[saveKeyBatchIndex],
+                                 vector[batchIndex], start[batchIndex], length[batchIndex]) == false) {
 
             // New key.
 
@@ -255,24 +278,29 @@ public class VectorMapJoinInnerBigOnlyStringOperator extends VectorMapJoinInnerB
               }
             }
 
-            // Regardless of our matching result, we keep that information to make multiple use
-            // of it for a possible series of equal keys.
-            haveSaveKey = true;
-
-            /*
-             * Single-Column String specific save key.
-             */
-
-            saveKeyBatchIndex = batchIndex;
-
-            /*
-             * Single-Column String specific lookup key.
-             */
-
-            byte[] keyBytes = vector[batchIndex];
-            int keyStart = start[batchIndex];
-            int keyLength = length[batchIndex];
-            saveJoinResult = hashMultiSet.contains(keyBytes, keyStart, keyLength, hashMultiSetResults[hashMultiSetResultCount]);
+            if (isNull) {
+              saveJoinResult = JoinUtil.JoinResult.NOMATCH;
+              haveSaveKey = false;
+            } else {
+              // Regardless of our matching result, we keep that information to make multiple use
+              // of it for a possible series of equal keys.
+              haveSaveKey = true;
+  
+              /*
+               * Single-Column String specific save key.
+               */
+  
+              saveKeyBatchIndex = batchIndex;
+  
+              /*
+               * Single-Column String specific lookup key.
+               */
+  
+              byte[] keyBytes = vector[batchIndex];
+              int keyStart = start[batchIndex];
+              int keyLength = length[batchIndex];
+              saveJoinResult = hashMultiSet.contains(keyBytes, keyStart, keyLength, hashMultiSetResults[hashMultiSetResultCount]);
+            }
 
             /*
              * Common inner big-only join result processing.

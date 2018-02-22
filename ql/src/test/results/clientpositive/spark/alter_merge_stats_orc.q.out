@@ -78,7 +78,6 @@ POSTHOOK: query: desc formatted  src_orc_merge_test_stat
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@src_orc_merge_test_stat
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -89,7 +88,7 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
 	numFiles            	3                   
 	numRows             	1500                
 	rawDataSize         	141000              
@@ -129,7 +128,6 @@ POSTHOOK: query: desc formatted src_orc_merge_test_stat
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@src_orc_merge_test_stat
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -140,7 +138,7 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
 	numFiles            	1                   
 	numRows             	1500                
 	rawDataSize         	141000              
@@ -226,13 +224,11 @@ POSTHOOK: query: desc formatted src_orc_merge_test_part_stat partition (ds='2011
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@src_orc_merge_test_part_stat
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -241,7 +237,7 @@ Database:           	default
 Table:              	src_orc_merge_test_part_stat	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
 	numFiles            	3                   
 	numRows             	1500                
 	rawDataSize         	141000              
@@ -275,13 +271,11 @@ POSTHOOK: query: desc formatted src_orc_merge_test_part_stat partition (ds='2011
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@src_orc_merge_test_part_stat
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -290,7 +284,7 @@ Database:           	default
 Table:              	src_orc_merge_test_part_stat	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
 	numFiles            	3                   
 	numRows             	1500                
 	rawDataSize         	141000              
@@ -332,13 +326,11 @@ POSTHOOK: query: desc formatted src_orc_merge_test_part_stat partition (ds='2011
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@src_orc_merge_test_part_stat
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -347,7 +339,7 @@ Database:           	default
 Table:              	src_orc_merge_test_part_stat	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
 	numFiles            	1                   
 	numRows             	1500                
 	rawDataSize         	141000              

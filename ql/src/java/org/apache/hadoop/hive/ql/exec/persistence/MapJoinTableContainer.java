@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,6 +23,7 @@ import java.util.List;
 
 import org.apache.hadoop.hive.ql.exec.ExprNodeEvaluator;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
+import org.apache.hadoop.hive.common.MemoryEstimate;
 import org.apache.hadoop.hive.ql.exec.vector.VectorHashKeyWrapper;
 import org.apache.hadoop.hive.ql.exec.vector.VectorHashKeyWrapperBatch;
 import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpressionWriter;
@@ -31,7 +32,7 @@ import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.io.Writable;
 
-public interface MapJoinTableContainer {
+public interface MapJoinTableContainer extends MemoryEstimate {
   /**
    * Retrieve rows from hashtable key by key, one key at a time, w/o copying the structures
    * for each key. "Old" HashMapWrapper will still create/retrieve new objects for java HashMap;
@@ -77,8 +78,7 @@ public interface MapJoinTableContainer {
   /**
    * Adds row from input to the table.
    */
-  MapJoinKey putRow(MapJoinObjectSerDeContext keyContext, Writable currentKey,
-      MapJoinObjectSerDeContext valueContext, Writable currentValue)
+  MapJoinKey putRow(Writable currentKey, Writable currentValue)
       throws SerDeException, HiveException, IOException;
 
   /**
@@ -111,4 +111,7 @@ public interface MapJoinTableContainer {
    * Return the size of the hash table
    */
   int size();
+
+  void setSerde(MapJoinObjectSerDeContext keyCtx, MapJoinObjectSerDeContext valCtx)
+      throws SerDeException;
 }

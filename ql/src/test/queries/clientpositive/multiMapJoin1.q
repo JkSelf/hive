@@ -1,3 +1,5 @@
+set hive.stats.column.autogather=false;
+set hive.mapred.mode=nonstrict;
 set hive.exec.post.hooks=org.apache.hadoop.hive.ql.hooks.PostExecutePrinter,org.apache.hadoop.hive.ql.hooks.PrintCompletedTasksHook;
 
 create table smallTbl1(key string, value string);

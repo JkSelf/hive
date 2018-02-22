@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,8 +20,9 @@ package org.apache.hadoop.hive.ql.exec.vector.mapjoin.fast;
 
 import java.io.IOException;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.ql.util.JavaDataModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHashMap;
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinLongHashMap;
@@ -32,6 +33,7 @@ import org.apache.hadoop.hive.serde2.binarysortable.fast.BinarySortableDeseriali
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.io.BytesWritable;
+import org.apache.hive.common.util.HashCodeUtil;
 import org.apache.tez.runtime.library.api.KeyValueReader;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -43,19 +45,17 @@ public abstract class VectorMapJoinFastLongHashTable
              extends VectorMapJoinFastHashTable
              implements VectorMapJoinLongHashTable {
 
-  public static final Log LOG = LogFactory.getLog(VectorMapJoinFastLongHashTable.class);
+  public static final Logger LOG = LoggerFactory.getLogger(VectorMapJoinFastLongHashTable.class);
 
-  private HashTableKeyType hashTableKeyType;
+  private final HashTableKeyType hashTableKeyType;
 
-  private boolean isOuterJoin;
+  private final boolean isOuterJoin;
 
-  private BinarySortableDeserializeRead keyBinarySortableDeserializeRead;
+  private final BinarySortableDeserializeRead keyBinarySortableDeserializeRead;
 
-  private boolean useMinMax;
+  private final boolean useMinMax;
   private long min;
   private long max;
-
-  private BytesWritable testValueBytesWritable;
 
   @Override
   public boolean useMinMax() {
@@ -77,13 +77,15 @@ public abstract class VectorMapJoinFastLongHashTable
     byte[] keyBytes = currentKey.getBytes();
     int keyLength = currentKey.getLength();
     keyBinarySortableDeserializeRead.set(keyBytes, 0, keyLength);
-    if (keyBinarySortableDeserializeRead.readCheckNull()) {
-      if (isOuterJoin) {
+    try {
+      if (!keyBinarySortableDeserializeRead.readNextField()) {
         return;
-      } else {
-        // For inner join, we expect all NULL values to have been filtered out before now.
-        throw new HiveException("Unexpected NULL in map join small table");
       }
+    } catch (Exception e) {
+      throw new HiveException(
+          "\nDeserializeRead details: " +
+              keyBinarySortableDeserializeRead.getDetailedReadPositionString() +
+          "\nException: " + e.toString());
     }
 
     long key = VectorMapJoinFastLongHashUtil.deserializeLongKey(
@@ -91,17 +93,6 @@ public abstract class VectorMapJoinFastLongHashTable
 
     add(key, currentValue);
   }
-
-
-  @VisibleForTesting
-  public void putRow(long currentKey, byte[] currentValue) throws HiveException, IOException {
-    if (testValueBytesWritable == null) {
-      testValueBytesWritable = new BytesWritable();
-    }
-    testValueBytesWritable.set(currentValue, 0, currentValue.length);
-    add(currentKey, testValueBytesWritable);
-  }
-
 
   protected abstract void assignSlot(int slot, long key, boolean isNewKey, BytesWritable currentValue);
 
@@ -111,7 +102,7 @@ public abstract class VectorMapJoinFastLongHashTable
       expandAndRehash();
     }
 
-    long hashCode = VectorMapJoinFastLongHashUtil.hashKey(key);
+    long hashCode = HashCodeUtil.calculateLongHashCode(key);
     int intHashCode = (int) hashCode;
     int slot = (intHashCode & logicalHashBucketMask);
     long probeSlot = slot;
@@ -164,6 +155,10 @@ public abstract class VectorMapJoinFastLongHashTable
 
   private void expandAndRehash() {
 
+    // We allocate pairs, so we cannot go above highest Integer power of 2 / 4.
+    if (logicalHashBucketCount > ONE_QUARTER_LIMIT) {
+      throwExpandError(ONE_QUARTER_LIMIT, "Long");
+    }
     int newLogicalHashBucketCount = logicalHashBucketCount * 2;
     int newLogicalHashBucketMask = newLogicalHashBucketCount - 1;
     int newMetricPutConflict = 0;
@@ -179,7 +174,7 @@ public abstract class VectorMapJoinFastLongHashTable
         long tableKey = slotPairs[pairIndex + 1];
 
         // Copy to new slot table.
-        long hashCode = VectorMapJoinFastLongHashUtil.hashKey(tableKey);
+        long hashCode = HashCodeUtil.calculateLongHashCode(tableKey);
         int intHashCode = (int) hashCode;
         int newSlot = intHashCode & newLogicalHashBucketMask;
         long newProbeSlot = newSlot;
@@ -264,21 +259,42 @@ public abstract class VectorMapJoinFastLongHashTable
   protected long[] slotPairs;
 
   private void allocateBucketArray() {
+    // We allocate pairs, so we cannot go above highest Integer power of 2 / 4.
+    if (logicalHashBucketCount > ONE_QUARTER_LIMIT) {
+      throwExpandError(ONE_QUARTER_LIMIT, "Long");
+    }
     int slotPairArraySize = 2 * logicalHashBucketCount;
     slotPairs = new long[slotPairArraySize];
   }
 
   public VectorMapJoinFastLongHashTable(
         boolean minMaxEnabled, boolean isOuterJoin, HashTableKeyType hashTableKeyType,
-        int initialCapacity, float loadFactor, int writeBuffersSize) {
-    super(initialCapacity, loadFactor, writeBuffersSize);
+        int initialCapacity, float loadFactor, int writeBuffersSize, long estimatedKeyCount) {
+    super(initialCapacity, loadFactor, writeBuffersSize, estimatedKeyCount);
     this.isOuterJoin = isOuterJoin;
     this.hashTableKeyType = hashTableKeyType;
-    PrimitiveTypeInfo[] primitiveTypeInfos = { TypeInfoFactory.longTypeInfo };
-    keyBinarySortableDeserializeRead = new BinarySortableDeserializeRead(primitiveTypeInfos);
+    PrimitiveTypeInfo[] primitiveTypeInfos = { hashTableKeyType.getPrimitiveTypeInfo() };
+    keyBinarySortableDeserializeRead =
+        new BinarySortableDeserializeRead(
+            primitiveTypeInfos,
+            /* useExternalBuffer */ false);
     allocateBucketArray();
     useMinMax = minMaxEnabled;
     min = Long.MAX_VALUE;
     max = Long.MIN_VALUE;
+  }
+
+  @Override
+  public long getEstimatedMemorySize() {
+    JavaDataModel jdm = JavaDataModel.get();
+    long size = super.getEstimatedMemorySize();
+    size += slotPairs == null ? 0 : jdm.lengthForLongArrayOfSize(slotPairs.length);
+    size += (2 * jdm.primitive2());
+    size += (2 * jdm.primitive1());
+    size += jdm.object();
+    // adding 16KB constant memory for keyBinarySortableDeserializeRead as the rabit hole is deep to implement
+    // MemoryEstimate interface, also it is constant overhead
+    size += (16 * 1024L);
+    return size;
   }
 }

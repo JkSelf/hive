@@ -1,3 +1,5 @@
+set hive.stats.column.autogather=false;
+set hive.mapred.mode=nonstrict;
 set mapred.reduce.tasks=31;
 
 -- SORT_QUERY_RESULTS

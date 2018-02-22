@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -58,10 +58,10 @@ public class HiveVarchar extends HiveBaseChar
     return this.getValue().compareTo(rhs.getValue());
   }
 
-  public boolean equals(HiveVarchar rhs) {
+  public boolean equals(Object rhs) {
     if (rhs == this) {
       return true;
     }
-    return this.getValue().equals(rhs.getValue());
+    return this.getValue().equals(((HiveVarchar)rhs).getValue());
   }
 }

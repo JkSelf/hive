@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,18 +20,26 @@ package org.apache.hadoop.hive.serde2.typeinfo;
 
 import java.io.Serializable;
 
+import org.apache.hadoop.hive.common.classification.InterfaceAudience;
+import org.apache.hadoop.hive.common.classification.InterfaceStability;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
 
 /**
  * Stores information about a type. Always use the TypeInfoFactory to create new
  * TypeInfo objects.
  *
- * We support 8 categories of types: 1. Primitive objects (String, Number, etc)
- * 2. List objects (a list of objects of a single type) 3. Map objects (a map
- * from objects of one type to objects of another type) 4. Struct objects (a
- * list of fields with names and their own types) 5. Union objects
- * 6. Decimal objects 7. Char objects 8. Varchar objects
+ * We support 8 categories of types:
+ * 1. Primitive objects (String, Number, etc)
+ * 2. List objects (a list of objects of a single type)
+ * 3. Map objects (a map from objects of one type to objects of another type)
+ * 4. Struct objects (a list of fields with names and their own types)
+ * 5. Union objects
+ * 6. Decimal objects
+ * 7. Char objects
+ * 8. Varchar objects
  */
+@InterfaceAudience.Public
+@InterfaceStability.Stable
 public abstract class TypeInfo implements Serializable {
 
   private static final long serialVersionUID = 1L;

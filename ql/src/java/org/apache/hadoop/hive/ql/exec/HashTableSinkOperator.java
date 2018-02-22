@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -22,17 +22,16 @@ import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.Future;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.mapjoin.MapJoinMemoryExhaustionHandler;
 import org.apache.hadoop.hive.ql.exec.persistence.HashMapWrapper;
 import org.apache.hadoop.hive.ql.exec.persistence.MapJoinEagerRowContainer;
@@ -47,7 +46,7 @@ import org.apache.hadoop.hive.ql.plan.HashTableSinkDesc;
 import org.apache.hadoop.hive.ql.plan.TableDesc;
 import org.apache.hadoop.hive.ql.plan.api.OperatorType;
 import org.apache.hadoop.hive.ql.session.SessionState.LogHelper;
-import org.apache.hadoop.hive.serde2.SerDe;
+import org.apache.hadoop.hive.serde2.AbstractSerDe;
 import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.SerDeUtils;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
@@ -59,7 +58,7 @@ import org.apache.hadoop.util.ReflectionUtils;
 public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> implements
     Serializable {
   private static final long serialVersionUID = 1L;
-  protected static final Log LOG = LogFactory.getLog(HashTableSinkOperator.class.getName());
+  protected static final Logger LOG = LoggerFactory.getLogger(HashTableSinkOperator.class.getName());
 
   /**
    * The expressions for join inputs's join keys.
@@ -106,18 +105,25 @@ public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> i
   private long hashTableScale;
   private MapJoinMemoryExhaustionHandler memoryExhaustionHandler;
 
-  public HashTableSinkOperator() {
+  /** Kryo ctor. */
+  protected HashTableSinkOperator() {
+    super();
   }
 
-  public HashTableSinkOperator(MapJoinOperator mjop) {
+  public HashTableSinkOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public HashTableSinkOperator(CompilationOpContext ctx, MapJoinOperator mjop) {
+    this(ctx);
     this.conf = new HashTableSinkDesc(mjop.getConf());
   }
 
 
   @Override
   @SuppressWarnings("unchecked")
-  protected Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
-    Collection<Future<?>> result = super.initializeOp(hconf);
+  protected void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
     boolean isSilent = HiveConf.getBoolVar(hconf, HiveConf.ConfVars.HIVESESSIONSILENT);
     console = new LogHelper(LOG, isSilent);
     memoryExhaustionHandler = new MapJoinMemoryExhaustionHandler(console, conf.getHashtableMemoryUsage());
@@ -137,19 +143,19 @@ public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> i
 
     // process join keys
     joinKeys = new List[tagLen];
-    JoinUtil.populateJoinKeyValue(joinKeys, conf.getKeys(), posBigTableAlias);
+    JoinUtil.populateJoinKeyValue(joinKeys, conf.getKeys(), posBigTableAlias, hconf);
     joinKeysObjectInspectors = JoinUtil.getObjectInspectorsFromEvaluators(joinKeys,
         inputObjInspectors, posBigTableAlias, tagLen);
 
     // process join values
     joinValues = new List[tagLen];
-    JoinUtil.populateJoinKeyValue(joinValues, conf.getExprs(), posBigTableAlias);
+    JoinUtil.populateJoinKeyValue(joinValues, conf.getExprs(), posBigTableAlias, hconf);
     joinValuesObjectInspectors = JoinUtil.getObjectInspectorsFromEvaluators(joinValues,
         inputObjInspectors, posBigTableAlias, tagLen);
 
     // process join filters
     joinFilters = new List[tagLen];
-    JoinUtil.populateJoinKeyValue(joinFilters, conf.getFilters(), posBigTableAlias);
+    JoinUtil.populateJoinKeyValue(joinFilters, conf.getFilters(), posBigTableAlias, hconf);
     joinFilterObjectInspectors = JoinUtil.getObjectInspectorsFromEvaluators(joinFilters,
         inputObjInspectors, posBigTableAlias, tagLen);
 
@@ -174,7 +180,7 @@ public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> i
     }
     try {
       TableDesc keyTableDesc = conf.getKeyTblDesc();
-      SerDe keySerde = (SerDe) ReflectionUtils.newInstance(keyTableDesc.getDeserializerClass(),
+      AbstractSerDe keySerde = (AbstractSerDe) ReflectionUtils.newInstance(keyTableDesc.getDeserializerClass(),
           null);
       SerDeUtils.initializeSerDe(keySerde, null, keyTableDesc.getProperties(), null);
       MapJoinObjectSerDeContext keyContext = new MapJoinObjectSerDeContext(keySerde, false);
@@ -184,7 +190,7 @@ public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> i
         }
         mapJoinTables[pos] = new HashMapWrapper(hconf, -1);
         TableDesc valueTableDesc = conf.getValueTblFilteredDescs().get(pos);
-        SerDe valueSerDe = (SerDe) ReflectionUtils.newInstance(valueTableDesc.getDeserializerClass(), null);
+        AbstractSerDe valueSerDe = (AbstractSerDe) ReflectionUtils.newInstance(valueTableDesc.getDeserializerClass(), null);
         SerDeUtils.initializeSerDe(valueSerDe, null, valueTableDesc.getProperties(), null);
         mapJoinTableSerdes[pos] = new MapJoinTableContainerSerDe(keyContext, new MapJoinObjectSerDeContext(
             valueSerDe, hasFilter(pos)));
@@ -192,7 +198,7 @@ public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> i
     } catch (SerDeException e) {
       throw new HiveException(e);
     }
-    return result;
+
   }
 
   public MapJoinTableContainer[] getMapJoinTables() {
@@ -269,9 +275,7 @@ public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> i
   public void closeOp(boolean abort) throws HiveException {
     try {
       if (mapJoinTables == null) {
-        if (isLogDebugEnabled) {
-          LOG.debug("mapJoinTables is null");
-        }
+        LOG.debug("mapJoinTables is null");
       } else {
         flushToFile();
       }
@@ -286,9 +290,7 @@ public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> i
   protected void flushToFile() throws IOException, HiveException {
     // get tmp file URI
     Path tmpURI = getExecContext().getLocalWork().getTmpPath();
-    if (isLogInfoEnabled) {
-      LOG.info("Temp URI for side table: " + tmpURI);
-    }
+    LOG.info("Temp URI for side table: {}", tmpURI);
     for (byte tag = 0; tag < mapJoinTables.length; tag++) {
       // get the key and value
       MapJoinPersistableTableContainer tableContainer = mapJoinTables[tag];
@@ -299,13 +301,18 @@ public class HashTableSinkOperator extends TerminalOperator<HashTableSinkDesc> i
       String bigBucketFileName = getExecContext().getCurrentBigBucketFile();
       String fileName = getExecContext().getLocalWork().getBucketFileName(bigBucketFileName);
       // get the tmp URI path; it will be a hdfs path if not local mode
+      // TODO [MM gap?]: this doesn't work, however this is MR only.
+      //      The path for writer and reader mismatch:
+      //      Dump the side-table for tag ... -local-10004/HashTable-Stage-1/MapJoin-a-00-(ds%3D2008-04-08)mm_2.hashtable
+      //      Load back 1 hashtable file      -local-10004/HashTable-Stage-1/MapJoin-a-00-srcsortbucket3outof4.txt.hashtable
+      //      Hive3 probably won't support MR so do we really care? 
       String dumpFilePrefix = conf.getDumpFilePrefix();
       Path path = Utilities.generatePath(tmpURI, dumpFilePrefix, tag, fileName);
       console.printInfo(Utilities.now() + "\tDump the side-table for tag: " + tag +
           " with group count: " + tableContainer.size() + " into file: " + path);
       // get the hashtable file and path
       FileSystem fs = path.getFileSystem(hconf);
-      ObjectOutputStream out = new ObjectOutputStream(new BufferedOutputStream(fs.create(path), 4096));
+      ObjectOutputStream out = new ObjectOutputStream(new BufferedOutputStream(fs.create(path)));
       try {
         mapJoinTableSerdes[tag].persist(out, tableContainer);
       } finally {

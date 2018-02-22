@@ -42,8 +42,8 @@ import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.UnresolvedUnionException;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.common.type.HiveChar;
 import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.common.type.HiveVarchar;
@@ -61,7 +61,7 @@ import org.apache.hadoop.hive.serde2.typeinfo.UnionTypeInfo;
 import org.apache.hadoop.io.Writable;
 
 class AvroDeserializer {
-  private static final Log LOG = LogFactory.getLog(AvroDeserializer.class);
+  private static final Logger LOG = LoggerFactory.getLogger(AvroDeserializer.class);
   /**
    * Set of already seen and valid record readers IDs which doesn't need re-encoding
    */
@@ -75,7 +75,7 @@ class AvroDeserializer {
    * Flag to print the re-encoding warning message only once. Avoid excessive logging for each
    * record encoding.
    */
-  private static boolean warnedOnce = false;
+  private boolean warnedOnce = false;
   /**
    * When encountering a record with an older schema than the one we're trying
    * to read, it is necessary to re-encode with a reader against the newer schema.
@@ -163,7 +163,7 @@ class AvroDeserializer {
         reEncoder = new SchemaReEncoder(r.getSchema(), readerSchema);
         reEncoderCache.put(recordReaderId, reEncoder);
       } else{
-        LOG.info("Adding new valid RRID :" +  recordReaderId);
+        LOG.debug("Adding new valid RRID :" +  recordReaderId);
         noEncodingNeeded.add(recordReaderId);
       }
       if(reEncoder != null) {
@@ -201,8 +201,8 @@ class AvroDeserializer {
     // Klaxon! Klaxon! Klaxon!
     // Avro requires NULLable types to be defined as unions of some type T
     // and NULL.  This is annoying and we're going to hide it from the user.
-    if(AvroSerdeUtils.isNullableType(recordSchema)) {
-      return deserializeNullableUnion(datum, fileSchema, recordSchema);
+    if (AvroSerdeUtils.isNullableType(recordSchema)) {
+      return deserializeNullableUnion(datum, fileSchema, recordSchema, columnType);
     }
 
     switch(columnType.getCategory()) {
@@ -244,7 +244,7 @@ class AvroDeserializer {
 
       int scale = 0;
       try {
-        scale = fileSchema.getJsonProp(AvroSerDe.AVRO_PROP_SCALE).getIntValue();
+        scale = fileSchema.getJsonProp(AvroSerDe.AVRO_PROP_SCALE).asInt();
       } catch(Exception ex) {
         throw new AvroSerdeException("Failed to obtain scale value from file schema: " + fileSchema, ex);
       }
@@ -301,14 +301,32 @@ class AvroDeserializer {
   }
 
   /**
-   * Extract either a null or the correct type from a Nullable type.  This is
-   * horrible in that we rebuild the TypeInfo every time.
+   * Extract either a null or the correct type from a Nullable type.
    */
-  private Object deserializeNullableUnion(Object datum, Schema fileSchema, Schema recordSchema)
+  private Object deserializeNullableUnion(Object datum, Schema fileSchema, Schema recordSchema, TypeInfo columnType)
                                             throws AvroSerdeException {
+    if (recordSchema.getTypes().size() == 2) {
+      // A type like [NULL, T]
+      return deserializeSingleItemNullableUnion(datum, fileSchema, recordSchema, columnType);
+    } else {
+      // Types like [NULL, T1, T2, ...]
+      if (datum == null) {
+        return null;
+      } else {
+        Schema newRecordSchema = AvroSerdeUtils.getOtherTypeFromNullableType(recordSchema);
+        return worker(datum, fileSchema, newRecordSchema, columnType);
+      }
+    }
+  }
+
+  private Object deserializeSingleItemNullableUnion(Object datum,
+                                                    Schema fileSchema,
+                                                    Schema recordSchema,
+                                                    TypeInfo columnType)
+      throws AvroSerdeException {
     int tag = GenericData.get().resolveUnion(recordSchema, datum); // Determine index of value
     Schema schema = recordSchema.getTypes().get(tag);
-    if (schema.getType().equals(Schema.Type.NULL)) {
+    if (schema.getType().equals(Type.NULL)) {
       return null;
     }
 
@@ -342,9 +360,7 @@ class AvroDeserializer {
         currentFileSchema = fileSchema;
       }
     }
-    return worker(datum, currentFileSchema, schema,
-      SchemaToTypeInfo.generateTypeInfo(schema, null));
-
+    return worker(datum, currentFileSchema, schema, columnType);
   }
 
   private Object deserializeStruct(GenericData.Record datum, Schema fileSchema, StructTypeInfo columnType)
@@ -359,7 +375,7 @@ class AvroDeserializer {
 
   private Object deserializeUnion(Object datum, Schema fileSchema, Schema recordSchema,
                                   UnionTypeInfo columnType) throws AvroSerdeException {
-    // Calculate tags individually since the schema can evolve and can have different tags. In worst case, both schemas are same 
+    // Calculate tags individually since the schema can evolve and can have different tags. In worst case, both schemas are same
     // and we would end up doing calculations twice to get the same tag
     int fsTag = GenericData.get().resolveUnion(fileSchema, datum); // Determine index of value from fileSchema
     int rsTag = GenericData.get().resolveUnion(recordSchema, datum); // Determine index of value from recordSchema

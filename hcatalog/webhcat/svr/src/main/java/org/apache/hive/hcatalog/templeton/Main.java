@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -22,31 +22,47 @@ import com.sun.jersey.api.core.PackagesResourceConfig;
 import com.sun.jersey.spi.container.servlet.ServletContainer;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.hadoop.hive.common.classification.InterfaceAudience;
 import org.apache.hadoop.hive.common.classification.InterfaceStability;
 import org.apache.hadoop.hdfs.web.AuthFilter;
+import org.apache.hadoop.hive.shims.Utils;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authentication.client.PseudoAuthenticator;
 import org.apache.hadoop.security.authentication.server.PseudoAuthenticationHandler;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.eclipse.jetty.rewrite.handler.RedirectPatternRule;
 import org.eclipse.jetty.rewrite.handler.RewriteHandler;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.HandlerList;
 import org.eclipse.jetty.servlet.FilterHolder;
-import org.eclipse.jetty.servlet.FilterMapping;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.xml.XmlConfiguration;
 import org.slf4j.bridge.SLF4JBridgeHandler;
 
+import javax.servlet.DispatcherType;
+import javax.servlet.Filter;
+import javax.servlet.FilterChain;
+import javax.servlet.FilterConfig;
+import javax.servlet.ServletException;
+import javax.servlet.ServletRequest;
+import javax.servlet.ServletResponse;
+import javax.servlet.annotation.WebFilter;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * The main executable that starts up and runs the Server.
@@ -55,7 +71,7 @@ import javax.servlet.http.HttpServletRequest;
 @InterfaceStability.Unstable
 public class Main {
   public static final String SERVLET_PATH = "templeton";
-  private static final Log LOG = LogFactory.getLog(Main.class);
+  private static final Logger LOG = LoggerFactory.getLogger(Main.class);
 
   public static final int DEFAULT_PORT = 8080;
   private Server server;
@@ -116,11 +132,14 @@ public class Main {
     try {
       checkEnv();
       runServer(port);
+      // Currently only print the first port to be consistent with old behavior
+      port =  ArrayUtils.isEmpty(server.getConnectors()) ? -1 : ((ServerConnector)(server.getConnectors()[0])).getLocalPort();
+
       System.out.println("templeton: listening on port " + port);
       LOG.info("Templeton listening on port " + port);
     } catch (Exception e) {
       System.err.println("templeton: Server failed to start: " + e.getMessage());
-      LOG.fatal("Server failed to start: " + e);
+      LOG.error("Server failed to start: " , e);
       System.exit(1);
     }
   }
@@ -148,7 +167,7 @@ public class Main {
     if (!pwd.exists()) {
       String msg = "Server failed to start: templeton: Current working directory '.' does not exist!";
       System.err.println(msg);
-      LOG.fatal(msg);
+      LOG.error(msg);
       System.exit(1);
     }
   }
@@ -158,16 +177,27 @@ public class Main {
 
     //Authenticate using keytab
     if (UserGroupInformation.isSecurityEnabled()) {
-      UserGroupInformation.loginUserFromKeytab(conf.kerberosPrincipal(),
+      String serverPrincipal = SecurityUtil.getServerPrincipal(conf.kerberosPrincipal(), "0.0.0.0");
+      UserGroupInformation.loginUserFromKeytab(serverPrincipal,
         conf.kerberosKeytab());
     }
 
-    // Create the Jetty server
-    Server server = new Server(port);
+    // Create the Jetty server. If jetty conf file exists, use that to create server
+    // to have more control.
+    Server server = null;
+    if (StringUtils.isEmpty(conf.jettyConfiguration())) {
+      server = new Server(port);
+    } else {
+        FileInputStream jettyConf = new FileInputStream(conf.jettyConfiguration());
+        XmlConfiguration configuration = new XmlConfiguration(jettyConf);
+        server = (Server)configuration.configure();
+    }
+
     ServletContextHandler root = new ServletContextHandler(server, "/");
 
     // Add the Auth filter
     FilterHolder fHolder = makeAuthFilter();
+    EnumSet<DispatcherType> dispatches = EnumSet.of(DispatcherType.REQUEST);
 
     /* 
      * We add filters for each of the URIs supported by templeton.
@@ -176,24 +206,24 @@ public class Main {
      * This is because mapreduce does not use secure credentials for 
      * callbacks. So jetty would fail the request as unauthorized.
      */ 
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/ddl/*", 
-             FilterMapping.REQUEST);
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/pig/*", 
-             FilterMapping.REQUEST);
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/hive/*", 
-             FilterMapping.REQUEST);
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/sqoop/*",
-             FilterMapping.REQUEST);
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/queue/*", 
-             FilterMapping.REQUEST);
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/jobs/*",
-             FilterMapping.REQUEST);
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/mapreduce/*", 
-             FilterMapping.REQUEST);
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/status/*", 
-             FilterMapping.REQUEST);
-    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/version/*", 
-             FilterMapping.REQUEST);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/ddl/*", dispatches);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/pig/*", dispatches);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/hive/*", dispatches);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/sqoop/*", dispatches);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/queue/*", dispatches);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/jobs/*", dispatches);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/mapreduce/*", dispatches);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/status/*", dispatches);
+    root.addFilter(fHolder, "/" + SERVLET_PATH + "/v1/version/*", dispatches);
+
+    if (conf.getBoolean(AppConfig.XSRF_FILTER_ENABLED, false)){
+      root.addFilter(makeXSRFFilter(), "/" + SERVLET_PATH + "/*", dispatches);
+      LOG.debug("XSRF filter enabled");
+    } else {
+      LOG.warn("XSRF filter disabled");
+    }
+
+    root.addFilter(makeFrameOptionFilter(), "/" + SERVLET_PATH + "/*", dispatches);
 
     // Connect Jersey
     ServletHolder h = new ServletHolder(new ServletContainer(makeJerseyConfig()));
@@ -207,9 +237,24 @@ public class Main {
     return server;
   }
 
+  public FilterHolder makeXSRFFilter() {
+    String customHeader = null; // The header to look for. We use "X-XSRF-HEADER" if this is null.
+    String methodsToIgnore = null; // Methods to not filter. By default: "GET,OPTIONS,HEAD,TRACE" if null.
+    FilterHolder fHolder = new FilterHolder(Utils.getXSRFFilter());
+    if (customHeader != null){
+      fHolder.setInitParameter(Utils.XSRF_CUSTOM_HEADER_PARAM, customHeader);
+    }
+    if (methodsToIgnore != null){
+      fHolder.setInitParameter(Utils.XSRF_CUSTOM_METHODS_TO_IGNORE_PARAM, methodsToIgnore);
+    }
+    FilterHolder xsrfFilter = fHolder;
+
+    return xsrfFilter;
+  }
+
   // Configure the AuthFilter with the Kerberos params iff security
   // is enabled.
-  public FilterHolder makeAuthFilter() {
+  public FilterHolder makeAuthFilter() throws IOException {
     FilterHolder authFilter = new FilterHolder(AuthFilter.class);
     UserNameHandler.allowAnonymous(authFilter);
     if (UserGroupInformation.isSecurityEnabled()) {
@@ -217,13 +262,47 @@ public class Main {
       authFilter.setInitParameter("dfs.web.authentication.signature.secret",
         conf.kerberosSecret());
       //https://svn.apache.org/repos/asf/hadoop/common/branches/branch-1.2/src/packages/templates/conf/hdfs-site.xml
+      String serverPrincipal = SecurityUtil.getServerPrincipal(conf.kerberosPrincipal(), "0.0.0.0");
       authFilter.setInitParameter("dfs.web.authentication.kerberos.principal",
-        conf.kerberosPrincipal());
+        serverPrincipal);
       //http://https://svn.apache.org/repos/asf/hadoop/common/branches/branch-1.2/src/packages/templates/conf/hdfs-site.xml
       authFilter.setInitParameter("dfs.web.authentication.kerberos.keytab",
         conf.kerberosKeytab());
     }
     return authFilter;
+  }
+
+  public FilterHolder makeFrameOptionFilter() {
+    FilterHolder frameOptionFilter = new FilterHolder(XFrameOptionsFilter.class);
+    frameOptionFilter.setInitParameter(AppConfig.FRAME_OPTIONS_FILETER, conf.get(AppConfig.FRAME_OPTIONS_FILETER));
+    return frameOptionFilter;
+  }
+
+  public static class XFrameOptionsFilter implements Filter {
+    private final static String defaultMode = "DENY";
+
+    private String mode = null;
+
+    @Override
+    public void init(FilterConfig filterConfig) throws ServletException {
+      mode = filterConfig.getInitParameter(AppConfig.FRAME_OPTIONS_FILETER);
+      if (mode == null) {
+        mode = defaultMode;
+      }
+    }
+
+    @Override
+    public void doFilter(final ServletRequest request, final ServletResponse response, final FilterChain chain)
+        throws IOException, ServletException {
+      final HttpServletResponse res = (HttpServletResponse) response;
+      res.setHeader("X-FRAME-OPTIONS", mode);
+      chain.doFilter(request, response);
+    }
+
+    @Override
+    public void destroy() {
+      // do nothing
+    }
   }
 
   public PackagesResourceConfig makeJerseyConfig() {

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -14,12 +14,15 @@
 package org.apache.hadoop.hive.ql.io.parquet.write;
 
 import java.io.IOException;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Properties;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.ql.io.parquet.serde.ParquetTableUtils;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapred.JobConf;
@@ -39,7 +42,7 @@ import org.apache.parquet.hadoop.util.ContextUtil;
 public class ParquetRecordWriterWrapper implements RecordWriter<NullWritable, ParquetHiveRecord>,
   org.apache.hadoop.hive.ql.exec.FileSinkOperator.RecordWriter {
 
-  public static final Log LOG = LogFactory.getLog(ParquetRecordWriterWrapper.class);
+  public static final Logger LOG = LoggerFactory.getLogger(ParquetRecordWriterWrapper.class);
 
   private final org.apache.hadoop.mapreduce.RecordWriter<NullWritable, ParquetHiveRecord> realWriter;
   private final TaskAttemptContext taskContext;
@@ -72,12 +75,33 @@ public class ParquetRecordWriterWrapper implements RecordWriter<NullWritable, Pa
     }
   }
 
+  public ParquetRecordWriterWrapper(
+          final ParquetOutputFormat<ParquetHiveRecord> realOutputFormat,
+          final JobConf jobConf,
+          final String name,
+          final Progressable progress) throws IOException {
+    this(realOutputFormat, jobConf, name, progress, getParquetProperties(jobConf));
+  }
+
+  private static Properties getParquetProperties(JobConf jobConf) {
+    Properties tblProperties = new Properties();
+    Iterator<Map.Entry<String, String>> it = jobConf.iterator();
+    while (it.hasNext()) {
+      Map.Entry<String, String> entry = it.next();
+      if (ParquetTableUtils.isParquetProperty(entry.getKey())) {
+        tblProperties.put(entry.getKey(), entry.getValue());
+      }
+    }
+    return tblProperties;
+  }
+
+
   private void initializeSerProperties(JobContext job, Properties tableProperties) {
     String blockSize = tableProperties.getProperty(ParquetOutputFormat.BLOCK_SIZE);
     Configuration conf = ContextUtil.getConfiguration(job);
     if (blockSize != null && !blockSize.isEmpty()) {
       LOG.debug("get override parquet.block.size property via tblproperties");
-      conf.setInt(ParquetOutputFormat.BLOCK_SIZE, Integer.valueOf(blockSize));
+      conf.setInt(ParquetOutputFormat.BLOCK_SIZE, Integer.parseInt(blockSize));
     }
 
     String enableDictionaryPage =
@@ -85,7 +109,7 @@ public class ParquetRecordWriterWrapper implements RecordWriter<NullWritable, Pa
     if (enableDictionaryPage != null && !enableDictionaryPage.isEmpty()) {
       LOG.debug("get override parquet.enable.dictionary property via tblproperties");
       conf.setBoolean(ParquetOutputFormat.ENABLE_DICTIONARY,
-        Boolean.valueOf(enableDictionaryPage));
+        Boolean.parseBoolean(enableDictionaryPage));
     }
 
     String compressionName = tableProperties.getProperty(ParquetOutputFormat.COMPRESSION);

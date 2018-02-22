@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,28 +18,51 @@
 
 package org.apache.hadoop.hive.ql.exec.vector.mapjoin.fast;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import java.io.IOException;
+
+import org.apache.hadoop.hive.common.MemoryEstimate;
+import org.apache.hadoop.hive.ql.util.JavaDataModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHashMapResult;
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinLongHashMap;
+import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.VectorMapJoinDesc.HashTableKeyType;
 import org.apache.hadoop.io.BytesWritable;
+import org.apache.hive.common.util.HashCodeUtil;
+
+import com.google.common.annotations.VisibleForTesting;
 
 /*
- * An single long value map optimized for vector map join.
+ * An single LONG key hash map optimized for vector map join.
  */
 public class VectorMapJoinFastLongHashMap
              extends VectorMapJoinFastLongHashTable
-             implements VectorMapJoinLongHashMap {
+             implements VectorMapJoinLongHashMap, MemoryEstimate {
 
-  public static final Log LOG = LogFactory.getLog(VectorMapJoinFastLongHashMap.class);
+  public static final Logger LOG = LoggerFactory.getLogger(VectorMapJoinFastLongHashMap.class);
 
   protected VectorMapJoinFastValueStore valueStore;
+
+  private BytesWritable testValueBytesWritable;
 
   @Override
   public VectorMapJoinHashMapResult createHashMapResult() {
     return new VectorMapJoinFastValueStore.HashMapResult();
+  }
+
+  /*
+   * A Unit Test convenience method for putting key and value into the hash table using the
+   * actual types.
+   */
+  @VisibleForTesting
+  public void testPutRow(long currentKey, byte[] currentValue) throws HiveException, IOException {
+    if (testValueBytesWritable == null) {
+      testValueBytesWritable = new BytesWritable();
+    }
+    testValueBytesWritable.set(currentValue, 0, currentValue.length);
+    add(currentKey, testValueBytesWritable);
   }
 
   @Override
@@ -67,7 +90,7 @@ public class VectorMapJoinFastLongHashMap
 
     optimizedHashMapResult.forget();
 
-    long hashCode = VectorMapJoinFastLongHashUtil.hashKey(key);
+    long hashCode = HashCodeUtil.calculateLongHashCode(key);
     // LOG.debug("VectorMapJoinFastLongHashMap lookup " + key + " hashCode " + hashCode);
     long valueRef = findReadSlot(key, hashCode);
     JoinUtil.JoinResult joinResult;
@@ -86,9 +109,14 @@ public class VectorMapJoinFastLongHashMap
 
   public VectorMapJoinFastLongHashMap(
       boolean minMaxEnabled, boolean isOuterJoin, HashTableKeyType hashTableKeyType,
-      int initialCapacity, float loadFactor, int writeBuffersSize) {
+      int initialCapacity, float loadFactor, int writeBuffersSize, long estimatedKeyCount) {
     super(minMaxEnabled, isOuterJoin, hashTableKeyType,
-        initialCapacity, loadFactor, writeBuffersSize);
+        initialCapacity, loadFactor, writeBuffersSize, estimatedKeyCount);
     valueStore = new VectorMapJoinFastValueStore(writeBuffersSize);
+  }
+
+  @Override
+  public long getEstimatedMemorySize() {
+    return super.getEstimatedMemorySize() + valueStore.getEstimatedMemorySize();
   }
 }

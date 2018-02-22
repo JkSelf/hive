@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -59,8 +59,8 @@ public class MsckDesc extends DDLWork implements Serializable {
     super();
     this.tableName = tableName;
     this.partSpecs = new ArrayList<LinkedHashMap<String, String>>(partSpecs.size());
-    for (int i = 0; i < partSpecs.size(); i++) {
-      this.partSpecs.add(new LinkedHashMap<String, String>(partSpecs.get(i)));
+    for (Map<String, String> partSpec : partSpecs) {
+      this.partSpecs.add(new LinkedHashMap<>(partSpec));
     }
     this.resFile = resFile.toString();
     this.repairPartitions = repairPartitions;

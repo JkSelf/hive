@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,10 +23,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
-import junit.framework.Assert;
+import org.junit.Assert;
 
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.ql.CommandNeedRetryException;
 import org.apache.hadoop.hive.ql.Driver;
 import org.apache.hadoop.hive.ql.QueryPlan;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
@@ -38,7 +37,7 @@ import org.junit.Test;
 public class TestColumnAccess {
 
   @BeforeClass
-  public static void Setup() throws CommandNeedRetryException {
+  public static void Setup() throws Exception {
     Driver driver = createDriver();
     int ret = driver.run("create table t1(id1 int, name1 string)").getResponseCode();
     Assert.assertEquals("Checking command success", 0, ret);
@@ -126,9 +125,11 @@ public class TestColumnAccess {
     QueryPlan plan = driver.getPlan();
     // check access columns from ColumnAccessInfo
     ColumnAccessInfo columnAccessInfo = plan.getColumnAccessInfo();
-    List<String> cols = columnAccessInfo.getTableToColumnAccessMap().get("default@v1");
+    // t1 is inside v1, we should not care about its access info.
+    List<String> cols = columnAccessInfo.getTableToColumnAccessMap().get("default@t1");
     Assert.assertNull(cols);
-    cols = columnAccessInfo.getTableToColumnAccessMap().get("default@t1");
+    // v1 is top level view, we should care about its access info.
+    cols = columnAccessInfo.getTableToColumnAccessMap().get("default@v1");
     Assert.assertNotNull(cols);
     Assert.assertEquals(2, cols.size());
     Assert.assertNotNull(cols.contains("id1"));
@@ -143,9 +144,9 @@ public class TestColumnAccess {
 
     // check access columns from readEntity
     Map<String, List<String>> tableColsMap = getColsFromReadEntity(plan.getInputs());
-    cols = tableColsMap.get("default@v1");
-    Assert.assertNull(cols);
     cols = tableColsMap.get("default@t1");
+    Assert.assertNull(cols);
+    cols = tableColsMap.get("default@v1");
     Assert.assertNotNull(cols);
     Assert.assertEquals(2, cols.size());
     Assert.assertNotNull(cols.contains("id1"));
@@ -182,11 +183,13 @@ public class TestColumnAccess {
 
   private static Driver createDriver() {
     HiveConf conf = new HiveConf(Driver.class);
+    conf
+    .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
     HiveConf.setBoolVar(conf, HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY, false);
     conf.setBoolVar(HiveConf.ConfVars.HIVE_STATS_COLLECT_SCANCOLS, true);
     SessionState.start(conf);
     Driver driver = new Driver(conf);
-    driver.init();
     return driver;
   }
 

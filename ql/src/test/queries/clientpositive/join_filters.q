@@ -1,3 +1,4 @@
+set hive.mapred.mode=nonstrict;
 -- SORT_AND_HASH_QUERY_RESULTS
 
 CREATE TABLE myinput1(key int, value int);
@@ -56,11 +57,11 @@ SELECT /*+ MAPJOIN(a) */ * FROM myinput1 a RIGHT OUTER JOIN myinput1 b ON a.key 
 SELECT /*+ MAPJOIN(a) */ * FROM myinput1 a RIGHT OUTER JOIN myinput1 b ON a.value = b.value AND a.key > 40 AND a.value > 50 AND a.key = a.value AND b.key > 40 AND b.value > 50 AND b.key = b.value;
 
 CREATE TABLE smb_input1(key int, value int) CLUSTERED BY (key) SORTED BY (key) INTO 2 BUCKETS; 
-CREATE TABLE smb_input2(key int, value int) CLUSTERED BY (value) SORTED BY (value) INTO 2 BUCKETS; 
-LOAD DATA LOCAL INPATH '../../data/files/in1.txt' into table smb_input1;
-LOAD DATA LOCAL INPATH '../../data/files/in2.txt' into table smb_input1;
-LOAD DATA LOCAL INPATH '../../data/files/in1.txt' into table smb_input2;
-LOAD DATA LOCAL INPATH '../../data/files/in2.txt' into table smb_input2;
+CREATE TABLE smb_input2(key int, value int) CLUSTERED BY (value) SORTED BY (value) INTO 2 BUCKETS;
+LOAD DATA LOCAL INPATH '../../data/files/in/000000_0' into table smb_input1;
+LOAD DATA LOCAL INPATH '../../data/files/in/000001_0' into table smb_input1;
+LOAD DATA LOCAL INPATH '../../data/files/in/000000_0' into table smb_input2;
+LOAD DATA LOCAL INPATH '../../data/files/in/000001_0' into table smb_input2;
 
 SET hive.optimize.bucketmapjoin = true;
 SET hive.optimize.bucketmapjoin.sortedmerge = true;
@@ -83,8 +84,6 @@ SELECT /*+ MAPJOIN(b) */ * FROM smb_input2 a LEFT OUTER JOIN smb_input2 b ON a.v
 SELECT /*+ MAPJOIN(a) */ * FROM smb_input1 a RIGHT OUTER JOIN smb_input1 b ON a.key = b.key AND a.key > 40 AND a.value > 50 AND a.key = a.value AND b.key > 40 AND b.value > 50 AND b.key = b.value;
 SELECT /*+ MAPJOIN(a) */ * FROM smb_input1 a RIGHT OUTER JOIN smb_input2 b ON a.key = b.value AND a.key > 40 AND a.value > 50 AND a.key = a.value AND b.key > 40 AND b.value > 50 AND b.key = b.value;
 SELECT /*+ MAPJOIN(a) */ * FROM smb_input2 a RIGHT OUTER JOIN smb_input2 b ON a.value = b.value AND a.key > 40 AND a.value > 50 AND a.key = a.value AND b.key > 40 AND b.value > 50 AND b.key = b.value;
-
-SET hive.outerjoin.supports.filters = false;
 
 SELECT * FROM myinput1 a JOIN myinput1 b on a.key > 40 AND a.value > 50 AND a.key = a.value AND b.key > 40 AND b.value > 50 AND b.key = b.value;
 SELECT * FROM myinput1 a LEFT OUTER JOIN myinput1 b on a.key > 40 AND a.value > 50 AND a.key = a.value AND b.key > 40 AND b.value > 50 AND b.key = b.value;

@@ -1,13 +1,9 @@
-PREHOOK: query: -- Tests truncating column(s) from a table, also tests that stats are updated
-
-CREATE TABLE test_tab (key STRING, value STRING) 
+PREHOOK: query: CREATE TABLE test_tab (key STRING, value STRING) 
 ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe' STORED AS RCFILE
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@test_tab
-POSTHOOK: query: -- Tests truncating column(s) from a table, also tests that stats are updated
-
-CREATE TABLE test_tab (key STRING, value STRING) 
+POSTHOOK: query: CREATE TABLE test_tab (key STRING, value STRING) 
 ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe' STORED AS RCFILE
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
@@ -29,7 +25,6 @@ POSTHOOK: query: DESC FORMATTED test_tab
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -40,7 +35,7 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 	numFiles            	1                   
 	numRows             	10                  
 	rawDataSize         	94                  
@@ -75,13 +70,11 @@ POSTHOOK: Input: default@test_tab
 484	val_484
 86	val_86
 98	val_98
-PREHOOK: query: -- Truncate 1 column
-TRUNCATE TABLE test_tab COLUMNS (key)
+PREHOOK: query: TRUNCATE TABLE test_tab COLUMNS (key)
 PREHOOK: type: TRUNCATETABLE
 PREHOOK: Input: default@test_tab
 PREHOOK: Output: default@test_tab
-POSTHOOK: query: -- Truncate 1 column
-TRUNCATE TABLE test_tab COLUMNS (key)
+POSTHOOK: query: TRUNCATE TABLE test_tab COLUMNS (key)
 POSTHOOK: type: TRUNCATETABLE
 POSTHOOK: Input: default@test_tab
 POSTHOOK: Output: default@test_tab
@@ -92,7 +85,6 @@ POSTHOOK: query: DESC FORMATTED test_tab
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -103,10 +95,9 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
 	numFiles            	1                   
-	numRows             	0                   
-	rawDataSize         	0                   
+	numRows             	10                  
+	rawDataSize         	94                  
 	totalSize           	150                 
 #### A masked pattern was here ####
 	 	 
@@ -120,13 +111,11 @@ Bucket Columns:     	[]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- First column should be null
-SELECT * FROM test_tab ORDER BY value
+PREHOOK: query: SELECT * FROM test_tab ORDER BY value
 PREHOOK: type: QUERY
 PREHOOK: Input: default@test_tab
 #### A masked pattern was here ####
-POSTHOOK: query: -- First column should be null
-SELECT * FROM test_tab ORDER BY value
+POSTHOOK: query: SELECT * FROM test_tab ORDER BY value
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@test_tab
 #### A masked pattern was here ####
@@ -140,13 +129,11 @@ NULL	val_409
 NULL	val_484
 NULL	val_86
 NULL	val_98
-PREHOOK: query: -- Truncate multiple columns
-INSERT OVERWRITE TABLE test_tab SELECT * FROM src tablesample (10 rows)
+PREHOOK: query: INSERT OVERWRITE TABLE test_tab SELECT * FROM src tablesample (10 rows)
 PREHOOK: type: QUERY
 PREHOOK: Input: default@src
 PREHOOK: Output: default@test_tab
-POSTHOOK: query: -- Truncate multiple columns
-INSERT OVERWRITE TABLE test_tab SELECT * FROM src tablesample (10 rows)
+POSTHOOK: query: INSERT OVERWRITE TABLE test_tab SELECT * FROM src tablesample (10 rows)
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@src
 POSTHOOK: Output: default@test_tab
@@ -167,7 +154,6 @@ POSTHOOK: query: DESC FORMATTED test_tab
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -178,10 +164,9 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
 	numFiles            	1                   
-	numRows             	0                   
-	rawDataSize         	0                   
+	numRows             	10                  
+	rawDataSize         	94                  
 	totalSize           	75                  
 #### A masked pattern was here ####
 	 	 
@@ -195,13 +180,11 @@ Bucket Columns:     	[]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Both columns should be null
-SELECT * FROM test_tab ORDER BY value
+PREHOOK: query: SELECT * FROM test_tab ORDER BY value
 PREHOOK: type: QUERY
 PREHOOK: Input: default@test_tab
 #### A masked pattern was here ####
-POSTHOOK: query: -- Both columns should be null
-SELECT * FROM test_tab ORDER BY value
+POSTHOOK: query: SELECT * FROM test_tab ORDER BY value
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@test_tab
 #### A masked pattern was here ####
@@ -215,13 +198,11 @@ NULL	NULL
 NULL	NULL
 NULL	NULL
 NULL	NULL
-PREHOOK: query: -- Truncate columns again
-TRUNCATE TABLE test_tab COLUMNS (key, value)
+PREHOOK: query: TRUNCATE TABLE test_tab COLUMNS (key, value)
 PREHOOK: type: TRUNCATETABLE
 PREHOOK: Input: default@test_tab
 PREHOOK: Output: default@test_tab
-POSTHOOK: query: -- Truncate columns again
-TRUNCATE TABLE test_tab COLUMNS (key, value)
+POSTHOOK: query: TRUNCATE TABLE test_tab COLUMNS (key, value)
 POSTHOOK: type: TRUNCATETABLE
 POSTHOOK: Input: default@test_tab
 POSTHOOK: Output: default@test_tab
@@ -232,7 +213,6 @@ POSTHOOK: query: DESC FORMATTED test_tab
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -243,10 +223,9 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
 	numFiles            	1                   
-	numRows             	0                   
-	rawDataSize         	0                   
+	numRows             	10                  
+	rawDataSize         	94                  
 	totalSize           	75                  
 #### A masked pattern was here ####
 	 	 
@@ -260,13 +239,11 @@ Bucket Columns:     	[]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Both columns should be null
-SELECT * FROM test_tab ORDER BY value
+PREHOOK: query: SELECT * FROM test_tab ORDER BY value
 PREHOOK: type: QUERY
 PREHOOK: Input: default@test_tab
 #### A masked pattern was here ####
-POSTHOOK: query: -- Both columns should be null
-SELECT * FROM test_tab ORDER BY value
+POSTHOOK: query: SELECT * FROM test_tab ORDER BY value
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@test_tab
 #### A masked pattern was here ####
@@ -280,13 +257,11 @@ NULL	NULL
 NULL	NULL
 NULL	NULL
 NULL	NULL
-PREHOOK: query: -- Test truncating with a binary serde
-ALTER TABLE test_tab SET SERDE 'org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe'
+PREHOOK: query: ALTER TABLE test_tab SET SERDE 'org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe'
 PREHOOK: type: ALTERTABLE_SERIALIZER
 PREHOOK: Input: default@test_tab
 PREHOOK: Output: default@test_tab
-POSTHOOK: query: -- Test truncating with a binary serde
-ALTER TABLE test_tab SET SERDE 'org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe'
+POSTHOOK: query: ALTER TABLE test_tab SET SERDE 'org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe'
 POSTHOOK: type: ALTERTABLE_SERIALIZER
 POSTHOOK: Input: default@test_tab
 POSTHOOK: Output: default@test_tab
@@ -307,7 +282,6 @@ POSTHOOK: query: DESC FORMATTED test_tab
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -318,7 +292,7 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	1                   
 	numRows             	10                  
@@ -354,13 +328,11 @@ POSTHOOK: Input: default@test_tab
 484	val_484
 86	val_86
 98	val_98
-PREHOOK: query: -- Truncate 1 column
-TRUNCATE TABLE test_tab COLUMNS (key)
+PREHOOK: query: TRUNCATE TABLE test_tab COLUMNS (key)
 PREHOOK: type: TRUNCATETABLE
 PREHOOK: Input: default@test_tab
 PREHOOK: Output: default@test_tab
-POSTHOOK: query: -- Truncate 1 column
-TRUNCATE TABLE test_tab COLUMNS (key)
+POSTHOOK: query: TRUNCATE TABLE test_tab COLUMNS (key)
 POSTHOOK: type: TRUNCATETABLE
 POSTHOOK: Input: default@test_tab
 POSTHOOK: Output: default@test_tab
@@ -371,7 +343,6 @@ POSTHOOK: query: DESC FORMATTED test_tab
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -382,11 +353,10 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
 #### A masked pattern was here ####
 	numFiles            	1                   
-	numRows             	0                   
-	rawDataSize         	0                   
+	numRows             	10                  
+	rawDataSize         	94                  
 	totalSize           	150                 
 #### A masked pattern was here ####
 	 	 
@@ -400,13 +370,11 @@ Bucket Columns:     	[]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- First column should be null
-SELECT * FROM test_tab ORDER BY value
+PREHOOK: query: SELECT * FROM test_tab ORDER BY value
 PREHOOK: type: QUERY
 PREHOOK: Input: default@test_tab
 #### A masked pattern was here ####
-POSTHOOK: query: -- First column should be null
-SELECT * FROM test_tab ORDER BY value
+POSTHOOK: query: SELECT * FROM test_tab ORDER BY value
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@test_tab
 #### A masked pattern was here ####
@@ -420,13 +388,11 @@ NULL	val_409
 NULL	val_484
 NULL	val_86
 NULL	val_98
-PREHOOK: query: -- Truncate 2 columns
-TRUNCATE TABLE test_tab COLUMNS (key, value)
+PREHOOK: query: TRUNCATE TABLE test_tab COLUMNS (key, value)
 PREHOOK: type: TRUNCATETABLE
 PREHOOK: Input: default@test_tab
 PREHOOK: Output: default@test_tab
-POSTHOOK: query: -- Truncate 2 columns
-TRUNCATE TABLE test_tab COLUMNS (key, value)
+POSTHOOK: query: TRUNCATE TABLE test_tab COLUMNS (key, value)
 POSTHOOK: type: TRUNCATETABLE
 POSTHOOK: Input: default@test_tab
 POSTHOOK: Output: default@test_tab
@@ -437,7 +403,6 @@ POSTHOOK: query: DESC FORMATTED test_tab
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
@@ -448,11 +413,10 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
 #### A masked pattern was here ####
 	numFiles            	1                   
-	numRows             	0                   
-	rawDataSize         	0                   
+	numRows             	10                  
+	rawDataSize         	94                  
 	totalSize           	75                  
 #### A masked pattern was here ####
 	 	 
@@ -466,13 +430,11 @@ Bucket Columns:     	[]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Both columns should be null
-SELECT * FROM test_tab ORDER BY value
+PREHOOK: query: SELECT * FROM test_tab ORDER BY value
 PREHOOK: type: QUERY
 PREHOOK: Input: default@test_tab
 #### A masked pattern was here ####
-POSTHOOK: query: -- Both columns should be null
-SELECT * FROM test_tab ORDER BY value
+POSTHOOK: query: SELECT * FROM test_tab ORDER BY value
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@test_tab
 #### A masked pattern was here ####
@@ -486,13 +448,11 @@ NULL	NULL
 NULL	NULL
 NULL	NULL
 NULL	NULL
-PREHOOK: query: -- Test truncating a partition
-CREATE TABLE test_tab_part (key STRING, value STRING) PARTITIONED BY (part STRING) STORED AS RCFILE
+PREHOOK: query: CREATE TABLE test_tab_part (key STRING, value STRING) PARTITIONED BY (part STRING) STORED AS RCFILE
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@test_tab_part
-POSTHOOK: query: -- Test truncating a partition
-CREATE TABLE test_tab_part (key STRING, value STRING) PARTITIONED BY (part STRING) STORED AS RCFILE
+POSTHOOK: query: CREATE TABLE test_tab_part (key STRING, value STRING) PARTITIONED BY (part STRING) STORED AS RCFILE
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@test_tab_part
@@ -513,13 +473,11 @@ POSTHOOK: query: DESC FORMATTED test_tab_part PARTITION (part = '1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab_part
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 part                	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -528,7 +486,7 @@ Database:           	default
 Table:              	test_tab_part       	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 	numFiles            	1                   
 	numRows             	10                  
 	rawDataSize         	94                  
@@ -580,13 +538,11 @@ POSTHOOK: query: DESC FORMATTED test_tab_part PARTITION (part = '1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@test_tab_part
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 part                	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -595,10 +551,9 @@ Database:           	default
 Table:              	test_tab_part       	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
 	numFiles            	1                   
-	numRows             	0                   
-	rawDataSize         	0                   
+	numRows             	10                  
+	rawDataSize         	94                  
 	totalSize           	150                 
 #### A masked pattern was here ####
 	 	 
@@ -612,14 +567,12 @@ Bucket Columns:     	[]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- First column should be null
-SELECT * FROM test_tab_part WHERE part = '1' ORDER BY value
+PREHOOK: query: SELECT * FROM test_tab_part WHERE part = '1' ORDER BY value
 PREHOOK: type: QUERY
 PREHOOK: Input: default@test_tab_part
 PREHOOK: Input: default@test_tab_part@part=1
 #### A masked pattern was here ####
-POSTHOOK: query: -- First column should be null
-SELECT * FROM test_tab_part WHERE part = '1' ORDER BY value
+POSTHOOK: query: SELECT * FROM test_tab_part WHERE part = '1' ORDER BY value
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@test_tab_part
 POSTHOOK: Input: default@test_tab_part@part=1

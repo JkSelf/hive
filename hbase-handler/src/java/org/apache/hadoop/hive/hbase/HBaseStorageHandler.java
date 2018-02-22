@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,7 +20,6 @@ package org.apache.hadoop.hive.hbase;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,34 +27,23 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.client.HConnection;
-import org.apache.hadoop.hbase.client.HConnectionManager;
-import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.Connection;
+import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.mapred.TableOutputFormat;
 import org.apache.hadoop.hbase.mapreduce.TableInputFormatBase;
 import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
 import org.apache.hadoop.hbase.security.User;
-import org.apache.hadoop.hbase.security.token.AuthenticationTokenIdentifier;
-import org.apache.hadoop.hbase.security.token.AuthenticationTokenSelector;
-import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.security.token.TokenUtil;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.hbase.ColumnMappings.ColumnMapping;
-import org.apache.hadoop.hbase.zookeeper.ZKClusterId;
-import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.hive.metastore.HiveMetaHook;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
 import org.apache.hadoop.hive.metastore.api.MetaException;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants;
+import org.apache.hadoop.hive.metastore.utils.MetaStoreUtils;
+import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.index.IndexPredicateAnalyzer;
 import org.apache.hadoop.hive.ql.index.IndexSearchCondition;
 import org.apache.hadoop.hive.ql.metadata.DefaultStorageHandler;
@@ -63,29 +51,38 @@ import org.apache.hadoop.hive.ql.metadata.HiveStoragePredicateHandler;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.ql.plan.TableDesc;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPEqual;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPEqualOrGreaterThan;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPEqualOrLessThan;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPGreaterThan;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPLessThan;
 import org.apache.hadoop.hive.serde2.Deserializer;
-import org.apache.hadoop.hive.serde2.SerDe;
+import org.apache.hadoop.hive.serde2.AbstractSerDe;
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorUtils;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorUtils.PrimitiveGrouping;
+import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.hive.shims.ShimLoader;
-import org.apache.hadoop.io.Text;
-import org.apache.hadoop.hbase.security.token.TokenUtil;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.OutputFormat;
 import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.StringUtils;
-import org.apache.zookeeper.KeeperException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import com.yammer.metrics.core.MetricsRegistry;
+import com.codahale.metrics.MetricRegistry;
 
 /**
  * HBaseStorageHandler provides a HiveStorageHandler implementation for
  * HBase.
  */
 public class HBaseStorageHandler extends DefaultStorageHandler
-  implements HiveMetaHook, HiveStoragePredicateHandler {
+  implements HiveStoragePredicateHandler {
 
-  private static final Log LOG = LogFactory.getLog(HBaseStorageHandler.class);
+  private static final Logger LOG = LoggerFactory.getLogger(HBaseStorageHandler.class);
 
   /** HBase-internal config by which input format receives snapshot name. */
   private static final String HBASE_SNAPSHOT_NAME_KEY = "hbase.TableSnapshotInputFormat.snapshot.name";
@@ -112,169 +109,6 @@ public class HBaseStorageHandler extends DefaultStorageHandler
 
   private Configuration jobConf;
   private Configuration hbaseConf;
-  private HBaseAdmin admin;
-
-  private HBaseAdmin getHBaseAdmin() throws MetaException {
-    try {
-      if (admin == null) {
-        admin = new HBaseAdmin(hbaseConf);
-      }
-      return admin;
-    } catch (IOException ioe) {
-      throw new MetaException(StringUtils.stringifyException(ioe));
-    }
-  }
-
-  private String getHBaseTableName(Table tbl) {
-    // Give preference to TBLPROPERTIES over SERDEPROPERTIES
-    // (really we should only use TBLPROPERTIES, so this is just
-    // for backwards compatibility with the original specs).
-    String tableName = tbl.getParameters().get(HBaseSerDe.HBASE_TABLE_NAME);
-    if (tableName == null) {
-      //convert to lower case in case we are getting from serde
-      tableName = tbl.getSd().getSerdeInfo().getParameters().get(
-        HBaseSerDe.HBASE_TABLE_NAME);
-      //standardize to lower case
-      if (tableName != null) {
-        tableName = tableName.toLowerCase();
-      }
-    }
-    if (tableName == null) {
-      tableName = (tbl.getDbName() + "." + tbl.getTableName()).toLowerCase();
-      if (tableName.startsWith(DEFAULT_PREFIX)) {
-        tableName = tableName.substring(DEFAULT_PREFIX.length());
-      }
-    }
-    return tableName;
-  }
-
-  @Override
-  public void preDropTable(Table table) throws MetaException {
-    // nothing to do
-  }
-
-  @Override
-  public void rollbackDropTable(Table table) throws MetaException {
-    // nothing to do
-  }
-
-  @Override
-  public void commitDropTable(
-    Table tbl, boolean deleteData) throws MetaException {
-
-    try {
-      String tableName = getHBaseTableName(tbl);
-      boolean isExternal = MetaStoreUtils.isExternalTable(tbl);
-      if (deleteData && !isExternal) {
-        if (getHBaseAdmin().isTableEnabled(tableName)) {
-          getHBaseAdmin().disableTable(tableName);
-        }
-        getHBaseAdmin().deleteTable(tableName);
-      }
-    } catch (IOException ie) {
-      throw new MetaException(StringUtils.stringifyException(ie));
-    }
-  }
-
-  @Override
-  public void preCreateTable(Table tbl) throws MetaException {
-    boolean isExternal = MetaStoreUtils.isExternalTable(tbl);
-
-    // We'd like to move this to HiveMetaStore for any non-native table, but
-    // first we need to support storing NULL for location on a table
-    if (tbl.getSd().getLocation() != null) {
-      throw new MetaException("LOCATION may not be specified for HBase.");
-    }
-
-    HTable htable = null;
-
-    try {
-      String tableName = getHBaseTableName(tbl);
-      Map<String, String> serdeParam = tbl.getSd().getSerdeInfo().getParameters();
-      String hbaseColumnsMapping = serdeParam.get(HBaseSerDe.HBASE_COLUMNS_MAPPING);
-
-      ColumnMappings columnMappings = HBaseSerDe.parseColumnsMapping(hbaseColumnsMapping);
-
-      HTableDescriptor tableDesc;
-
-      if (!getHBaseAdmin().tableExists(tableName)) {
-        // if it is not an external table then create one
-        if (!isExternal) {
-          // Create the column descriptors
-          tableDesc = new HTableDescriptor(tableName);
-          Set<String> uniqueColumnFamilies = new HashSet<String>();
-
-          for (ColumnMapping colMap : columnMappings) {
-            if (!colMap.hbaseRowKey && !colMap.hbaseTimestamp) {
-              uniqueColumnFamilies.add(colMap.familyName);
-            }
-          }
-
-          for (String columnFamily : uniqueColumnFamilies) {
-            tableDesc.addFamily(new HColumnDescriptor(Bytes.toBytes(columnFamily)));
-          }
-
-          getHBaseAdmin().createTable(tableDesc);
-        } else {
-          // an external table
-          throw new MetaException("HBase table " + tableName +
-              " doesn't exist while the table is declared as an external table.");
-        }
-
-      } else {
-        if (!isExternal) {
-          throw new MetaException("Table " + tableName + " already exists"
-            + " within HBase; use CREATE EXTERNAL TABLE instead to"
-            + " register it in Hive.");
-        }
-        // make sure the schema mapping is right
-        tableDesc = getHBaseAdmin().getTableDescriptor(Bytes.toBytes(tableName));
-
-        for (ColumnMapping colMap : columnMappings) {
-
-          if (colMap.hbaseRowKey || colMap.hbaseTimestamp) {
-            continue;
-          }
-
-          if (!tableDesc.hasFamily(colMap.familyNameBytes)) {
-            throw new MetaException("Column Family " + colMap.familyName
-                + " is not defined in hbase table " + tableName);
-          }
-        }
-      }
-
-      // ensure the table is online
-      htable = new HTable(hbaseConf, tableDesc.getName());
-    } catch (Exception se) {
-      throw new MetaException(StringUtils.stringifyException(se));
-    } finally {
-      if (htable != null) {
-        IOUtils.closeQuietly(htable);
-      }
-    }
-  }
-
-  @Override
-  public void rollbackCreateTable(Table table) throws MetaException {
-    boolean isExternal = MetaStoreUtils.isExternalTable(table);
-    String tableName = getHBaseTableName(table);
-    try {
-      if (!isExternal && getHBaseAdmin().tableExists(tableName)) {
-        // we have created an HBase table, so we delete it to roll back;
-        if (getHBaseAdmin().isTableEnabled(tableName)) {
-          getHBaseAdmin().disableTable(tableName);
-        }
-        getHBaseAdmin().deleteTable(tableName);
-      }
-    } catch (IOException ie) {
-      throw new MetaException(StringUtils.stringifyException(ie));
-    }
-  }
-
-  @Override
-  public void commitCreateTable(Table table) throws MetaException {
-    // nothing to do
-  }
 
   @Override
   public Configuration getConf() {
@@ -310,13 +144,13 @@ public class HBaseStorageHandler extends DefaultStorageHandler
   }
 
   @Override
-  public Class<? extends SerDe> getSerDeClass() {
+  public Class<? extends AbstractSerDe> getSerDeClass() {
     return HBaseSerDe.class;
   }
 
   @Override
   public HiveMetaHook getMetaHook() {
-    return this;
+    return new HBaseMetaHook(hbaseConf);
   }
 
   @Override
@@ -348,7 +182,9 @@ public class HBaseStorageHandler extends DefaultStorageHandler
       HBaseSerDe.HBASE_COLUMNS_MAPPING,
       tableProperties.getProperty(HBaseSerDe.HBASE_COLUMNS_MAPPING));
     jobProperties.put(HBaseSerDe.HBASE_COLUMNS_REGEX_MATCHING,
-        tableProperties.getProperty(HBaseSerDe.HBASE_COLUMNS_REGEX_MATCHING, "true"));
+            tableProperties.getProperty(HBaseSerDe.HBASE_COLUMNS_REGEX_MATCHING, "true"));
+    jobProperties.put(HBaseSerDe.HBASE_COLUMNS_PREFIX_HIDE,
+            tableProperties.getProperty(HBaseSerDe.HBASE_COLUMNS_PREFIX_HIDE, "false"));
     jobProperties.put(HBaseSerDe.HBASE_TABLE_DEFAULT_STORAGE_TYPE,
       tableProperties.getProperty(HBaseSerDe.HBASE_TABLE_DEFAULT_STORAGE_TYPE,"string"));
     String scanCache = tableProperties.getProperty(HBaseSerDe.HBASE_SCAN_CACHE);
@@ -364,12 +200,10 @@ public class HBaseStorageHandler extends DefaultStorageHandler
       jobProperties.put(HBaseSerDe.HBASE_SCAN_BATCH, scanBatch);
     }
 
-    String tableName =
-      tableProperties.getProperty(HBaseSerDe.HBASE_TABLE_NAME);
+    String tableName = tableProperties.getProperty(HBaseSerDe.HBASE_TABLE_NAME);
     if (tableName == null) {
-      tableName =
-        tableProperties.getProperty(hive_metastoreConstants.META_TABLE_NAME);
-        tableName = tableName.toLowerCase();
+      tableName = tableProperties.getProperty(hive_metastoreConstants.META_TABLE_NAME);
+      tableName = tableName.toLowerCase();
       if (tableName.startsWith(DEFAULT_PREFIX)) {
         tableName = tableName.substring(DEFAULT_PREFIX.length());
       }
@@ -425,8 +259,7 @@ public class HBaseStorageHandler extends DefaultStorageHandler
       }
       try {
         addHBaseDelegationToken(jobConf);
-      }//try
-      catch (IOException e) {
+      } catch (IOException | MetaException e) {
         throw new IllegalStateException("Error while configuring input job properties", e);
       } //input job properties
     }
@@ -473,18 +306,19 @@ public class HBaseStorageHandler extends DefaultStorageHandler
     }
   }
 
-  private void addHBaseDelegationToken(Configuration conf) throws IOException {
+  private void addHBaseDelegationToken(Configuration conf) throws IOException, MetaException {
     if (User.isHBaseSecurityEnabled(conf)) {
-      HConnection conn = HConnectionManager.createConnection(conf);
+      Connection connection = ConnectionFactory.createConnection(hbaseConf);
       try {
         User curUser = User.getCurrent();
         Job job = new Job(conf);
-        TokenUtil.addTokenForJob(conn, curUser, job);
+        TokenUtil.addTokenForJob(connection, curUser, job);
       } catch (InterruptedException e) {
         throw new IOException("Error while obtaining hbase delegation token", e);
-      }
-      finally {
-        conn.close();
+      } finally {
+        if (connection != null) {
+          connection.close();
+        }
       }
     }
   }
@@ -516,8 +350,9 @@ public class HBaseStorageHandler extends DefaultStorageHandler
       }
       if (HiveConf.getVar(jobConf, HiveConf.ConfVars.HIVE_HBASE_SNAPSHOT_NAME) != null) {
         // There is an extra dependency on MetricsRegistry for snapshot IF.
-        TableMapReduceUtil.addDependencyJars(jobConf, MetricsRegistry.class);
+        TableMapReduceUtil.addDependencyJars(jobConf, MetricRegistry.class);
       }
+
       Set<String> merged = new LinkedHashSet<String>(jobConf.getStringCollection("tmpjars"));
 
       Job copy = new Job(jobConf);
@@ -554,6 +389,7 @@ public class HBaseStorageHandler extends DefaultStorageHandler
         keyMapping.columnName, keyMapping.isComparable(),
         tsMapping == null ? null : tsMapping.columnName);
     List<IndexSearchCondition> conditions = new ArrayList<IndexSearchCondition>();
+    ExprNodeGenericFuncDesc pushedPredicate = null;
     ExprNodeGenericFuncDesc residualPredicate =
         (ExprNodeGenericFuncDesc)analyzer.analyzePredicate(predicate, conditions);
 
@@ -567,21 +403,107 @@ public class HBaseStorageHandler extends DefaultStorageHandler
         // 1. key < 20                        (size = 1)
         // 2. key = 20                        (size = 1)
         // 3. key < 20 and key > 10           (size = 2)
-        return null;
+        // Add to residual
+        residualPredicate =
+                extractResidualCondition(analyzer, searchConditions, residualPredicate);
+        continue;
       }
       if (scSize == 2 &&
-          (searchConditions.get(0).getComparisonOp()
-              .equals("org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPEqual") ||
-              searchConditions.get(1).getComparisonOp()
-                  .equals("org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPEqual"))) {
+          (searchConditions.get(0).getComparisonOp().equals(GenericUDFOPEqual.class.getName()) ||
+              searchConditions.get(1).getComparisonOp().equals(GenericUDFOPEqual.class.getName()))) {
         // If one of the predicates is =, then any other predicate with it is illegal.
-        return null;
+        // Add to residual
+        residualPredicate =
+                extractResidualCondition(analyzer, searchConditions, residualPredicate);
+        continue;
       }
+      boolean sameType = sameTypeIndexSearchConditions(searchConditions);
+      if (!sameType) {
+        // If type for column and constant are different, we currently do not support pushing them
+        residualPredicate =
+                extractResidualCondition(analyzer, searchConditions, residualPredicate);
+        continue;
+      }
+      TypeInfo typeInfo = searchConditions.get(0).getColumnDesc().getTypeInfo();
+      if (typeInfo.getCategory() == Category.PRIMITIVE && PrimitiveObjectInspectorUtils.getPrimitiveGrouping(
+              ((PrimitiveTypeInfo) typeInfo).getPrimitiveCategory()) == PrimitiveGrouping.NUMERIC_GROUP) {
+        // If the predicate is on a numeric column, and it specifies an
+        // open range e.g. key < 20 , we do not support conversion, as negative
+        // values are lexicographically stored after positive values and thus they
+        // would be returned.
+        if (scSize == 2) {
+          boolean lowerBound = false;
+          boolean upperBound = false;
+          if (searchConditions.get(0).getComparisonOp().equals(GenericUDFOPEqualOrLessThan.class.getName()) ||
+                searchConditions.get(0).getComparisonOp().equals(GenericUDFOPLessThan.class.getName())) {
+            lowerBound = true;
+          } else {
+            upperBound = true;
+          }
+          if (searchConditions.get(1).getComparisonOp().equals(GenericUDFOPEqualOrGreaterThan.class.getName()) ||
+                searchConditions.get(1).getComparisonOp().equals(GenericUDFOPGreaterThan.class.getName())) {
+            upperBound = true;
+          } else {
+            lowerBound = true;
+          }
+          if (!upperBound || !lowerBound) {
+            // Not valid range, add to residual
+            residualPredicate =
+                    extractResidualCondition(analyzer, searchConditions, residualPredicate);
+            continue;
+          }
+        } else {
+          // scSize == 1
+          if (!searchConditions.get(0).getComparisonOp().equals(GenericUDFOPEqual.class.getName())) {
+            // Not valid range, add to residual
+            residualPredicate =
+                    extractResidualCondition(analyzer, searchConditions, residualPredicate);
+            continue;
+          }
+        }
+      }
+
+      // This one can be pushed
+      pushedPredicate =
+              extractStorageHandlerCondition(analyzer, searchConditions, pushedPredicate);
     }
 
     DecomposedPredicate decomposedPredicate = new DecomposedPredicate();
-    decomposedPredicate.pushedPredicate = analyzer.translateSearchConditions(conditions);
+    decomposedPredicate.pushedPredicate = pushedPredicate;
     decomposedPredicate.residualPredicate = residualPredicate;
     return decomposedPredicate;
+  }
+
+  private static ExprNodeGenericFuncDesc extractStorageHandlerCondition(IndexPredicateAnalyzer analyzer,
+          List<IndexSearchCondition> searchConditions, ExprNodeGenericFuncDesc inputExpr) {
+    if (inputExpr == null) {
+      return analyzer.translateSearchConditions(searchConditions);
+    }
+    List<ExprNodeDesc> children = new ArrayList<ExprNodeDesc>();
+    children.add(analyzer.translateSearchConditions(searchConditions));
+    children.add(inputExpr);
+    return new ExprNodeGenericFuncDesc(TypeInfoFactory.booleanTypeInfo,
+            FunctionRegistry.getGenericUDFForAnd(), children);
+  }
+
+  private static ExprNodeGenericFuncDesc extractResidualCondition(IndexPredicateAnalyzer analyzer,
+          List<IndexSearchCondition> searchConditions, ExprNodeGenericFuncDesc inputExpr) {
+    if (inputExpr == null) {
+      return analyzer.translateOriginalConditions(searchConditions);
+    }
+    List<ExprNodeDesc> children = new ArrayList<ExprNodeDesc>();
+    children.add(analyzer.translateOriginalConditions(searchConditions));
+    children.add(inputExpr);
+    return new ExprNodeGenericFuncDesc(TypeInfoFactory.booleanTypeInfo,
+            FunctionRegistry.getGenericUDFForAnd(), children);
+  }
+
+  private static boolean sameTypeIndexSearchConditions(List<IndexSearchCondition> searchConditions) {
+    for (IndexSearchCondition isc : searchConditions) {
+      if (!isc.getColumnDesc().getTypeInfo().equals(isc.getConstantDesc().getTypeInfo())) {
+        return false;
+      }
+    }
+    return true;
   }
 }

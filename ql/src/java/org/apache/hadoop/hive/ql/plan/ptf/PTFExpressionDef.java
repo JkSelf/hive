@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,10 +19,9 @@
 package org.apache.hadoop.hive.ql.plan.ptf;
 
 import org.apache.hadoop.hive.ql.exec.ExprNodeEvaluator;
-import org.apache.hadoop.hive.ql.exec.PTFUtils;
 import org.apache.hadoop.hive.ql.plan.Explain;
-import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
+import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 
 public class PTFExpressionDef {
@@ -30,10 +29,6 @@ public class PTFExpressionDef {
   ExprNodeDesc exprNode;
   transient ExprNodeEvaluator exprEvaluator;
   transient ObjectInspector OI;
-
-  static{
-    PTFUtils.makeTransient(PTFExpressionDef.class, "exprEvaluator", "OI");
-  }
 
   public PTFExpressionDef() {}
 

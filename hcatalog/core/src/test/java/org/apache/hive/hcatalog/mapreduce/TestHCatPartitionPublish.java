@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,6 +20,7 @@ package org.apache.hive.hcatalog.mapreduce;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.Policy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -36,16 +37,17 @@ import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
+import org.apache.hadoop.hive.metastore.MetaStoreTestUtils;
+import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.metastore.security.HadoopThriftAuthBridge;
 import org.apache.hadoop.hive.ql.io.RCFileInputFormat;
 import org.apache.hadoop.hive.ql.io.RCFileOutputFormat;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe;
-import org.apache.hadoop.hive.shims.ShimLoader;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
@@ -54,7 +56,7 @@ import org.apache.hadoop.mapred.MiniMRCluster;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
-import org.apache.hadoop.util.Shell;
+import org.apache.hive.hcatalog.DerbyPolicy;
 import org.apache.hive.hcatalog.NoExitSecurityManager;
 import org.apache.hive.hcatalog.cli.SemanticAnalysis.HCatSemanticAnalyzer;
 import org.apache.hive.hcatalog.data.DefaultHCatRecord;
@@ -104,14 +106,13 @@ public class TestHCatPartitionPublish {
       return;
     }
 
-    msPort = MetaStoreUtils.findFreePort();
+    msPort = MetaStoreTestUtils.startMetaStoreWithRetry();
 
-    MetaStoreUtils.startMetaStore(msPort, ShimLoader
-        .getHadoopThriftAuthBridge());
     Thread.sleep(10000);
     isServerRunning = true;
     securityManager = System.getSecurityManager();
     System.setSecurityManager(new NoExitSecurityManager());
+    Policy.setPolicy(new DerbyPolicy());
 
     hcatConf = new HiveConf(TestHCatPartitionPublish.class);
     hcatConf.setVar(HiveConf.ConfVars.METASTOREURIS, "thrift://localhost:"
@@ -125,7 +126,7 @@ public class TestHCatPartitionPublish {
     hcatConf.set(HiveConf.ConfVars.POSTEXECHOOKS.varname, "");
     hcatConf.set(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY.varname,
         "false");
-    msc = new HiveMetaStoreClient(hcatConf, null);
+    msc = new HiveMetaStoreClient(hcatConf);
     System.setProperty(HiveConf.ConfVars.PREEXECHOOKS.varname, " ");
     System.setProperty(HiveConf.ConfVars.POSTEXECHOOKS.varname, " ");
   }
@@ -160,13 +161,10 @@ public class TestHCatPartitionPublish {
     Assert.assertEquals(0, ptns.size());
     Table table = msc.getTable(dbName, tableName);
     Assert.assertTrue(table != null);
-    // In Windows, we cannot remove the output directory when job fail. See
-    // FileOutputCommitterContainer.abortJob
-    if (!Shell.WINDOWS) {
-      Path path = new Path(table.getSd().getLocation()
-          + "/part1=p1value1/part0=p0value1");
-      Assert.assertFalse(path.getFileSystem(conf).exists(path));
-    }
+
+    Path path = new Path(table.getSd().getLocation()
+        + "/part1=p1value1/part0=p0value1");
+    Assert.assertFalse(path.getFileSystem(conf).exists(path));
   }
 
   void runMRCreateFail(
@@ -227,7 +225,7 @@ public class TestHCatPartitionPublish {
   }
 
   private void createTable(String dbName, String tableName) throws Exception {
-    String databaseName = (dbName == null) ? MetaStoreUtils.DEFAULT_DATABASE_NAME
+    String databaseName = (dbName == null) ? Warehouse.DEFAULT_DATABASE_NAME
         : dbName;
     try {
       msc.dropTable(databaseName, tableName);

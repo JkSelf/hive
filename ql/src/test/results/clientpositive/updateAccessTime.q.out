@@ -12,6 +12,8 @@ POSTHOOK: type: CREATETABLE_AS_SELECT
 POSTHOOK: Input: default@src
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@tstsrc
+POSTHOOK: Lineage: tstsrc.key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
+POSTHOOK: Lineage: tstsrc.value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
 PREHOOK: query: desc extended tstsrc
 PREHOOK: type: DESCTABLE
 PREHOOK: Input: default@tstsrc
@@ -101,7 +103,6 @@ hr                  	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -119,7 +120,6 @@ hr                  	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -137,7 +137,6 @@ hr                  	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -145,12 +144,10 @@ hr                  	string
 PREHOOK: query: select count(1) from tstsrcpart where ds = '2008-04-08' and hr = '11'
 PREHOOK: type: QUERY
 PREHOOK: Input: default@tstsrcpart
-PREHOOK: Input: default@tstsrcpart@ds=2008-04-08/hr=11
 #### A masked pattern was here ####
 POSTHOOK: query: select count(1) from tstsrcpart where ds = '2008-04-08' and hr = '11'
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@tstsrcpart
-POSTHOOK: Input: default@tstsrcpart@ds=2008-04-08/hr=11
 #### A masked pattern was here ####
 500
 PREHOOK: query: desc extended tstsrcpart
@@ -166,7 +163,6 @@ hr                  	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -184,7 +180,6 @@ hr                  	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -202,7 +197,6 @@ hr                  	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -215,3 +209,21 @@ POSTHOOK: query: drop table tstsrcpart
 POSTHOOK: type: DROPTABLE
 POSTHOOK: Input: default@tstsrcpart
 POSTHOOK: Output: default@tstsrcpart
+PREHOOK: query: ANALYZE TABLE src COMPUTE STATISTICS
+PREHOOK: type: QUERY
+PREHOOK: Input: default@src
+PREHOOK: Output: default@src
+POSTHOOK: query: ANALYZE TABLE src COMPUTE STATISTICS
+POSTHOOK: type: QUERY
+POSTHOOK: Input: default@src
+POSTHOOK: Output: default@src
+PREHOOK: query: ANALYZE TABLE src COMPUTE STATISTICS FOR COLUMNS key,value
+PREHOOK: type: QUERY
+PREHOOK: Input: default@src
+PREHOOK: Output: default@src
+#### A masked pattern was here ####
+POSTHOOK: query: ANALYZE TABLE src COMPUTE STATISTICS FOR COLUMNS key,value
+POSTHOOK: type: QUERY
+POSTHOOK: Input: default@src
+POSTHOOK: Output: default@src
+#### A masked pattern was here ####

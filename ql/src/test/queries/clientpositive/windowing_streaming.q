@@ -10,7 +10,7 @@ create table over10k(
            bo boolean,
            s string,
 	   ts timestamp, 
-           dec decimal(4,2),  
+           `dec` decimal(4,2),  
            bin binary)
        row format delimited
        fields terminated by '|';
@@ -42,6 +42,10 @@ where r < 2;
 select * 
 from (select t, f, rank() over(partition by t order by f) r from over10k) a 
 where r < 6 and t < 5;
+
+select *
+from (select t, f, row_number() over(partition by t order by f) r from over10k) a
+where r < 8 and t < 0;
 
 set hive.vectorized.execution.enabled=false;
 set hive.limit.pushdown.memory.usage=0.8;

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,9 +21,7 @@ package org.apache.hadoop.hive.ql.exec;
 import java.io.Serializable;
 import java.util.List;
 
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.DriverContext;
-import org.apache.hadoop.hive.ql.QueryPlan;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.ConditionalResolver;
 import org.apache.hadoop.hive.ql.plan.ConditionalWork;
@@ -61,6 +59,11 @@ public class ConditionalTask extends Task<ConditionalWork> implements Serializab
   }
 
   @Override
+  public boolean canExecuteInParallel() {
+    return isMapRedTask();
+  }
+
+  @Override
   public boolean hasReduce() {
     for (Task<? extends Serializable> task : listTasks) {
       if (task.hasReduce()) {
@@ -69,11 +72,6 @@ public class ConditionalTask extends Task<ConditionalWork> implements Serializab
     }
 
     return false;
-  }
-
-  @Override
-  public void initialize(HiveConf conf, QueryPlan queryPlan, DriverContext driverContext) {
-    super.initialize(conf, queryPlan, driverContext);
   }
 
   @Override
@@ -205,6 +203,7 @@ public class ConditionalTask extends Task<ConditionalWork> implements Serializab
   public boolean addDependentTask(Task<? extends Serializable> dependent) {
     boolean ret = false;
     if (getListTasks() != null) {
+      ret = true;
       for (Task<? extends Serializable> tsk : getListTasks()) {
         ret = ret & tsk.addDependentTask(dependent);
       }

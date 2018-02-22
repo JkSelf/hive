@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,16 +20,22 @@ package org.apache.hadoop.hive.ql.plan;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
-import org.apache.hadoop.hive.ql.exec.PTFUtils;
-import org.apache.hadoop.hive.ql.exec.Utilities;
+import org.apache.hadoop.hive.common.type.DataTypePhysicalVariation;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.hive.ql.metadata.Table;
 import org.apache.hadoop.hive.ql.metadata.VirtualColumn;
 import org.apache.hadoop.hive.ql.parse.TableSample;
+import org.apache.hadoop.hive.ql.plan.BaseWork.BaseExplainVectorization;
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
-
+import org.apache.hadoop.hive.ql.plan.Explain.Vectorization;
+import org.apache.hadoop.hive.serde.serdeConstants;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 
 /**
  * Table Scan Descriptor Currently, data is only read from a base source as part
@@ -37,12 +43,8 @@ import org.apache.hadoop.hive.ql.plan.Explain.Level;
  * things will be added here as table scan is invoked as part of local work.
  **/
 @Explain(displayName = "TableScan", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
-public class TableScanDesc extends AbstractOperatorDesc {
+public class TableScanDesc extends AbstractOperatorDesc implements IStatsGatherDesc {
   private static final long serialVersionUID = 1L;
-
-  static {
-    PTFUtils.makeTransient(TableScanDesc.class, "filterObject", "referencedColumns", "tableMetadata");
-  }
 
   private String alias;
 
@@ -69,10 +71,10 @@ public class TableScanDesc extends AbstractOperatorDesc {
    */
   private boolean gatherStats;
   private boolean statsReliable;
-  private int maxStatsKeyPrefixLength = -1;
+  private String tmpStatsDir;
 
   private ExprNodeGenericFuncDesc filterExpr;
-  private transient Serializable filterObject;
+  private Serializable filterObject;
   private String serializedFilterExpr;
   private String serializedFilterObject;
 
@@ -83,6 +85,7 @@ public class TableScanDesc extends AbstractOperatorDesc {
   // SELECT count(*) FROM t).
   private List<Integer> neededColumnIDs;
   private List<String> neededColumns;
+  private List<String> neededNestedColumnPaths;
 
   // all column names referenced including virtual columns. used in ColumnAccessAnalyzer
   private transient List<String> referencedColumns;
@@ -101,9 +104,19 @@ public class TableScanDesc extends AbstractOperatorDesc {
 
   private boolean isMetadataOnly = false;
 
+  private boolean isTranscationalTable;
+
+  private boolean vectorized;
+
+  private AcidUtils.AcidOperationalProperties acidOperationalProperties = null;
+
   private transient TableSample tableSample;
 
   private transient Table tableMetadata;
+
+  private BitSet includedBuckets;
+
+  private int numBuckets = -1;
 
   public TableScanDesc() {
     this(null, null);
@@ -122,6 +135,10 @@ public class TableScanDesc extends AbstractOperatorDesc {
     this.alias = alias;
     this.virtualCols = vcs;
     this.tableMetadata = tblMetadata;
+    isTranscationalTable = AcidUtils.isTransactionalTable(this.tableMetadata);
+    if (isTranscationalTable) {
+      acidOperationalProperties = AcidUtils.getAcidOperationalProperties(this.tableMetadata);
+    }
   }
 
   @Override
@@ -130,16 +147,68 @@ public class TableScanDesc extends AbstractOperatorDesc {
     return new TableScanDesc(getAlias(), vcs, this.tableMetadata);
   }
 
-  @Explain(displayName = "alias", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "alias")
   public String getAlias() {
     return alias;
   }
 
+  @Explain(displayName = "table", jsonOnly = true)
+  public String getTableName() {
+    return this.tableMetadata.getTableName();
+  }
+
+  @Explain(displayName = "database", jsonOnly = true)
+  public String getDatabaseName() {
+    return this.tableMetadata.getDbName();
+  }
+
+  @Explain(displayName = "columns", jsonOnly = true)
+  public List<String> getColumnNamesForExplain() {
+    return this.neededColumns;
+  }
+
+  @Explain(displayName = "isTempTable", jsonOnly = true)
+  public boolean isTemporary() {
+    return tableMetadata.isTemporary();
+  }
+
+  @Explain(explainLevels = { Level.USER })
+  public String getTbl() {
+    StringBuilder sb = new StringBuilder();
+    sb.append(this.tableMetadata.getCompleteName());
+    sb.append("," + alias);
+    if (AcidUtils.isFullAcidTable(tableMetadata)) {
+      sb.append(", ACID table");
+    } else if (isTranscationalTable()) {
+      sb.append(", transactional table");
+    }
+    sb.append(",Tbl:");
+    sb.append(this.statistics.getBasicStatsState());
+    sb.append(",Col:");
+    sb.append(this.statistics.getColumnStatsState());
+    return sb.toString();
+  }
+
+  public boolean isTranscationalTable() {
+    return isTranscationalTable;
+  }
+
+  public AcidUtils.AcidOperationalProperties getAcidOperationalProperties() {
+    return acidOperationalProperties;
+  }
+
+  @Explain(displayName = "Output", explainLevels = { Level.USER })
+  public List<String> getOutputColumnNames() {
+    return this.neededColumns;
+  }
+
+
   @Explain(displayName = "filterExpr")
   public String getFilterExprString() {
-    StringBuilder sb = new StringBuilder();
-    PlanUtils.addExprToStringBuffer(filterExpr, sb);
-    return sb.toString();
+    if (filterExpr == null) {
+      return null;
+    }
+    return PlanUtils.getExprListString(Arrays.asList(filterExpr));
   }
 
   public ExprNodeGenericFuncDesc getFilterExpr() {
@@ -166,12 +235,31 @@ public class TableScanDesc extends AbstractOperatorDesc {
     return neededColumnIDs;
   }
 
+  public List<String> getNeededNestedColumnPaths() {
+    return neededNestedColumnPaths;
+  }
+
+  public void setNeededNestedColumnPaths(List<String> neededNestedColumnPaths) {
+    this.neededNestedColumnPaths = neededNestedColumnPaths;
+  }
+
   public void setNeededColumns(List<String> neededColumns) {
     this.neededColumns = neededColumns;
   }
 
   public List<String> getNeededColumns() {
     return neededColumns;
+  }
+
+  @Explain(displayName = "Pruned Column Paths")
+  public List<String> getPrunedColumnPaths() {
+    List<String> result = new ArrayList<>();
+    for (String p : neededNestedColumnPaths) {
+      if (p.indexOf('.') >= 0) {
+        result.add(p);
+      }
+    }
+    return result;
   }
 
   public void setReferencedColumns(List<String> referencedColumns) {
@@ -198,9 +286,19 @@ public class TableScanDesc extends AbstractOperatorDesc {
     this.gatherStats = gatherStats;
   }
 
+  @Override
   @Explain(displayName = "GatherStats", explainLevels = { Level.EXTENDED })
   public boolean isGatherStats() {
     return gatherStats;
+  }
+
+  @Override
+  public String getTmpStatsDir() {
+    return tmpStatsDir;
+  }
+
+  public void setTmpStatsDir(String tmpStatsDir) {
+    this.tmpStatsDir = tmpStatsDir;
   }
 
   public List<VirtualColumn> getVirtualCols() {
@@ -223,6 +321,7 @@ public class TableScanDesc extends AbstractOperatorDesc {
     statsAggKeyPrefix = k;
   }
 
+  @Override
   @Explain(displayName = "Statistics Aggregation Key Prefix", explainLevels = { Level.EXTENDED })
   public String getStatsAggPrefix() {
     return statsAggKeyPrefix;
@@ -234,14 +333,6 @@ public class TableScanDesc extends AbstractOperatorDesc {
 
   public void setStatsReliable(boolean statsReliable) {
     this.statsReliable = statsReliable;
-  }
-
-  public int getMaxStatsKeyPrefixLength() {
-    return maxStatsKeyPrefixLength;
-  }
-
-  public void setMaxStatsKeyPrefixLength(int maxStatsKeyPrefixLength) {
-    this.maxStatsKeyPrefixLength = maxStatsKeyPrefixLength;
   }
 
   public void setRowLimit(int rowLimit) {
@@ -264,7 +355,7 @@ public class TableScanDesc extends AbstractOperatorDesc {
   public void setBucketFileNameMapping(Map<String, Integer> bucketFileNameMapping) {
     this.bucketFileNameMapping = bucketFileNameMapping;
   }
-  
+
   public void setIsMetadataOnly(boolean metadata_only) {
     isMetadataOnly = metadata_only;
   }
@@ -303,5 +394,134 @@ public class TableScanDesc extends AbstractOperatorDesc {
 
   public void setSerializedFilterObject(String serializedFilterObject) {
     this.serializedFilterObject = serializedFilterObject;
+  }
+
+  public void setIncludedBuckets(BitSet bitset) {
+    this.includedBuckets = bitset;
+  }
+
+  public BitSet getIncludedBuckets() {
+    return this.includedBuckets;
+  }
+
+  @Explain(displayName = "buckets included", explainLevels = { Level.EXTENDED })
+  public String getIncludedBucketExplain() {
+    if (this.includedBuckets == null) {
+      return null;
+    }
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("[");
+    for (int i = 0; i < this.includedBuckets.size(); i++) {
+      if (this.includedBuckets.get(i)) {
+        sb.append(i);
+        sb.append(',');
+      }
+    }
+    sb.append(String.format("] of %d", numBuckets));
+    return sb.toString();
+  }
+
+  public int getNumBuckets() {
+    return numBuckets;
+  }
+
+  public void setNumBuckets(int numBuckets) {
+    this.numBuckets = numBuckets;
+  }
+
+  public boolean isNeedSkipHeaderFooters() {
+    boolean rtn = false;
+    if (tableMetadata != null && tableMetadata.getTTable() != null) {
+      Map<String, String> params = tableMetadata.getTTable().getParameters();
+      if (params != null) {
+        String skipHVal = params.get(serdeConstants.HEADER_COUNT);
+        int hcount = skipHVal == null? 0 : Integer.parseInt(skipHVal);
+        String skipFVal = params.get(serdeConstants.FOOTER_COUNT);
+        int fcount = skipFVal == null? 0 : Integer.parseInt(skipFVal);
+        rtn = (hcount != 0 || fcount !=0 );
+      }
+    }
+    return rtn;
+  }
+
+  @Override
+  @Explain(displayName = "properties", explainLevels = { Level.DEFAULT, Level.USER, Level.EXTENDED })
+  public Map<String, String> getOpProps() {
+    return opProps;
+  }
+
+  public class TableScanOperatorExplainVectorization extends OperatorExplainVectorization {
+
+    private final TableScanDesc tableScanDesc;
+    private final VectorTableScanDesc vectorTableScanDesc;
+
+    public TableScanOperatorExplainVectorization(TableScanDesc tableScanDesc,
+        VectorTableScanDesc vectorTableScanDesc) {
+      // Native vectorization supported.
+      super(vectorTableScanDesc, true);
+      this.tableScanDesc = tableScanDesc;
+      this.vectorTableScanDesc = vectorTableScanDesc;
+    }
+
+    @Explain(vectorization = Vectorization.DETAIL, displayName = "vectorizationSchemaColumns", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+    public String getSchemaColumns() {
+      String[] projectedColumnNames = vectorTableScanDesc.getProjectedColumnNames();
+      TypeInfo[] projectedColumnTypeInfos = vectorTableScanDesc.getProjectedColumnTypeInfos();
+
+      // We currently include all data, partition, and any vectorization available
+      // virtual columns in the VRB.
+      final int size = projectedColumnNames.length;
+      int[] projectionColumns = new int[size];
+      for (int i = 0; i < size; i++) {
+        projectionColumns[i] = i;
+      }
+
+      DataTypePhysicalVariation[] projectedColumnDataTypePhysicalVariations =
+          vectorTableScanDesc.getProjectedColumnDataTypePhysicalVariations();
+
+      return BaseExplainVectorization.getColumnAndTypes(
+          projectionColumns,
+          projectedColumnNames,
+          projectedColumnTypeInfos,
+          projectedColumnDataTypePhysicalVariations).toString();
+    }
+  }
+
+  @Explain(vectorization = Vectorization.OPERATOR, displayName = "TableScan Vectorization", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+  public TableScanOperatorExplainVectorization getTableScanVectorization() {
+    VectorTableScanDesc vectorTableScanDesc = (VectorTableScanDesc) getVectorDesc();
+    if (vectorTableScanDesc == null) {
+      return null;
+    }
+    return new TableScanOperatorExplainVectorization(this, vectorTableScanDesc);
+  }
+
+  /*
+   * This TableScanDesc flag is strictly set by the Vectorizer class for vectorized MapWork
+   * vertices.
+   */
+  public void setVectorized(boolean vectorized) {
+    this.vectorized = vectorized;
+  }
+
+  public boolean isVectorized() {
+    return vectorized;
+  }
+
+  @Override
+  public boolean isSame(OperatorDesc other) {
+    if (getClass().getName().equals(other.getClass().getName())) {
+      TableScanDesc otherDesc = (TableScanDesc) other;
+      return Objects.equals(getAlias(), otherDesc.getAlias()) &&
+          ExprNodeDescUtils.isSame(getFilterExpr(), otherDesc.getFilterExpr()) &&
+          getRowLimit() == otherDesc.getRowLimit() &&
+          isGatherStats() == otherDesc.isGatherStats();
+    }
+    return false;
+  }
+
+  public boolean isFullAcidTable() {
+     return isTranscationalTable() && !getAcidOperationalProperties().isInsertOnly();
   }
 }

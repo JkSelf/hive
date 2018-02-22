@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,8 +21,9 @@ package org.apache.hadoop.hive.ql.exec.vector.mapjoin;
 import java.io.IOException;
 import java.util.Arrays;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizationContext;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
@@ -31,6 +32,7 @@ import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHash
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
 // Single-Column Long hash table import.
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinLongHashSet;
 
@@ -44,8 +46,17 @@ import org.apache.hadoop.hive.ql.exec.vector.LongColumnVector;
 public class VectorMapJoinLeftSemiLongOperator extends VectorMapJoinLeftSemiGenerateResultOperator {
 
   private static final long serialVersionUID = 1L;
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinInnerBigOnlyLongOperator.class.getName());
+
+  //------------------------------------------------------------------------------------------------
+
   private static final String CLASS_NAME = VectorMapJoinLeftSemiLongOperator.class.getName();
+  private static final Logger LOG = LoggerFactory.getLogger(CLASS_NAME);
+
+  protected String getLoggingPrefix() {
+    return super.getLoggingPrefix(CLASS_NAME);
+  }
+
+  //------------------------------------------------------------------------------------------------
 
   // (none)
 
@@ -72,12 +83,18 @@ public class VectorMapJoinLeftSemiLongOperator extends VectorMapJoinLeftSemiGene
   // Pass-thru constructors.
   //
 
-  public VectorMapJoinLeftSemiLongOperator() {
+  /** Kryo ctor. */
+  protected VectorMapJoinLeftSemiLongOperator() {
     super();
   }
 
-  public VectorMapJoinLeftSemiLongOperator(VectorizationContext vContext, OperatorDesc conf) throws HiveException {
-    super(vContext, conf);
+  public VectorMapJoinLeftSemiLongOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorMapJoinLeftSemiLongOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) throws HiveException {
+    super(ctx, conf, vContext, vectorDesc);
   }
 
   //---------------------------------------------------------------------------
@@ -179,13 +196,17 @@ public class VectorMapJoinLeftSemiLongOperator extends VectorMapJoinLeftSemiGene
          * Single-Column Long specific repeated lookup.
          */
 
-        long key = vector[0];
         JoinUtil.JoinResult joinResult;
-        if (useMinMax && (key < min || key > max)) {
-          // Out of range for whole batch.
+        if (!joinColVector.noNulls && joinColVector.isNull[0]) {
           joinResult = JoinUtil.JoinResult.NOMATCH;
         } else {
-          joinResult = hashSet.contains(key, hashSetResults[0]);
+          long key = vector[0];
+          if (useMinMax && (key < min || key > max)) {
+            // Out of range for whole batch.
+            joinResult = JoinUtil.JoinResult.NOMATCH;
+          } else {
+            joinResult = hashSet.contains(key, hashSetResults[0]);
+          }
         }
 
         /*
@@ -234,13 +255,21 @@ public class VectorMapJoinLeftSemiLongOperator extends VectorMapJoinLeftSemiGene
            * Single-Column Long get key.
            */
 
-          long currentKey = vector[batchIndex];
+          long currentKey;
+          boolean isNull;
+          if (!joinColVector.noNulls && joinColVector.isNull[batchIndex]) {
+            currentKey = 0;
+            isNull = true;
+          } else {
+            currentKey = vector[batchIndex];
+            isNull = false;
+          }
 
           /*
            * Equal key series checking.
            */
 
-          if (!haveSaveKey || currentKey != saveKey) {
+          if (isNull || !haveSaveKey || currentKey != saveKey) {
 
             // New key.
 
@@ -259,25 +288,30 @@ public class VectorMapJoinLeftSemiLongOperator extends VectorMapJoinLeftSemiGene
               }
             }
 
-            // Regardless of our matching result, we keep that information to make multiple use
-            // of it for a possible series of equal keys.
-            haveSaveKey = true;
-
-            /*
-             * Single-Column Long specific save key.
-             */
-
-            saveKey = currentKey;
-
-            /*
-             * Single-Column Long specific lookup key.
-             */
-
-            if (useMinMax && (currentKey < min || currentKey > max)) {
-              // Key out of range for whole hash table.
+            if (isNull) {
               saveJoinResult = JoinUtil.JoinResult.NOMATCH;
+              haveSaveKey = false;
             } else {
-              saveJoinResult = hashSet.contains(currentKey, hashSetResults[hashSetResultCount]);
+              // Regardless of our matching result, we keep that information to make multiple use
+              // of it for a possible series of equal keys.
+              haveSaveKey = true;
+  
+              /*
+               * Single-Column Long specific save key.
+               */
+  
+              saveKey = currentKey;
+  
+              /*
+               * Single-Column Long specific lookup key.
+               */
+  
+              if (useMinMax && (currentKey < min || currentKey > max)) {
+                // Key out of range for whole hash table.
+                saveJoinResult = JoinUtil.JoinResult.NOMATCH;
+              } else {
+                saveJoinResult = hashSet.contains(currentKey, hashSetResults[hashSetResultCount]);
+              }
             }
 
             /*

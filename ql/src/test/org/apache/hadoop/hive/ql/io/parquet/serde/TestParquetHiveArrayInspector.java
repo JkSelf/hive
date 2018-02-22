@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -51,8 +51,8 @@ public class TestParquetHiveArrayInspector extends TestCase {
   @Test
   public void testEmptyContainer() {
     final ArrayWritable list = new ArrayWritable(ArrayWritable.class, new ArrayWritable[0]);
-    assertEquals("Wrong size", -1, inspector.getListLength(list));
-    assertNull("Should be null", inspector.getList(list));
+    assertEquals("Wrong size", 0, inspector.getListLength(list));
+    assertNotNull("Should not be null", inspector.getList(list));
     assertNull("Should be null", inspector.getListElement(list, 0));
   }
 

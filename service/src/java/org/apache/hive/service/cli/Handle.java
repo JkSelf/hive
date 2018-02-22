@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -17,7 +17,7 @@
  */
 package org.apache.hive.service.cli;
 
-import org.apache.hive.service.cli.thrift.THandleIdentifier;
+import org.apache.hive.service.rpc.thrift.THandleIdentifier;
 
 
 

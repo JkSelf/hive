@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,6 +27,7 @@ public class GlobalLimitCtx {
 
   private boolean enable;
   private int globalLimit;
+  private int globalOffset;
   private boolean hasTransformOrUDTF;
   private LimitDesc lastReduceLimitDesc;
 
@@ -36,6 +37,10 @@ public class GlobalLimitCtx {
 
   public int getGlobalLimit() {
     return globalLimit;
+  }
+
+  public int getGlobalOffset() {
+    return globalOffset;
   }
 
   public boolean ifHasTransformOrUDTF() {
@@ -58,20 +63,23 @@ public class GlobalLimitCtx {
     return enable;
   }
 
-  public void enableOpt(int globalLimit) {
+  public void enableOpt(int globalLimit, int globalOffset) {
     this.enable = true;
     this.globalLimit = globalLimit;
+    this.globalOffset = globalOffset;
   }
 
   public void disableOpt() {
     this.enable = false;
     this.globalLimit = -1;
+    this.globalOffset = 0;
     this.lastReduceLimitDesc = null;
   }
 
   public void reset() {
     enable = false;
     globalLimit = -1;
+    globalOffset = 0;
     hasTransformOrUDTF = false;
     lastReduceLimitDesc = null;
   }

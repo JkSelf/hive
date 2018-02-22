@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,13 +25,16 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
  * IndexSearchCondition represents an individual search condition
  * found by {@link IndexPredicateAnalyzer}.
  *
+ * @deprecated kept only because some storagehandlers are using it internally
  */
+@Deprecated
 public class IndexSearchCondition
 {
   private ExprNodeColumnDesc columnDesc;
   private String comparisonOp;
   private ExprNodeConstantDesc constantDesc;
-  private ExprNodeGenericFuncDesc comparisonExpr;
+  private ExprNodeGenericFuncDesc indexExpr;
+  private ExprNodeGenericFuncDesc originalExpr;
 
   private String[] fields;
 
@@ -40,7 +43,7 @@ public class IndexSearchCondition
       String comparisonOp,
       ExprNodeConstantDesc constantDesc,
       ExprNodeGenericFuncDesc comparisonExpr) {
-    this(columnDesc, comparisonOp, constantDesc, comparisonExpr, null);
+    this(columnDesc, comparisonOp, constantDesc, comparisonExpr, comparisonExpr, null);
   }
 
   /**
@@ -54,19 +57,23 @@ public class IndexSearchCondition
    *
    * @param constantDesc constant value to search for
    *
-   * @param comparisonExpr the original comparison expression
+   * @param indexExpr the comparison expression for the index
+   *
+   * @param originalExpr the original comparison expression
    */
   public IndexSearchCondition(
     ExprNodeColumnDesc columnDesc,
     String comparisonOp,
     ExprNodeConstantDesc constantDesc,
-    ExprNodeGenericFuncDesc comparisonExpr,
+    ExprNodeGenericFuncDesc indexExpr,
+    ExprNodeGenericFuncDesc originalExpr,
     String[] fields) {
 
     this.columnDesc = columnDesc;
     this.comparisonOp = comparisonOp;
     this.constantDesc = constantDesc;
-    this.comparisonExpr = comparisonExpr;
+    this.indexExpr = indexExpr;
+    this.originalExpr = originalExpr;
     this.fields = fields;
   }
 
@@ -94,12 +101,20 @@ public class IndexSearchCondition
     return constantDesc;
   }
 
-  public void setComparisonExpr(ExprNodeGenericFuncDesc comparisonExpr) {
-    this.comparisonExpr = comparisonExpr;
+  public void setIndexExpr(ExprNodeGenericFuncDesc indexExpr) {
+    this.indexExpr = indexExpr;
   }
 
-  public ExprNodeGenericFuncDesc getComparisonExpr() {
-    return comparisonExpr;
+  public ExprNodeGenericFuncDesc getIndexExpr() {
+    return indexExpr;
+  }
+
+  public void setOriginalExpr(ExprNodeGenericFuncDesc originalExpr) {
+    this.originalExpr = originalExpr;
+  }
+
+  public ExprNodeGenericFuncDesc getOriginalExpr() {
+    return originalExpr;
   }
 
   public String[] getFields() {
@@ -108,6 +123,6 @@ public class IndexSearchCondition
 
   @Override
   public String toString() {
-    return comparisonExpr.getExprString();
+    return indexExpr.getExprString();
   }
 }

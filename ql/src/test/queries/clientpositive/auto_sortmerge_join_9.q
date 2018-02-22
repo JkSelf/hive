@@ -1,6 +1,7 @@
+set hive.mapred.mode=nonstrict;
 set hive.explain.user=false;
-set hive.enforce.bucketing = true;
-set hive.enforce.sorting = true;
+;
+
 set hive.exec.reducers.max = 1;
 
 -- SORT_QUERY_RESULTS
@@ -19,6 +20,9 @@ set hive.optimize.bucketmapjoin = true;
 set hive.optimize.bucketmapjoin.sortedmerge = true;
 set hive.auto.convert.sortmerge.join=true;
 set hive.auto.convert.sortmerge.join.to.mapjoin=false;
+--disable hash joins
+set hive.auto.convert.join.noconditionaltask.size=10;
+
 -- The join is being performed as part of sub-query. It should be converted to a sort-merge join
 explain
 select count(*) from (

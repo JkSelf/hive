@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,8 +25,8 @@ import java.util.Map;
 import java.util.Stack;
 
 import org.apache.calcite.util.Pair;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.FilterOperator;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
@@ -64,14 +64,22 @@ import com.google.common.collect.ListMultimap;
  * AND operator children, the optimization might generate an IN clause that uses
  * structs.
  */
-public class PointLookupOptimizer implements Transform {
+public class PointLookupOptimizer extends Transform {
 
-  private static final Log LOG = LogFactory.getLog(PointLookupOptimizer.class);
+  private static final Logger LOG = LoggerFactory.getLogger(PointLookupOptimizer.class);
   private static final String IN_UDF =
           GenericUDFIn.class.getAnnotation(Description.class).name();
   private static final String STRUCT_UDF =
           GenericUDFStruct.class.getAnnotation(Description.class).name();
+  // these are closure-bound for all the walkers in context
+  public final int minOrExpr;
 
+  /*
+   * Pass in configs and pre-create a parse context
+   */
+  public PointLookupOptimizer(final int min) {
+    this.minOrExpr = min;
+  }
 
   @Override
   public ParseContext transform(ParseContext pctx) throws SemanticException {
@@ -103,7 +111,6 @@ public class PointLookupOptimizer implements Transform {
         if (LOG.isDebugEnabled()) {
           LOG.debug("Generated new predicate with IN clause: " + newPredicate);
         }
-        filterOp.getConf().setOrigPredicate(predicate);
         filterOp.getConf().setPredicate(newPredicate);
       }
 
@@ -140,8 +147,11 @@ public class PointLookupOptimizer implements Transform {
         return null;
       }
 
-      // 2. It is an OR operator
+      // 2. It is an OR operator with enough children
       List<ExprNodeDesc> children = fd.getChildren();
+      if (children.size() < minOrExpr) {
+        return null;
+      }
       ListMultimap<String,Pair<ExprNodeColumnDesc, ExprNodeConstantDesc>> columnConstantsMap =
               ArrayListMultimap.create();
       boolean modeAnd = false;

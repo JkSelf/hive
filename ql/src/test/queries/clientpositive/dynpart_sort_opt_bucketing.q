@@ -1,3 +1,4 @@
+set hive.mapred.mode=nonstrict;
 set hive.vectorized.execution.enabled=false;
 
 drop table if exists t1_staging;
@@ -11,12 +12,12 @@ clustered by(a)
 sorted by(a desc)
 into 256 buckets stored as textfile;
 
-load data local inpath '../../data/files/sortdp.txt' overwrite into table t1_staging partition (e='epart');
+load data local inpath '../../data/files/sortdp/000000_0' overwrite into table t1_staging partition (e='epart');
 
 set hive.optimize.sort.dynamic.partition=true;
 set hive.exec.dynamic.partition.mode=nonstrict;
-set hive.enforce.sorting=true;
-set hive.enforce.bucketing=true;
+
+
 
 drop table t1;
 
@@ -44,8 +45,8 @@ dfs -cat ${hiveconf:hive.metastore.warehouse.dir}/t1/e=epart/000008_0;
 
 set hive.optimize.sort.dynamic.partition=false;
 set hive.exec.dynamic.partition.mode=nonstrict;
-set hive.enforce.sorting=true;
-set hive.enforce.bucketing=true;
+
+
 
 -- disable sorted dynamic partition optimization to make sure the results are correct
 drop table t1;

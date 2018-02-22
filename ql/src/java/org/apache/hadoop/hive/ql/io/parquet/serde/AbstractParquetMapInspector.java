@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -60,7 +60,7 @@ public abstract class AbstractParquetMapInspector implements SettableMapObjectIn
 
     if (data instanceof ArrayWritable) {
       final Writable[] mapArray = ((ArrayWritable) data).get();
-      if (mapArray == null || mapArray.length == 0) {
+      if (mapArray == null) {
         return null;
       }
 
@@ -90,7 +90,7 @@ public abstract class AbstractParquetMapInspector implements SettableMapObjectIn
     if (data instanceof ArrayWritable) {
       final Writable[] mapArray = ((ArrayWritable) data).get();
 
-      if (mapArray == null || mapArray.length == 0) {
+      if (mapArray == null) {
         return -1;
       } else {
         return mapArray.length;

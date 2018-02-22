@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -68,8 +68,8 @@ public class TableSample {
    *          The list of expressions in the ON part of the TABLESAMPLE clause
    */
   public TableSample(String num, String den, ArrayList<ASTNode> exprs) {
-    numerator = Integer.valueOf(num).intValue();
-    denominator = Integer.valueOf(den).intValue();
+    numerator = Integer.parseInt(num);
+    denominator = Integer.parseInt(den);
     this.exprs = exprs;
   }
 

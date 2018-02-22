@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements. See the NOTICE file distributed with this
  * work for additional information regarding copyright ownership. The ASF
@@ -30,6 +30,7 @@ import java.text.MessageFormat;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarFile;
@@ -44,7 +45,8 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
 import org.apache.hadoop.util.StringUtils;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
 
@@ -53,10 +55,10 @@ import com.google.common.base.Preconditions;
  * helpful
  */
 public class Utils {
-  private static final Logger log = Logger.getLogger(Utils.class);
+  private static final Logger log = LoggerFactory.getLogger(Utils.class);
 
   // Thanks, HBase
-  public static void addDependencyJars(Configuration conf, Class<?>... classes) throws IOException {
+  public static void addDependencyJars(Configuration conf, List<Class<?>> classes) throws IOException {
     FileSystem localFs = FileSystem.getLocal(conf);
     Set<String> jars = new HashSet<String>();
     // Add jars that are already in the tmpjars variable

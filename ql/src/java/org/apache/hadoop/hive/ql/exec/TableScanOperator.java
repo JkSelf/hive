@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,25 +20,27 @@ package org.apache.hadoop.hive.ql.exec;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Future;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.ErrorMsg;
+import org.apache.hadoop.hive.ql.exec.vector.VectorizationContext;
+import org.apache.hadoop.hive.ql.exec.vector.VectorizationContextRegion;
+import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.VirtualColumn;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 import org.apache.hadoop.hive.ql.plan.TableDesc;
 import org.apache.hadoop.hive.ql.plan.TableScanDesc;
 import org.apache.hadoop.hive.ql.plan.api.OperatorType;
-import org.apache.hadoop.hive.ql.stats.StatsCollectionTaskIndependent;
+import org.apache.hadoop.hive.ql.stats.StatsCollectionContext;
 import org.apache.hadoop.hive.ql.stats.StatsPublisher;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils;
@@ -54,11 +56,12 @@ import org.apache.hadoop.mapred.JobConf;
  * read as part of map-reduce framework
  **/
 public class TableScanOperator extends Operator<TableScanDesc> implements
-    Serializable {
+    Serializable, VectorizationContextRegion {
   private static final long serialVersionUID = 1L;
 
+  private VectorizationContext taskVectorizationContext;
+
   protected transient JobConf jc;
-  private transient Configuration hconf;
   private transient boolean inputFileChanged = false;
   private TableDesc tableDesc;
 
@@ -67,15 +70,39 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
 
   private transient int rowLimit = -1;
   private transient int currCount = 0;
+  // insiderView will tell this TableScan is inside a view or not.
+  private transient boolean insideView;
+
+  private transient boolean vectorized;
 
   private String defaultPartitionName;
 
-  public TableDesc getTableDesc() {
+  /**
+   * These values are saved during MapWork, FetchWork, etc preparation and later added to the the
+   * JobConf of each task.
+   */
+  private String schemaEvolutionColumns;
+  private String schemaEvolutionColumnsTypes;
+
+  public TableDesc getTableDescSkewJoin() {
     return tableDesc;
   }
 
-  public void setTableDesc(TableDesc tableDesc) {
+  public void setTableDescSkewJoin(TableDesc tableDesc) {
     this.tableDesc = tableDesc;
+  }
+
+  public void setSchemaEvolution(String schemaEvolutionColumns, String schemaEvolutionColumnsTypes) {
+    this.schemaEvolutionColumns = schemaEvolutionColumns;
+    this.schemaEvolutionColumnsTypes = schemaEvolutionColumnsTypes;
+  }
+
+  public String getSchemaEvolutionColumns() {
+    return schemaEvolutionColumns;
+  }
+
+  public String getSchemaEvolutionColumnsTypes() {
+    return schemaEvolutionColumnsTypes;
   }
 
   /**
@@ -87,14 +114,37 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
    **/
   @Override
   public void process(Object row, int tag) throws HiveException {
-    if (rowLimit >= 0 && currCount++ >= rowLimit) {
-      setDone(true);
-      return;
+    if (rowLimit >= 0) {
+      if (checkSetDone(row, tag)) {
+        return;
+      }
     }
     if (conf != null && conf.isGatherStats()) {
       gatherStats(row);
     }
-    forward(row, inputObjInspectors[tag]);
+    forward(row, inputObjInspectors[tag], vectorized);
+  }
+
+  private boolean checkSetDone(Object row, int tag) {
+    if (row instanceof VectorizedRowBatch) {
+      // We need to check with 'instanceof' instead of just checking
+      // vectorized because the row can be a VectorizedRowBatch when
+      // FetchOptimizer kicks in even if the operator pipeline is not
+      // vectorized
+      VectorizedRowBatch batch = (VectorizedRowBatch) row;
+      if (currCount >= rowLimit) {
+        setDone(true);
+        return true;
+      }
+      if (currCount + batch.size > rowLimit) {
+        batch.size = rowLimit - currCount;
+      }
+      currCount += batch.size;
+    } else if (currCount++ >= rowLimit) {
+      setDone(true);
+      return true;
+    }
+    return false;
   }
 
   // Change the table partition for collecting stats
@@ -155,7 +205,7 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
           values.add(o == null ? defaultPartitionName : o.toString());
         }
         partitionSpecs = FileUtils.makePartName(conf.getPartColumns(), values);
-        if (isLogInfoEnabled) {
+        if (LOG.isInfoEnabled()) {
           LOG.info("Stats Gathering found a new partition spec = " + partitionSpecs);
         }
       }
@@ -187,26 +237,31 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
       ObjectInspectorUtils.partialCopyToStandardObject(rdSize, row,
           rdSizeColumn, 1, (StructObjectInspector) inputObjInspectors[0],
           ObjectInspectorCopyOption.WRITABLE);
-      currentStat.addToStat(StatsSetupConst.RAW_DATA_SIZE, (((LongWritable)rdSize.get(0)).get()));
+      currentStat.addToStat(StatsSetupConst.RAW_DATA_SIZE, (((LongWritable) rdSize.get(0)).get()));
     }
 
   }
 
+  /** Kryo ctor. */
+  protected TableScanOperator() {
+    super();
+  }
+
+  public TableScanOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
   @Override
-  protected Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
-    Collection<Future<?>> result = super.initializeOp(hconf);
+  protected void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
     inputFileChanged = false;
 
     if (conf == null) {
-      return result;
+      return;
     }
 
     rowLimit = conf.getRowLimit();
-    if (!conf.isGatherStats()) {
-      return result;
-    }
 
-    this.hconf = hconf;
     if (hconf instanceof JobConf) {
       jc = (JobConf) hconf;
     } else {
@@ -217,11 +272,12 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
     defaultPartitionName = HiveConf.getVar(hconf, HiveConf.ConfVars.DEFAULTPARTITIONNAME);
     currentStat = null;
     stats = new HashMap<String, Stat>();
-    if (conf.getPartColumns() == null || conf.getPartColumns().size() == 0) {
-      // NON PARTITIONED table
-      return result;
-    }
-    return result;
+
+    /*
+     * This TableScanDesc flag is strictly set by the Vectorizer class for vectorized MapWork
+     * vertices.
+     */
+    vectorized = conf.isVectorized();
   }
 
   @Override
@@ -231,6 +287,7 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
         publishStats();
       }
     }
+    super.closeOp(abort);
   }
 
   /**
@@ -241,7 +298,7 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
    **/
   @Override
   public String getName() {
-    return getOperatorName();
+    return TableScanOperator.getOperatorName();
   }
 
   static public String getOperatorName() {
@@ -258,6 +315,14 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
 
   public void setNeededColumns(List<String> columnNames) {
     conf.setNeededColumns(columnNames);
+  }
+
+  public List<String> getNeededNestedColumnPaths() {
+    return conf.getNeededNestedColumnPaths();
+  }
+
+  public void setNeededNestedColumnPaths(List<String> nestedColumnPaths) {
+    conf.setNeededNestedColumnPaths(nestedColumnPaths);
   }
 
   public List<String> getNeededColumns() {
@@ -282,9 +347,11 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
 
     // Initializing a stats publisher
     StatsPublisher statsPublisher = Utilities.getStatsPublisher(jc);
-    if (!statsPublisher.connect(jc)) {
+    StatsCollectionContext sc = new StatsCollectionContext(jc);
+    sc.setStatsTmpDir(conf.getTmpStatsDir());
+    if (!statsPublisher.connect(sc)) {
       // just return, stats gathering should not block the main query.
-      if (isLogInfoEnabled) {
+      if (LOG.isInfoEnabled()) {
         LOG.info("StatsPublishing error: cannot connect to database.");
       }
       if (isStatsReliable) {
@@ -293,19 +360,13 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
       return;
     }
 
-    String taskID = Utilities.getTaskIdFromFilename(Utilities.getTaskId(hconf));
     Map<String, String> statsToPublish = new HashMap<String, String>();
 
     for (String pspecs : stats.keySet()) {
       statsToPublish.clear();
       String prefix = Utilities.join(conf.getStatsAggPrefix(), pspecs);
 
-      int maxKeyLength = conf.getMaxStatsKeyPrefixLength();
-      String key = Utilities.getHashedStatsPrefix(prefix, maxKeyLength);
-      if (!(statsPublisher instanceof StatsCollectionTaskIndependent)) {
-        // stats publisher except counter or fs type needs postfix 'taskID'
-        key = Utilities.join(prefix, taskID);
-      }
+      String key = prefix.endsWith(Path.SEPARATOR) ? prefix : prefix + Path.SEPARATOR;
       for(String statType : stats.get(pspecs).getStoredStats()) {
         statsToPublish.put(statType, Long.toString(stats.get(pspecs).getStat(statType)));
       }
@@ -314,11 +375,11 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
           throw new HiveException(ErrorMsg.STATSPUBLISHER_PUBLISHING_ERROR.getErrorCodedMsg());
         }
       }
-      if (isLogInfoEnabled) {
-	LOG.info("publishing : " + key + " : " + statsToPublish.toString());
+      if (LOG.isInfoEnabled()) {
+        LOG.info("publishing : " + key + " : " + statsToPublish.toString());
       }
     }
-    if (!statsPublisher.closeConnection()) {
+    if (!statsPublisher.closeConnection(sc)) {
       if (isStatsReliable) {
         throw new HiveException(ErrorMsg.STATSPUBLISHER_CLOSING_ERROR.getErrorCodedMsg());
       }
@@ -343,6 +404,23 @@ public class TableScanOperator extends Operator<TableScanDesc> implements
     ts.setNeededColumns(new ArrayList<String>(getNeededColumns()));
     ts.setReferencedColumns(new ArrayList<String>(getReferencedColumns()));
     return ts;
+  }
+
+  public boolean isInsideView() {
+    return insideView;
+  }
+
+  public void setInsideView(boolean insiderView) {
+    this.insideView = insiderView;
+  }
+
+  public void setTaskVectorizationContext(VectorizationContext taskVectorizationContext) {
+    this.taskVectorizationContext = taskVectorizationContext;
+  }
+
+  @Override
+  public VectorizationContext getOutputVectorizationContext() {
+    return taskVectorizationContext;
   }
 
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -113,6 +113,7 @@ public class Operation2Privilege {
   }
 
   private static Map<HiveOperationType, List<PrivRequirement>> op2Priv;
+  private static List<HiveOperationType> adminPrivOps;
 
   private static SQLPrivTypeGrant[] OWNER_PRIV_AR = arr(SQLPrivTypeGrant.OWNER_PRIV);
   private static SQLPrivTypeGrant[] SEL_NOGRANT_AR = arr(SQLPrivTypeGrant.SELECT_NOGRANT);
@@ -121,15 +122,16 @@ public class Operation2Privilege {
   private static SQLPrivTypeGrant[] INS_NOGRANT_AR = arr(SQLPrivTypeGrant.INSERT_NOGRANT);
   private static SQLPrivTypeGrant[] DEL_NOGRANT_AR = arr(SQLPrivTypeGrant.DELETE_NOGRANT);
   private static SQLPrivTypeGrant[] UPD_NOGRANT_AR = arr(SQLPrivTypeGrant.UPDATE_NOGRANT);
-  private static SQLPrivTypeGrant[] OWNER_INS_SEL_DEL_NOGRANT_AR =
-      arr(SQLPrivTypeGrant.OWNER_PRIV,
-          SQLPrivTypeGrant.INSERT_NOGRANT,
+  private static SQLPrivTypeGrant[] INS_SEL_DEL_NOGRANT_AR =
+      arr(SQLPrivTypeGrant.INSERT_NOGRANT,
           SQLPrivTypeGrant.DELETE_NOGRANT,
           SQLPrivTypeGrant.SELECT_NOGRANT);
 
 
 
   static {
+
+    adminPrivOps = new ArrayList<HiveOperationType>();
     op2Priv = new HashMap<HiveOperationType, List<PrivRequirement>>();
 
     op2Priv.put(HiveOperationType.EXPLAIN, PrivRequirement.newIOPrivRequirement
@@ -137,8 +139,8 @@ public class Operation2Privilege {
         SEL_NOGRANT_AR)); //??
 
     op2Priv.put(HiveOperationType.CREATEDATABASE, PrivRequirement.newPrivRequirementList(
-        new PrivRequirement(OWNER_INS_SEL_DEL_NOGRANT_AR, HivePrivilegeObjectType.DFS_URI),
-        new PrivRequirement(OWNER_INS_SEL_DEL_NOGRANT_AR, HivePrivilegeObjectType.LOCAL_URI)));
+        new PrivRequirement(INS_SEL_DEL_NOGRANT_AR, HivePrivilegeObjectType.DFS_URI),
+        new PrivRequirement(INS_SEL_DEL_NOGRANT_AR, HivePrivilegeObjectType.LOCAL_URI)));
 
     op2Priv.put(HiveOperationType.DROPDATABASE, PrivRequirement.newIOPrivRequirement
 (null, OWNER_PRIV_AR));
@@ -161,9 +163,12 @@ public class Operation2Privilege {
     op2Priv.put(HiveOperationType.DESCFUNCTION, PrivRequirement.newIOPrivRequirement
 (null, null));
 
-    // meta store check command - require admin priv
+    // meta store check command - equivalent to add partition command
+    // no input objects are passed to it currently, but keeping admin priv
+    // requirement on inputs just in case some input object like file
+    // uri is added later
     op2Priv.put(HiveOperationType.MSCK, PrivRequirement.newIOPrivRequirement
-(ADMIN_PRIV_AR, null));
+(ADMIN_PRIV_AR, INS_NOGRANT_AR));
 
 
     //alter table commands require table ownership
@@ -216,9 +221,9 @@ public class Operation2Privilege {
     op2Priv.put(HiveOperationType.ALTERPARTITION_FILEFORMAT, PrivRequirement.newIOPrivRequirement
 (OWNER_PRIV_AR, OWNER_PRIV_AR));
     op2Priv.put(HiveOperationType.ALTERTABLE_LOCATION, PrivRequirement.newIOPrivRequirement
-(OWNER_PRIV_AR, OWNER_INS_SEL_DEL_NOGRANT_AR));
+(OWNER_PRIV_AR, INS_SEL_DEL_NOGRANT_AR));
     op2Priv.put(HiveOperationType.ALTERPARTITION_LOCATION, PrivRequirement.newIOPrivRequirement
-(OWNER_PRIV_AR, OWNER_INS_SEL_DEL_NOGRANT_AR));
+(OWNER_PRIV_AR, INS_SEL_DEL_NOGRANT_AR));
     op2Priv.put(HiveOperationType.ALTERTABLE_MERGEFILES, PrivRequirement.newIOPrivRequirement
 (OWNER_PRIV_AR, OWNER_PRIV_AR));
     op2Priv.put(HiveOperationType.ALTERPARTITION_MERGEFILES, PrivRequirement.newIOPrivRequirement
@@ -226,15 +231,19 @@ public class Operation2Privilege {
     op2Priv.put(HiveOperationType.ALTERTABLE_SKEWED, PrivRequirement.newIOPrivRequirement
 (OWNER_PRIV_AR, OWNER_PRIV_AR));
     op2Priv.put(HiveOperationType.ALTERTBLPART_SKEWED_LOCATION, PrivRequirement.newIOPrivRequirement
-(OWNER_PRIV_AR, OWNER_INS_SEL_DEL_NOGRANT_AR));
+(OWNER_PRIV_AR, INS_SEL_DEL_NOGRANT_AR));
     op2Priv.put(HiveOperationType.ALTERTABLE_COMPACT, PrivRequirement.newIOPrivRequirement
 (OWNER_PRIV_AR,  OWNER_PRIV_AR));
     op2Priv.put(HiveOperationType.TRUNCATETABLE, PrivRequirement.newIOPrivRequirement
 (OWNER_PRIV_AR, OWNER_PRIV_AR));
+    op2Priv.put(HiveOperationType.ALTERTABLE_DROPCONSTRAINT, PrivRequirement.newIOPrivRequirement
+(OWNER_PRIV_AR, OWNER_PRIV_AR));
+    op2Priv.put(HiveOperationType.ALTERTABLE_ADDCONSTRAINT, PrivRequirement.newIOPrivRequirement
+(OWNER_PRIV_AR, OWNER_PRIV_AR));
 
     //table ownership for create/drop/alter index
     op2Priv.put(HiveOperationType.CREATEINDEX, PrivRequirement.newIOPrivRequirement
-(OWNER_PRIV_AR, OWNER_INS_SEL_DEL_NOGRANT_AR));
+(OWNER_PRIV_AR, INS_SEL_DEL_NOGRANT_AR));
     op2Priv.put(HiveOperationType.DROPINDEX, PrivRequirement.newIOPrivRequirement
 (OWNER_PRIV_AR, OWNER_PRIV_AR));
     op2Priv.put(HiveOperationType.ALTERINDEX_REBUILD, PrivRequirement.newIOPrivRequirement
@@ -253,8 +262,14 @@ public class Operation2Privilege {
 (OWNER_PRIV_AR, OWNER_PRIV_AR));
     op2Priv.put(HiveOperationType.DROPVIEW, PrivRequirement.newIOPrivRequirement
 (OWNER_PRIV_AR, OWNER_PRIV_AR));
+    op2Priv.put(HiveOperationType.ALTER_MATERIALIZED_VIEW_REWRITE, PrivRequirement.newIOPrivRequirement
+(OWNER_PRIV_AR, OWNER_PRIV_AR));
+    op2Priv.put(HiveOperationType.DROP_MATERIALIZED_VIEW, PrivRequirement.newIOPrivRequirement
+(OWNER_PRIV_AR, OWNER_PRIV_AR));
 
     op2Priv.put(HiveOperationType.ANALYZE_TABLE, PrivRequirement.newIOPrivRequirement
+(arr(SQLPrivTypeGrant.SELECT_NOGRANT, SQLPrivTypeGrant.INSERT_NOGRANT), null));
+    op2Priv.put(HiveOperationType.CACHE_METADATA, PrivRequirement.newIOPrivRequirement
 (arr(SQLPrivTypeGrant.SELECT_NOGRANT, SQLPrivTypeGrant.INSERT_NOGRANT), null));
     op2Priv.put(HiveOperationType.SHOWDATABASES, PrivRequirement.newIOPrivRequirement
 (null, null));
@@ -266,13 +281,50 @@ public class Operation2Privilege {
 (DEL_NOGRANT_AR, null));
     // in alter-table-add-partition, the table is output, and location is input
     op2Priv.put(HiveOperationType.ALTERTABLE_ADDPARTS, PrivRequirement.newIOPrivRequirement
-(OWNER_INS_SEL_DEL_NOGRANT_AR, INS_NOGRANT_AR));
+(INS_SEL_DEL_NOGRANT_AR, INS_NOGRANT_AR));
 
     // select with grant for exporting contents
     op2Priv.put(HiveOperationType.EXPORT, PrivRequirement.newIOPrivRequirement
-(SEL_GRANT_AR, OWNER_INS_SEL_DEL_NOGRANT_AR));
-    op2Priv.put(HiveOperationType.IMPORT, PrivRequirement.newIOPrivRequirement
-(OWNER_INS_SEL_DEL_NOGRANT_AR, INS_NOGRANT_AR));
+(SEL_GRANT_AR, INS_SEL_DEL_NOGRANT_AR));
+    // For import statement, require uri rwx+owner privileges on input uri, and
+    // necessary privileges on the output table and database
+    // NOTE : privileges are only checked if the object of that type is marked as part of ReadEntity or WriteEntity
+    // So, if a table is present, Import will mark a table as a WriteEntity, and we'll authorize for that, and if not present,
+    // Import will mark the parent db as a WriteEntity, thus ensuring that we check for table creation privileges.
+    op2Priv.put(HiveOperationType.IMPORT, PrivRequirement.newPrivRequirementList(
+        new PrivRequirement(INS_SEL_DEL_NOGRANT_AR, IOType.INPUT),
+        new PrivRequirement(arr(SQLPrivTypeGrant.INSERT_NOGRANT, SQLPrivTypeGrant.DELETE_NOGRANT),
+            IOType.OUTPUT, null, HivePrivilegeObjectType.TABLE_OR_VIEW),
+        new PrivRequirement(OWNER_PRIV_AR, IOType.OUTPUT, null, HivePrivilegeObjectType.DATABASE)));
+
+    // Setting REPL DUMP and REPL LOAD as all requiring ADMIN privileges.
+    // We might wind up loosening this in the future, but right now, we do not want
+    // to do individual object based checks on every object possible, and thus, asking
+    // for a broad privilege such as this is the best route forward. REPL STATUS
+    // should use privileges similar to DESCRIBE DB/TABLE, and so, it asks for no
+    // output privileges, and asks for select-no-grant on input.
+    op2Priv.put(HiveOperationType.REPLDUMP, PrivRequirement.newIOPrivRequirement(
+        ADMIN_PRIV_AR, ADMIN_PRIV_AR));
+    op2Priv.put(HiveOperationType.REPLLOAD, PrivRequirement.newIOPrivRequirement(
+        ADMIN_PRIV_AR, ADMIN_PRIV_AR));
+    op2Priv.put(HiveOperationType.REPLSTATUS, PrivRequirement.newIOPrivRequirement(
+        SEL_NOGRANT_AR, null));
+    adminPrivOps.add(HiveOperationType.REPLDUMP);
+    adminPrivOps.add(HiveOperationType.REPLLOAD);
+    adminPrivOps.add(HiveOperationType.KILL_QUERY);
+    adminPrivOps.add(HiveOperationType.CREATE_RESOURCEPLAN);
+    adminPrivOps.add(HiveOperationType.ALTER_RESOURCEPLAN);
+    adminPrivOps.add(HiveOperationType.DROP_RESOURCEPLAN);
+    adminPrivOps.add(HiveOperationType.SHOW_RESOURCEPLAN);
+    adminPrivOps.add(HiveOperationType.CREATE_TRIGGER);
+    adminPrivOps.add(HiveOperationType.ALTER_TRIGGER);
+    adminPrivOps.add(HiveOperationType.DROP_TRIGGER);
+    adminPrivOps.add(HiveOperationType.CREATE_POOL);
+    adminPrivOps.add(HiveOperationType.ALTER_POOL);
+    adminPrivOps.add(HiveOperationType.DROP_POOL);
+    adminPrivOps.add(HiveOperationType.CREATE_MAPPING);
+    adminPrivOps.add(HiveOperationType.ALTER_MAPPING);
+    adminPrivOps.add(HiveOperationType.DROP_MAPPING);
 
     // operations require select priv
     op2Priv.put(HiveOperationType.SHOWCOLUMNS, PrivRequirement.newIOPrivRequirement
@@ -283,6 +335,7 @@ public class Operation2Privilege {
 (SEL_NOGRANT_AR, null));
     op2Priv.put(HiveOperationType.CREATETABLE_AS_SELECT, PrivRequirement.newPrivRequirementList(
         new PrivRequirement(SEL_NOGRANT_AR, IOType.INPUT),
+        new PrivRequirement(INS_SEL_DEL_NOGRANT_AR, HivePrivilegeObjectType.DFS_URI),
         new PrivRequirement(OWNER_PRIV_AR, HivePrivilegeObjectType.DATABASE)));
 
     // QUERY,LOAD op can contain an insert & overwrite,
@@ -302,17 +355,23 @@ public class Operation2Privilege {
         );
 
     op2Priv.put(HiveOperationType.LOAD, PrivRequirement.newIOPrivRequirement
-(OWNER_INS_SEL_DEL_NOGRANT_AR,
+(INS_SEL_DEL_NOGRANT_AR,
         arr(SQLPrivTypeGrant.INSERT_NOGRANT, SQLPrivTypeGrant.DELETE_NOGRANT)));
 
     // show create table is more sensitive information, includes table properties etc
     // for now require select WITH GRANT
     op2Priv.put(HiveOperationType.SHOW_CREATETABLE, PrivRequirement.newIOPrivRequirement
 (SEL_GRANT_AR, null));
+    op2Priv.put(HiveOperationType.SHOW_CREATEDATABASE, PrivRequirement.newIOPrivRequirement
+(SEL_GRANT_AR, null));
 
     // for now allow only create-view with 'select with grant'
     // the owner will also have select with grant privileges on new view
     op2Priv.put(HiveOperationType.CREATEVIEW, PrivRequirement.newPrivRequirementList(
+        new PrivRequirement(SEL_GRANT_AR, IOType.INPUT),
+        new PrivRequirement(OWNER_PRIV_AR, HivePrivilegeObjectType.DATABASE)));
+
+    op2Priv.put(HiveOperationType.CREATE_MATERIALIZED_VIEW, PrivRequirement.newPrivRequirementList(
         new PrivRequirement(SEL_GRANT_AR, IOType.INPUT),
         new PrivRequirement(OWNER_PRIV_AR, HivePrivilegeObjectType.DATABASE)));
 
@@ -326,6 +385,8 @@ public class Operation2Privilege {
 (null, ADMIN_PRIV_AR));
     op2Priv.put(HiveOperationType.DROPFUNCTION, PrivRequirement.newIOPrivRequirement
 (null, ADMIN_PRIV_AR));
+    op2Priv.put(HiveOperationType.RELOADFUNCTION, PrivRequirement.newIOPrivRequirement
+(null, null));
     op2Priv.put(HiveOperationType.CREATEMACRO, PrivRequirement.newIOPrivRequirement
 (null, ADMIN_PRIV_AR));
     op2Priv.put(HiveOperationType.DROPMACRO, PrivRequirement.newIOPrivRequirement
@@ -336,7 +397,10 @@ public class Operation2Privilege {
 (null, null));
     op2Priv.put(HiveOperationType.SHOWCONF, PrivRequirement.newIOPrivRequirement
 (null, null));
-
+    op2Priv.put(HiveOperationType.SHOWVIEWS, PrivRequirement.newIOPrivRequirement
+(null, null));
+    op2Priv.put(HiveOperationType.SHOWMATERIALIZEDVIEWS, PrivRequirement.newIOPrivRequirement
+(null, null));
     op2Priv.put(HiveOperationType.LOCKTABLE, PrivRequirement.newIOPrivRequirement
 (null, null));
     op2Priv.put(HiveOperationType.UNLOCKTABLE, PrivRequirement.newIOPrivRequirement
@@ -344,12 +408,14 @@ public class Operation2Privilege {
 
     // require db ownership, if there is a file require SELECT , INSERT, and DELETE
     op2Priv.put(HiveOperationType.CREATETABLE, PrivRequirement.newPrivRequirementList(
-        new PrivRequirement(OWNER_INS_SEL_DEL_NOGRANT_AR, IOType.INPUT),
+        new PrivRequirement(INS_SEL_DEL_NOGRANT_AR, IOType.INPUT),
         new PrivRequirement(OWNER_PRIV_AR, HivePrivilegeObjectType.DATABASE)));
 
     op2Priv.put(HiveOperationType.ALTERDATABASE, PrivRequirement.newIOPrivRequirement
 (null, ADMIN_PRIV_AR));
     op2Priv.put(HiveOperationType.ALTERDATABASE_OWNER, PrivRequirement.newIOPrivRequirement
+(null, ADMIN_PRIV_AR));
+    op2Priv.put(HiveOperationType.ALTERDATABASE_LOCATION, PrivRequirement.newIOPrivRequirement
 (null, ADMIN_PRIV_AR));
     op2Priv.put(HiveOperationType.DESCDATABASE, PrivRequirement.newIOPrivRequirement
 (null, null));
@@ -381,8 +447,8 @@ public class Operation2Privilege {
         null));
     op2Priv.put(HiveOperationType.SHOW_GRANT, PrivRequirement.newIOPrivRequirement
 (null, null));
-    op2Priv.put(HiveOperationType.GRANT_ROLE, PrivRequirement.newIOPrivRequirement
-(null, null));
+      op2Priv.put(HiveOperationType.GRANT_ROLE, PrivRequirement.newIOPrivRequirement
+  (null, null));
     op2Priv.put(HiveOperationType.REVOKE_ROLE, PrivRequirement.newIOPrivRequirement
 (null, null));
     op2Priv.put(HiveOperationType.SHOW_ROLES, PrivRequirement.newIOPrivRequirement
@@ -408,9 +474,29 @@ public class Operation2Privilege {
       (null, null));
     op2Priv.put(HiveOperationType.SET_AUTOCOMMIT, PrivRequirement.newIOPrivRequirement
       (null, null));
-    op2Priv.put(HiveOperationType.ALTERTABLE_EXCHANGEPARTITION,
-      PrivRequirement.newIOPrivRequirement(null, null));
+    // For alter table exchange partition, we need select & delete on input & insert on output
+    op2Priv.put(
+        HiveOperationType.ALTERTABLE_EXCHANGEPARTITION,
+        PrivRequirement.newIOPrivRequirement(
+            arr(SQLPrivTypeGrant.SELECT_NOGRANT, SQLPrivTypeGrant.DELETE_NOGRANT), INS_NOGRANT_AR));
+    op2Priv.put(HiveOperationType.ABORT_TRANSACTIONS, PrivRequirement.newIOPrivRequirement
+      (null, null));
 
+    // Handled via adminPrivOps (see above).
+    op2Priv.put(HiveOperationType.KILL_QUERY, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.CREATE_RESOURCEPLAN, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.ALTER_RESOURCEPLAN, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.DROP_RESOURCEPLAN, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.SHOW_RESOURCEPLAN, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.CREATE_TRIGGER, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.ALTER_TRIGGER, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.DROP_TRIGGER, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.CREATE_POOL, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.ALTER_POOL, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.DROP_POOL, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.CREATE_MAPPING, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.ALTER_MAPPING, PrivRequirement.newIOPrivRequirement(null, null));
+    op2Priv.put(HiveOperationType.DROP_MAPPING, PrivRequirement.newIOPrivRequirement(null, null));
   }
 
   /**
@@ -465,6 +551,17 @@ public class Operation2Privilege {
     }
 
     return reqPrivs;
+  }
+
+  /**
+   * Some operations are tagged as requiring admin privileges, ignoring any object that
+   * might be checked on it. This check is run in those cases.
+   *
+   * @param hiveOpType
+   * @return
+   */
+  public static boolean isAdminPrivOperation(HiveOperationType hiveOpType) {
+    return adminPrivOps.contains(hiveOpType);
   }
 
   // for unit tests

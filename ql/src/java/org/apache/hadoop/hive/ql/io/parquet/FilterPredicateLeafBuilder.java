@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -57,9 +57,9 @@ public abstract class FilterPredicateLeafBuilder {
         }
         Object min = literals.get(0);
         Object max = literals.get(1);
-        FilterPredicate lt = not(buildPredict(PredicateLeaf.Operator.LESS_THAN_EQUALS,
+        FilterPredicate lt = not(buildPredict(PredicateLeaf.Operator.LESS_THAN,
             min, columnName));
-        FilterPredicate gt = buildPredict(PredicateLeaf.Operator.LESS_THAN, max, columnName);
+        FilterPredicate gt = buildPredict(PredicateLeaf.Operator.LESS_THAN_EQUALS, max, columnName);
         result = FilterApi.and(gt, lt);
         return result;
       default:

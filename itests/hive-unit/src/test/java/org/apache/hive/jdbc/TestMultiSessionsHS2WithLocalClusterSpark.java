@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -79,6 +79,12 @@ public class TestMultiSessionsHS2WithLocalClusterSpark {
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
     conf.set("spark.master", "local-cluster[2,2,1024]");
     conf.set("spark.deploy.defaultCores", "2");
+    conf.set("hive.spark.client.connect.timeout", "30000ms");
+    // FIXME: Hadoop3 made the incompatible change for dfs.client.datanode-restart.timeout
+    // while spark2 is still using Hadoop2.
+    // Spark requires Hive to support Hadoop3 first then Spark can start
+    // working on Hadoop3 support. Remove this after Spark supports Hadoop3.
+    conf.set("dfs.client.datanode-restart.timeout", "30");
     return conf;
   }
 
@@ -101,7 +107,7 @@ public class TestMultiSessionsHS2WithLocalClusterSpark {
   }
 
   // setup DB
-  private static void createDb() throws SQLException {
+  private static void createDb() throws Exception {
     Connection conn = DriverManager.
       getConnection(miniHS2.getJdbcURL(), System.getProperty("user.name"), "bar");
     Statement stmt2 = conn.createStatement();
@@ -124,7 +130,7 @@ public class TestMultiSessionsHS2WithLocalClusterSpark {
     closeConnection();
   }
 
-  private void createConnection() throws SQLException {
+  private void createConnection() throws Exception {
     Connection connection = DriverManager.getConnection(miniHS2.getJdbcURL(dbName),
       System.getProperty("user.name"), "bar");
     Statement statement = connection.createStatement();
@@ -216,7 +222,7 @@ public class TestMultiSessionsHS2WithLocalClusterSpark {
   }
 
   private void testKvQuery(String queryStr, String resultVal)
-    throws SQLException {
+    throws Exception {
     createConnection();
     verifyResult(queryStr, resultVal, 2);
     closeConnection();

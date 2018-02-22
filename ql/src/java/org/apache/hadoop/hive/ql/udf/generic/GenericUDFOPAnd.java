@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,6 +27,7 @@ import org.apache.hadoop.hive.ql.exec.vector.expressions.FilterColAndScalar;
 import org.apache.hadoop.hive.ql.exec.vector.expressions.FilterExprAndExpr;
 import org.apache.hadoop.hive.ql.exec.vector.expressions.FilterScalarAndColumn;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.hive.ql.udf.UDFType;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BooleanObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
@@ -38,6 +39,8 @@ import org.apache.hadoop.io.BooleanWritable;
 @Description(name = "and", value = "a1 _FUNC_ a2 _FUNC_ ... _FUNC_ an - Logical and")
 @VectorizedExpressions({ColAndCol.class, FilterExprAndExpr.class, FilterColAndScalar.class,
     FilterScalarAndColumn.class})
+@NDV(maxNdv = 2)
+@UDFType(deterministic = true, commutative = true)
 public class GenericUDFOPAnd extends GenericUDF {
   private final BooleanWritable result = new BooleanWritable();
   private transient BooleanObjectInspector boi[];

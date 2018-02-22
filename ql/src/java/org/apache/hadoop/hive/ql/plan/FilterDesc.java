@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,8 +18,12 @@
 
 package org.apache.hadoop.hive.ql.plan;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
+import org.apache.hadoop.hive.ql.plan.Explain.Vectorization;
 
 
 
@@ -79,8 +83,8 @@ public class FilterDesc extends AbstractOperatorDesc {
 
   private static final long serialVersionUID = 1L;
   private org.apache.hadoop.hive.ql.plan.ExprNodeDesc predicate;
-  private transient ExprNodeDesc origPredicate;
   private boolean isSamplingPred;
+  private boolean syntheticJoinPredicate;
   private transient SampleDesc sampleDescr;
   //Is this a filter that should perform a comparison for sorted searches
   private boolean isSortedFilter;
@@ -105,11 +109,22 @@ public class FilterDesc extends AbstractOperatorDesc {
     this.sampleDescr = sampleDescr;
   }
 
-  @Explain(displayName = "predicate", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
   public String getPredicateString() {
-    StringBuilder sb = new StringBuilder();
-    PlanUtils.addExprToStringBuffer(predicate, sb);
-    return sb.toString();
+    return PlanUtils.getExprListString(Arrays.asList(predicate));
+  }
+
+  public String getUserLevelExplainPredicateString() {
+    return PlanUtils.getExprListString(Arrays.asList(predicate), true);
+  }
+
+  @Explain(displayName = "predicate", postProcess = true)
+  public String getPredicateString(boolean postProcess) {
+    return PlanUtils.getExprListString(Arrays.asList(predicate), false, postProcess);
+  }
+
+  @Explain(displayName = "predicate", explainLevels = { Level.USER }, postProcess = true)
+  public String getUserLevelExplainPredicateString(boolean postProcess) {
+    return PlanUtils.getExprListString(Arrays.asList(predicate), true, postProcess);
   }
 
   public org.apache.hadoop.hive.ql.plan.ExprNodeDesc getPredicate() {
@@ -151,14 +166,6 @@ public class FilterDesc extends AbstractOperatorDesc {
     this.isSortedFilter = isSortedFilter;
   }
 
-  public void setOrigPredicate(ExprNodeDesc origPredicate) {
-    this.origPredicate = origPredicate;
-  }
-
-  public ExprNodeDesc getOrigPredicate() {
-    return origPredicate;
-  }
-
   /**
    * Some filters are generated or implied, which means it is not in the query.
    * It is added by the analyzer. For example, when we do an inner join, we add
@@ -172,6 +179,14 @@ public class FilterDesc extends AbstractOperatorDesc {
     this.isGenerated = isGenerated;
   }
 
+  public boolean isSyntheticJoinPredicate() {
+    return syntheticJoinPredicate;
+  }
+
+  public void setSyntheticJoinPredicate(boolean syntheticJoinPredicate) {
+    this.syntheticJoinPredicate = syntheticJoinPredicate;
+  }
+
   @Override
   public Object clone() {
     FilterDesc filterDesc = new FilterDesc(getPredicate().clone(), getIsSamplingPred());
@@ -180,5 +195,43 @@ public class FilterDesc extends AbstractOperatorDesc {
     }
     filterDesc.setSortedFilter(isSortedFilter());
     return filterDesc;
+  }
+
+  public class FilterOperatorExplainVectorization extends OperatorExplainVectorization {
+
+    private final FilterDesc filterDesc;
+    private final VectorFilterDesc vectorFilterDesc;
+
+    public FilterOperatorExplainVectorization(FilterDesc filterDesc, VectorFilterDesc vectorFilterDesc) {
+      // Native vectorization supported.
+      super(vectorFilterDesc, true);
+      this.filterDesc = filterDesc;
+      this.vectorFilterDesc = vectorFilterDesc;
+    }
+
+    @Explain(vectorization = Vectorization.EXPRESSION, displayName = "predicateExpression", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+    public String getPredicateExpression() {
+      return vectorFilterDesc.getPredicateExpression().toString();
+    }
+  }
+
+  @Explain(vectorization = Vectorization.OPERATOR, displayName = "Filter Vectorization", explainLevels = { Level.DEFAULT, Level.EXTENDED })
+  public FilterOperatorExplainVectorization getFilterVectorization() {
+    VectorFilterDesc vectorFilterDesc = (VectorFilterDesc) getVectorDesc();
+    if (vectorFilterDesc == null) {
+      return null;
+    }
+    return new FilterOperatorExplainVectorization(this, vectorFilterDesc);
+  }
+
+  @Override
+  public boolean isSame(OperatorDesc other) {
+    if (getClass().getName().equals(other.getClass().getName())) {
+      FilterDesc otherDesc = (FilterDesc) other;
+      return Objects.equals(getPredicateString(), otherDesc.getPredicateString()) &&
+          Objects.equals(getSampleDescExpr(), otherDesc.getSampleDescExpr()) &&
+          getIsSamplingPred() == otherDesc.getIsSamplingPred();
+    }
+    return false;
   }
 }

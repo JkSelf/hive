@@ -1,4 +1,4 @@
-/**
+/*
  *  Licensed to the Apache Software Foundation (ASF) under one
  *  or more contributor license agreements.  See the NOTICE file
  *  distributed with this work for additional information
@@ -20,14 +20,14 @@ package org.apache.hadoop.hive.ql.parse.spark;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.Context;
 import org.apache.hadoop.hive.ql.exec.ConditionalTask;
@@ -37,6 +37,7 @@ import org.apache.hadoop.hive.ql.exec.FilterOperator;
 import org.apache.hadoop.hive.ql.exec.JoinOperator;
 import org.apache.hadoop.hive.ql.exec.MapJoinOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
+import org.apache.hadoop.hive.ql.exec.OperatorUtils;
 import org.apache.hadoop.hive.ql.exec.ReduceSinkOperator;
 import org.apache.hadoop.hive.ql.exec.SMBMapJoinOperator;
 import org.apache.hadoop.hive.ql.exec.TableScanOperator;
@@ -55,18 +56,22 @@ import org.apache.hadoop.hive.ql.lib.GraphWalker;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.lib.NodeProcessor;
 import org.apache.hadoop.hive.ql.lib.NodeProcessorCtx;
+import org.apache.hadoop.hive.ql.lib.PreOrderWalker;
 import org.apache.hadoop.hive.ql.lib.Rule;
 import org.apache.hadoop.hive.ql.lib.RuleRegExp;
 import org.apache.hadoop.hive.ql.lib.TypeRule;
 import org.apache.hadoop.hive.ql.log.PerfLogger;
 import org.apache.hadoop.hive.ql.optimizer.ConstantPropagate;
+import org.apache.hadoop.hive.ql.optimizer.ConstantPropagateProcCtx;
 import org.apache.hadoop.hive.ql.optimizer.DynamicPartitionPruningOptimization;
-import org.apache.hadoop.hive.ql.optimizer.SparkRemoveDynamicPruningBySize;
+import org.apache.hadoop.hive.ql.optimizer.SparkRemoveDynamicPruning;
 import org.apache.hadoop.hive.ql.optimizer.metainfo.annotation.AnnotateWithOpTraits;
+import org.apache.hadoop.hive.ql.optimizer.physical.AnnotateRunTimeStatsOptimizer;
 import org.apache.hadoop.hive.ql.optimizer.physical.MetadataOnlyOptimizer;
 import org.apache.hadoop.hive.ql.optimizer.physical.NullScanOptimizer;
 import org.apache.hadoop.hive.ql.optimizer.physical.PhysicalContext;
 import org.apache.hadoop.hive.ql.optimizer.physical.SparkCrossProductCheck;
+import org.apache.hadoop.hive.ql.optimizer.physical.SparkDynamicPartitionPruningResolver;
 import org.apache.hadoop.hive.ql.optimizer.physical.SparkMapJoinResolver;
 import org.apache.hadoop.hive.ql.optimizer.physical.StageIDsRearranger;
 import org.apache.hadoop.hive.ql.optimizer.physical.Vectorizer;
@@ -74,6 +79,7 @@ import org.apache.hadoop.hive.ql.optimizer.spark.CombineEquivalentWorkResolver;
 import org.apache.hadoop.hive.ql.optimizer.spark.SetSparkReducerParallelism;
 import org.apache.hadoop.hive.ql.optimizer.spark.SparkJoinHintOptimizer;
 import org.apache.hadoop.hive.ql.optimizer.spark.SparkJoinOptimizer;
+import org.apache.hadoop.hive.ql.optimizer.spark.SparkPartitionPruningSinkDesc;
 import org.apache.hadoop.hive.ql.optimizer.spark.SparkReduceSinkMapJoinProc;
 import org.apache.hadoop.hive.ql.optimizer.spark.SparkSkewJoinResolver;
 import org.apache.hadoop.hive.ql.optimizer.spark.SplitSparkWorkResolver;
@@ -87,6 +93,7 @@ import org.apache.hadoop.hive.ql.plan.MapWork;
 import org.apache.hadoop.hive.ql.plan.MoveWork;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 import org.apache.hadoop.hive.ql.plan.SparkWork;
+import org.apache.hadoop.hive.ql.session.SessionState;
 
 /**
  * SparkCompiler translates the operator plan into SparkTasks.
@@ -95,8 +102,7 @@ import org.apache.hadoop.hive.ql.plan.SparkWork;
  */
 public class SparkCompiler extends TaskCompiler {
   private static final String CLASS_NAME = SparkCompiler.class.getName();
-  private static final PerfLogger PERF_LOGGER = PerfLogger.getPerfLogger();
-  private static final Log LOGGER = LogFactory.getLog(SparkCompiler.class);
+  private static final PerfLogger PERF_LOGGER = SessionState.getPerfLogger();
 
   public SparkCompiler() {
   }
@@ -114,10 +120,152 @@ public class SparkCompiler extends TaskCompiler {
     // Annotation OP tree with statistics
     runStatsAnnotation(procCtx);
 
+    // Set reducer parallelism
+    runSetReducerParallelism(procCtx);
+
     // Run Join releated optimizations
     runJoinOptimizations(procCtx);
 
+    if(conf.isSparkDPPAny()){
+      // Remove DPP based on expected size of the output data
+      runRemoveDynamicPruning(procCtx);
+
+      // Remove cyclic dependencies for DPP
+      runCycleAnalysisForPartitionPruning(procCtx);
+
+      // Remove nested DPPs
+      SparkUtilities.removeNestedDPP(procCtx);
+    }
+
+    // Re-run constant propagation so we fold any new constants introduced by the operator optimizers
+    // Specifically necessary for DPP because we might have created lots of "and true and true" conditions
+    if (procCtx.getConf().getBoolVar(HiveConf.ConfVars.HIVEOPTCONSTANTPROPAGATION)) {
+      new ConstantPropagate(ConstantPropagateProcCtx.ConstantPropagateOption.SHORTCUT).transform(pCtx);
+    }
+
     PERF_LOGGER.PerfLogEnd(CLASS_NAME, PerfLogger.SPARK_OPTIMIZE_OPERATOR_TREE);
+  }
+
+  private void runRemoveDynamicPruning(OptimizeSparkProcContext procCtx) throws SemanticException {
+    ParseContext pCtx = procCtx.getParseContext();
+    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
+
+    opRules.put(new RuleRegExp("Disabling Dynamic Partition Pruning",
+        SparkPartitionPruningSinkOperator.getOperatorName() + "%"),
+        new SparkRemoveDynamicPruning());
+
+    // The dispatcher fires the processor corresponding to the closest matching
+    // rule and passes the context along
+    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
+    GraphWalker ogw = new DefaultGraphWalker(disp);
+
+    // Create a list of topop nodes
+    ArrayList<Node> topNodes = new ArrayList<Node>();
+    topNodes.addAll(pCtx.getTopOps().values());
+    ogw.startWalking(topNodes, null);
+  }
+
+  private void runCycleAnalysisForPartitionPruning(OptimizeSparkProcContext procCtx) {
+
+    boolean cycleFree = false;
+    while (!cycleFree) {
+      cycleFree = true;
+      Set<Set<Operator<?>>> components = getComponents(procCtx);
+      for (Set<Operator<?>> component : components) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Component: ");
+          for (Operator<?> co : component) {
+            LOG.debug("Operator: " + co.getName() + ", " + co.getIdentifier());
+          }
+        }
+        if (component.size() != 1) {
+          LOG.info("Found cycle in operator plan...");
+          cycleFree = false;
+          removeDPPOperator(component, procCtx);
+          break;
+        }
+      }
+      LOG.info("Cycle free: " + cycleFree);
+    }
+  }
+
+  private void removeDPPOperator(Set<Operator<?>> component, OptimizeSparkProcContext context) {
+    SparkPartitionPruningSinkOperator toRemove = null;
+    for (Operator<?> o : component) {
+      if (o instanceof SparkPartitionPruningSinkOperator) {
+        // we want to remove the DPP with bigger data size
+        if (toRemove == null
+            || o.getConf().getStatistics().getDataSize() > toRemove.getConf().getStatistics()
+            .getDataSize()) {
+          toRemove = (SparkPartitionPruningSinkOperator) o;
+        }
+      }
+    }
+
+    if (toRemove == null) {
+      return;
+    }
+
+    OperatorUtils.removeBranch(toRemove);
+    // at this point we've found the fork in the op pipeline that has the pruning as a child plan.
+    LOG.info("Disabling dynamic pruning for: "
+        + toRemove.getConf().getTableScan().toString() + ". Needed to break cyclic dependency");
+  }
+
+  // Tarjan's algo
+  private Set<Set<Operator<?>>> getComponents(OptimizeSparkProcContext procCtx) {
+    AtomicInteger index = new AtomicInteger();
+    Map<Operator<?>, Integer> indexes = new HashMap<Operator<?>, Integer>();
+    Map<Operator<?>, Integer> lowLinks = new HashMap<Operator<?>, Integer>();
+    Stack<Operator<?>> nodes = new Stack<Operator<?>>();
+    Set<Set<Operator<?>>> components = new HashSet<Set<Operator<?>>>();
+
+    for (Operator<?> o : procCtx.getParseContext().getTopOps().values()) {
+      if (!indexes.containsKey(o)) {
+        connect(o, index, nodes, indexes, lowLinks, components);
+      }
+    }
+    return components;
+  }
+
+  private void connect(Operator<?> o, AtomicInteger index, Stack<Operator<?>> nodes,
+      Map<Operator<?>, Integer> indexes, Map<Operator<?>, Integer> lowLinks,
+      Set<Set<Operator<?>>> components) {
+
+    indexes.put(o, index.get());
+    lowLinks.put(o, index.get());
+    index.incrementAndGet();
+    nodes.push(o);
+
+    List<Operator<?>> children;
+    if (o instanceof SparkPartitionPruningSinkOperator) {
+      children = new ArrayList<>();
+      children.addAll(o.getChildOperators());
+      TableScanOperator ts = ((SparkPartitionPruningSinkDesc) o.getConf()).getTableScan();
+      LOG.debug("Adding special edge: " + o.getName() + " --> " + ts.toString());
+      children.add(ts);
+    } else {
+      children = o.getChildOperators();
+    }
+
+    for (Operator<?> child : children) {
+      if (!indexes.containsKey(child)) {
+        connect(child, index, nodes, indexes, lowLinks, components);
+        lowLinks.put(o, Math.min(lowLinks.get(o), lowLinks.get(child)));
+      } else if (nodes.contains(child)) {
+        lowLinks.put(o, Math.min(lowLinks.get(o), indexes.get(child)));
+      }
+    }
+
+    if (lowLinks.get(o).equals(indexes.get(o))) {
+      Set<Operator<?>> component = new HashSet<Operator<?>>();
+      components.add(component);
+      Operator<?> current;
+      do {
+        current = nodes.pop();
+        component.add(current);
+      } while (current != o);
+    }
   }
 
   private void runStatsAnnotation(OptimizeSparkProcContext procCtx) throws SemanticException {
@@ -127,7 +275,7 @@ public class SparkCompiler extends TaskCompiler {
 
   private void runDynamicPartitionPruning(OptimizeSparkProcContext procCtx)
       throws SemanticException {
-    if (!conf.getBoolVar(HiveConf.ConfVars.SPARK_DYNAMIC_PARTITION_PRUNING)) {
+    if (!conf.isSparkDPPAny()) {
       return;
     }
 
@@ -146,28 +294,33 @@ public class SparkCompiler extends TaskCompiler {
     List<Node> topNodes = new ArrayList<Node>();
     topNodes.addAll(parseContext.getTopOps().values());
     ogw.startWalking(topNodes, null);
+  }
 
-    // need a new run of the constant folding because we might have created lots
-    // of "and true and true" conditions.
-    if(procCtx.getConf().getBoolVar(HiveConf.ConfVars.HIVEOPTCONSTANTPROPAGATION)) {
-      new ConstantPropagate().transform(parseContext);
-    }
+  private void runSetReducerParallelism(OptimizeSparkProcContext procCtx) throws SemanticException {
+    ParseContext pCtx = procCtx.getParseContext();
+    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
+    opRules.put(new RuleRegExp("Set parallelism - ReduceSink",
+            ReduceSinkOperator.getOperatorName() + "%"),
+        new SetSparkReducerParallelism(pCtx.getConf()));
+
+    // The dispatcher fires the processor corresponding to the closest matching
+    // rule and passes the context along
+    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
+    GraphWalker ogw = new PreOrderWalker(disp);
+
+    // Create a list of topop nodes
+    ArrayList<Node> topNodes = new ArrayList<Node>();
+    topNodes.addAll(pCtx.getTopOps().values());
+    ogw.startWalking(topNodes, null);
   }
 
   private void runJoinOptimizations(OptimizeSparkProcContext procCtx) throws SemanticException {
     ParseContext pCtx = procCtx.getParseContext();
     Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
-    opRules.put(new RuleRegExp("Set parallelism - ReduceSink",
-            ReduceSinkOperator.getOperatorName() + "%"),
-        new SetSparkReducerParallelism());
 
     opRules.put(new TypeRule(JoinOperator.class), new SparkJoinOptimizer(pCtx));
 
     opRules.put(new TypeRule(MapJoinOperator.class), new SparkJoinHintOptimizer(pCtx));
-
-    opRules.put(new RuleRegExp("Disabling Dynamic Partition Pruning By Size",
-        SparkPartitionPruningSinkOperator.getOperatorName() + "%"),
-        new SparkRemoveDynamicPruningBySize());
 
     // The dispatcher fires the processor corresponding to the closest matching
     // rule and passes the context along
@@ -240,7 +393,7 @@ public class SparkCompiler extends TaskCompiler {
 
     // we need to clone some operator plans and remove union operators still
     for (BaseWork w : procCtx.workWithUnionOperators) {
-      GenSparkUtils.getUtils().removeUnionOperators(conf, procCtx, w);
+      GenSparkUtils.getUtils().removeUnionOperators(procCtx, w);
     }
 
     // we need to fill MapWork with 'local' work and bucket information for SMB Join.
@@ -413,6 +566,10 @@ public class SparkCompiler extends TaskCompiler {
 
     physicalCtx = new SparkMapJoinResolver().resolve(physicalCtx);
 
+    if (conf.isSparkDPPAny()) {
+      physicalCtx = new SparkDynamicPartitionPruningResolver().resolve(physicalCtx);
+    }
+
     if (conf.getBoolVar(HiveConf.ConfVars.HIVENULLSCANOPTIMIZE)) {
       physicalCtx = new NullScanOptimizer().resolve(physicalCtx);
     } else {
@@ -443,7 +600,15 @@ public class SparkCompiler extends TaskCompiler {
       LOG.debug("Skipping stage id rearranger");
     }
 
-    new CombineEquivalentWorkResolver().resolve(physicalCtx);
+    if (conf.getBoolVar(HiveConf.ConfVars.HIVE_COMBINE_EQUIVALENT_WORK_OPTIMIZATION)) {
+      new CombineEquivalentWorkResolver().resolve(physicalCtx);
+    } else {
+      LOG.debug("Skipping combine equivalent work optimization");
+    }
+
+    if (physicalCtx.getContext().getExplainAnalyze() != null) {
+      new AnnotateRunTimeStatsOptimizer().resolve(physicalCtx);
+    }
 
     PERF_LOGGER.PerfLogEnd(CLASS_NAME, PerfLogger.SPARK_OPTIMIZE_TASK_TREE);
     return;

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -31,8 +31,9 @@ import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.cli.CliSessionState;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
-import org.apache.hadoop.hive.ql.Driver;
+import org.apache.hadoop.hive.metastore.Warehouse;
+import org.apache.hadoop.hive.ql.DriverFactory;
+import org.apache.hadoop.hive.ql.IDriver;
 import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.NullWritable;
@@ -59,7 +60,7 @@ public class TestSequenceFileReadWrite {
   private File dataDir;
   private String warehouseDir;
   private String inputFileName;
-  private Driver driver;
+  private IDriver driver;
   private PigServer server;
   private String[] input;
   private HiveConf hiveConf;
@@ -76,7 +77,10 @@ public class TestSequenceFileReadWrite {
     hiveConf.set(HiveConf.ConfVars.POSTEXECHOOKS.varname, "");
     hiveConf.set(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY.varname, "false");
     hiveConf.set(HiveConf.ConfVars.METASTOREWAREHOUSE.varname, warehouseDir);
-    driver = new Driver(hiveConf);
+    hiveConf
+    .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
+    driver = DriverFactory.newDriver(hiveConf);
     SessionState.start(new CliSessionState(hiveConf));
 
     if(!(new File(warehouseDir).mkdirs())) {
@@ -176,7 +180,7 @@ public class TestSequenceFileReadWrite {
     TextInputFormat.setInputPaths(job, inputFileName);
 
     HCatOutputFormat.setOutput(job, OutputJobInfo.create(
-        MetaStoreUtils.DEFAULT_DATABASE_NAME, "demo_table_2", null));
+        Warehouse.DEFAULT_DATABASE_NAME, "demo_table_2", null));
     job.setOutputFormatClass(HCatOutputFormat.class);
     HCatOutputFormat.setSchema(job, getSchema());
     job.setNumReduceTasks(0);
@@ -223,7 +227,7 @@ public class TestSequenceFileReadWrite {
     TextInputFormat.setInputPaths(job, inputFileName);
 
     HCatOutputFormat.setOutput(job, OutputJobInfo.create(
-        MetaStoreUtils.DEFAULT_DATABASE_NAME, "demo_table_3", null));
+        Warehouse.DEFAULT_DATABASE_NAME, "demo_table_3", null));
     job.setOutputFormatClass(HCatOutputFormat.class);
     HCatOutputFormat.setSchema(job, getSchema());
     assertTrue(job.waitForCompletion(true));

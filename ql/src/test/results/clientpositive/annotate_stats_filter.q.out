@@ -52,11 +52,9 @@ POSTHOOK: Lineage: loc_orc.locid SIMPLE [(loc_staging)loc_staging.FieldSchema(na
 POSTHOOK: Lineage: loc_orc.state SIMPLE [(loc_staging)loc_staging.FieldSchema(name:state, type:string, comment:null), ]
 POSTHOOK: Lineage: loc_orc.year SIMPLE [(loc_staging)loc_staging.FieldSchema(name:year, type:int, comment:null), ]
 POSTHOOK: Lineage: loc_orc.zip SIMPLE [(loc_staging)loc_staging.FieldSchema(name:zip, type:bigint, comment:null), ]
-PREHOOK: query: -- numRows: 8 rawDataSize: 796
-explain select * from loc_orc
+PREHOOK: query: explain select * from loc_orc
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 8 rawDataSize: 796
-explain select * from loc_orc
+POSTHOOK: query: explain select * from loc_orc
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
@@ -68,20 +66,16 @@ STAGE PLANS:
       Processor Tree:
         TableScan
           alias: loc_orc
-          Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: NONE
+          Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
             outputColumnNames: _col0, _col1, _col2, _col3
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: NONE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             ListSink
 
-PREHOOK: query: -- column stats are not COMPLETE, so stats are not updated
--- numRows: 8 rawDataSize: 796
-explain select * from loc_orc where state='OH'
+PREHOOK: query: explain select * from loc_orc where state='OH'
 PREHOOK: type: QUERY
-POSTHOOK: query: -- column stats are not COMPLETE, so stats are not updated
--- numRows: 8 rawDataSize: 796
-explain select * from loc_orc where state='OH'
+POSTHOOK: query: explain select * from loc_orc where state='OH'
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -93,55 +87,7 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: NONE
-            Filter Operator
-              predicate: (state = 'OH') (type: boolean)
-              Statistics: Num rows: 4 Data size: 398 Basic stats: COMPLETE Column stats: NONE
-              Select Operator
-                expressions: 'OH' (type: string), locid (type: int), zip (type: bigint), year (type: int)
-                outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 4 Data size: 398 Basic stats: COMPLETE Column stats: NONE
-                File Output Operator
-                  compressed: false
-                  Statistics: Num rows: 4 Data size: 398 Basic stats: COMPLETE Column stats: NONE
-                  table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-
-  Stage: Stage-0
-    Fetch Operator
-      limit: -1
-      Processor Tree:
-        ListSink
-
-PREHOOK: query: analyze table loc_orc compute statistics for columns state,locid,zip,year
-PREHOOK: type: QUERY
-PREHOOK: Input: default@loc_orc
-#### A masked pattern was here ####
-POSTHOOK: query: analyze table loc_orc compute statistics for columns state,locid,zip,year
-POSTHOOK: type: QUERY
-POSTHOOK: Input: default@loc_orc
-#### A masked pattern was here ####
-PREHOOK: query: -- state column has 5 distincts. numRows/countDistincts
--- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where state='OH'
-PREHOOK: type: QUERY
-POSTHOOK: query: -- state column has 5 distincts. numRows/countDistincts
--- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where state='OH'
-POSTHOOK: type: QUERY
-STAGE DEPENDENCIES:
-  Stage-1 is a root stage
-  Stage-0 depends on stages: Stage-1
-
-STAGE PLANS:
-  Stage: Stage-1
-    Map Reduce
-      Map Operator Tree:
-          TableScan
-            alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (state = 'OH') (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
@@ -153,8 +99,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -163,13 +109,19 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- not equals comparison shouldn't affect number of rows
--- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where state!='OH'
+PREHOOK: query: analyze table loc_orc compute statistics for columns state,locid,zip,year
 PREHOOK: type: QUERY
-POSTHOOK: query: -- not equals comparison shouldn't affect number of rows
--- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where state!='OH'
+PREHOOK: Input: default@loc_orc
+PREHOOK: Output: default@loc_orc
+#### A masked pattern was here ####
+POSTHOOK: query: analyze table loc_orc compute statistics for columns state,locid,zip,year
+POSTHOOK: type: QUERY
+POSTHOOK: Input: default@loc_orc
+POSTHOOK: Output: default@loc_orc
+#### A masked pattern was here ####
+PREHOOK: query: explain select * from loc_orc where state='OH'
+PREHOOK: type: QUERY
+POSTHOOK: query: explain select * from loc_orc where state='OH'
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -181,20 +133,56 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
+            Filter Operator
+              predicate: (state = 'OH') (type: boolean)
+              Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+              Select Operator
+                expressions: 'OH' (type: string), locid (type: int), zip (type: bigint), year (type: int)
+                outputColumnNames: _col0, _col1, _col2, _col3
+                Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+                File Output Operator
+                  compressed: false
+                  Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+                  table:
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Processor Tree:
+        ListSink
+
+PREHOOK: query: explain select * from loc_orc where state!='OH'
+PREHOOK: type: QUERY
+POSTHOOK: query: explain select * from loc_orc where state!='OH'
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-1 is a root stage
+  Stage-0 depends on stages: Stage-1
+
+STAGE PLANS:
+  Stage: Stage-1
+    Map Reduce
+      Map Operator Tree:
+          TableScan
+            alias: loc_orc
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (state <> 'OH') (type: boolean)
-              Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -217,20 +205,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (state <> 'OH') (type: boolean)
-              Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -239,13 +227,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- nulls are treated as constant equality comparison
--- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where zip is null
+PREHOOK: query: explain select * from loc_orc where zip is null
 PREHOOK: type: QUERY
-POSTHOOK: query: -- nulls are treated as constant equality comparison
--- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where zip is null
+POSTHOOK: query: explain select * from loc_orc where zip is null
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -257,20 +241,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: zip is null (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), null (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 1 Data size: 94 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 1 Data size: 94 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -279,11 +263,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where !(zip is not null)
+PREHOOK: query: explain select * from loc_orc where !(zip is not null)
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where !(zip is not null)
+POSTHOOK: query: explain select * from loc_orc where !(zip is not null)
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -295,20 +277,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: zip is null (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), null (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 1 Data size: 94 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 1 Data size: 94 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -317,13 +299,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- not nulls are treated as inverse of nulls
--- numRows: 7 rawDataSize: 702
-explain select * from loc_orc where zip is not null
+PREHOOK: query: explain select * from loc_orc where zip is not null
 PREHOOK: type: QUERY
-POSTHOOK: query: -- not nulls are treated as inverse of nulls
--- numRows: 7 rawDataSize: 702
-explain select * from loc_orc where zip is not null
+POSTHOOK: query: explain select * from loc_orc where zip is not null
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -335,20 +313,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: zip is not null (type: boolean)
-              Statistics: Num rows: 7 Data size: 702 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 7 Data size: 714 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 7 Data size: 702 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 7 Data size: 714 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 7 Data size: 702 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 7 Data size: 714 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -357,11 +335,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- numRows: 7 rawDataSize: 702
-explain select * from loc_orc where !(zip is null)
+PREHOOK: query: explain select * from loc_orc where !(zip is null)
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 7 rawDataSize: 702
-explain select * from loc_orc where !(zip is null)
+POSTHOOK: query: explain select * from loc_orc where !(zip is null)
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -373,20 +349,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: zip is not null (type: boolean)
-              Statistics: Num rows: 7 Data size: 702 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 7 Data size: 714 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 7 Data size: 702 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 7 Data size: 714 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 7 Data size: 702 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 7 Data size: 714 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -395,13 +371,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- NOT evaluation. true will pass all rows, false will not pass any rows
--- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where !false
+PREHOOK: query: explain select * from loc_orc where !false
 PREHOOK: type: QUERY
-POSTHOOK: query: -- NOT evaluation. true will pass all rows, false will not pass any rows
--- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where !false
+POSTHOOK: query: explain select * from loc_orc where !false
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
@@ -413,18 +385,16 @@ STAGE PLANS:
       Processor Tree:
         TableScan
           alias: loc_orc
-          Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+          Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
             outputColumnNames: _col0, _col1, _col2, _col3
-            Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             ListSink
 
-PREHOOK: query: -- numRows: 0 rawDataSize: 0
-explain select * from loc_orc where !true
+PREHOOK: query: explain select * from loc_orc where !true
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 0 rawDataSize: 0
-explain select * from loc_orc where !true
+POSTHOOK: query: explain select * from loc_orc where !true
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -436,7 +406,7 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: false (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
@@ -448,8 +418,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -458,13 +428,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- Constant evaluation. true will pass all rows, false will not pass any rows
--- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where true
+PREHOOK: query: explain select * from loc_orc where true
 PREHOOK: type: QUERY
-POSTHOOK: query: -- Constant evaluation. true will pass all rows, false will not pass any rows
--- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where true
+POSTHOOK: query: explain select * from loc_orc where true
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
@@ -476,18 +442,16 @@ STAGE PLANS:
       Processor Tree:
         TableScan
           alias: loc_orc
-          Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+          Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
             outputColumnNames: _col0, _col1, _col2, _col3
-            Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             ListSink
 
-PREHOOK: query: -- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where 'foo'
+PREHOOK: query: explain select * from loc_orc where 'foo'
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where 'foo'
+POSTHOOK: query: explain select * from loc_orc where 'foo'
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -499,20 +463,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: 'foo' (type: string)
-              Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -521,11 +485,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where true = true
+PREHOOK: query: explain select * from loc_orc where true = true
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 8 rawDataSize: 804
-explain select * from loc_orc where true = true
+POSTHOOK: query: explain select * from loc_orc where true = true
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-0 is a root stage
@@ -537,18 +499,16 @@ STAGE PLANS:
       Processor Tree:
         TableScan
           alias: loc_orc
-          Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+          Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
             outputColumnNames: _col0, _col1, _col2, _col3
-            Statistics: Num rows: 8 Data size: 804 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             ListSink
 
-PREHOOK: query: -- numRows: 0 rawDataSize: 0
-explain select * from loc_orc where false = true
+PREHOOK: query: explain select * from loc_orc where false = true
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 0 rawDataSize: 0
-explain select * from loc_orc where false = true
+POSTHOOK: query: explain select * from loc_orc where false = true
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -560,7 +520,7 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: false (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
@@ -572,8 +532,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -582,11 +542,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- numRows: 0 rawDataSize: 0
-explain select * from loc_orc where 'foo' = 'bar'
+PREHOOK: query: explain select * from loc_orc where 'foo' = 'bar'
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 0 rawDataSize: 0
-explain select * from loc_orc where 'foo' = 'bar'
+POSTHOOK: query: explain select * from loc_orc where 'foo' = 'bar'
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -598,7 +556,7 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: false (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
@@ -610,8 +568,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -620,11 +578,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- numRows: 0 rawDataSize: 0
-explain select * from loc_orc where false
+PREHOOK: query: explain select * from loc_orc where false
 PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 0 rawDataSize: 0
-explain select * from loc_orc where false
+POSTHOOK: query: explain select * from loc_orc where false
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -636,7 +592,7 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: false (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
@@ -648,8 +604,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -658,13 +614,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- OR evaluation. 1 row for OH and 1 row for CA
--- numRows: 2 rawDataSize: 204
-explain select * from loc_orc where state='OH' or state='CA'
+PREHOOK: query: explain select * from loc_orc where state='OH' or state='CA'
 PREHOOK: type: QUERY
-POSTHOOK: query: -- OR evaluation. 1 row for OH and 1 row for CA
--- numRows: 2 rawDataSize: 204
-explain select * from loc_orc where state='OH' or state='CA'
+POSTHOOK: query: explain select * from loc_orc where state='OH' or state='CA'
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -676,20 +628,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
-              predicate: (state) IN ('OH', 'CA') (type: boolean)
-              Statistics: Num rows: 4 Data size: 396 Basic stats: COMPLETE Column stats: COMPLETE
+              predicate: ((state = 'CA') or (state = 'OH')) (type: boolean)
+              Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 4 Data size: 396 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 4 Data size: 396 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -698,13 +650,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- AND evaluation. cascadingly apply rules. 8/2 = 4/2 = 2
--- numRows: 2 rawDataSize: 204
-explain select * from loc_orc where year=2001 and year is null
+PREHOOK: query: explain select * from loc_orc where year=2001 and year is null
 PREHOOK: type: QUERY
-POSTHOOK: query: -- AND evaluation. cascadingly apply rules. 8/2 = 4/2 = 2
--- numRows: 2 rawDataSize: 204
-explain select * from loc_orc where year=2001 and year is null
+POSTHOOK: query: explain select * from loc_orc where year=2001 and year is null
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -716,58 +664,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
-              predicate: ((year = 2001) and year is null) (type: boolean)
+              predicate: false (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
-                expressions: state (type: string), locid (type: int), zip (type: bigint), null (type: int)
-                outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 1 Data size: 98 Basic stats: COMPLETE Column stats: COMPLETE
-                File Output Operator
-                  compressed: false
-                  Statistics: Num rows: 1 Data size: 98 Basic stats: COMPLETE Column stats: COMPLETE
-                  table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
-                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
-
-  Stage: Stage-0
-    Fetch Operator
-      limit: -1
-      Processor Tree:
-        ListSink
-
-PREHOOK: query: -- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where year=2001 and state='OH' and state='FL'
-PREHOOK: type: QUERY
-POSTHOOK: query: -- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where year=2001 and state='OH' and state='FL'
-POSTHOOK: type: QUERY
-STAGE DEPENDENCIES:
-  Stage-1 is a root stage
-  Stage-0 depends on stages: Stage-1
-
-STAGE PLANS:
-  Stage: Stage-1
-    Map Reduce
-      Map Operator Tree:
-          TableScan
-            alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
-            Filter Operator
-              predicate: (((year = 2001) and (state = 'OH')) and (state = 'FL')) (type: boolean)
-              Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
-              Select Operator
-                expressions: 'FL' (type: string), locid (type: int), zip (type: bigint), 2001 (type: int)
+                expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
                 Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
                   Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -776,13 +686,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- AND and OR together. left expr will yield 1 row and right will yield 1 row
--- numRows: 3 rawDataSize: 306
-explain select * from loc_orc where (year=2001 and year is null) or (state='CA')
+PREHOOK: query: explain select * from loc_orc where year=2001 and state='OH' and state='FL'
 PREHOOK: type: QUERY
-POSTHOOK: query: -- AND and OR together. left expr will yield 1 row and right will yield 1 row
--- numRows: 3 rawDataSize: 306
-explain select * from loc_orc where (year=2001 and year is null) or (state='CA')
+POSTHOOK: query: explain select * from loc_orc where year=2001 and state='OH' and state='FL'
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -794,7 +700,43 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
+            Filter Operator
+              predicate: false (type: boolean)
+              Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+              Select Operator
+                expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
+                outputColumnNames: _col0, _col1, _col2, _col3
+                Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+                File Output Operator
+                  compressed: false
+                  Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+                  table:
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Processor Tree:
+        ListSink
+
+PREHOOK: query: explain select * from loc_orc where (year=2001 and year is null) or (state='CA')
+PREHOOK: type: QUERY
+POSTHOOK: query: explain select * from loc_orc where (year=2001 and year is null) or (state='CA')
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-1 is a root stage
+  Stage-0 depends on stages: Stage-1
+
+STAGE PLANS:
+  Stage: Stage-1
+    Map Reduce
+      Map Operator Tree:
+          TableScan
+            alias: loc_orc
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (((year = 2001) and year is null) or (state = 'CA')) (type: boolean)
               Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
@@ -806,8 +748,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -816,13 +758,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- AND and OR together. left expr will yield 8 rows and right will yield 1 row
--- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where (year=2001 or year is null) and (state='CA')
+PREHOOK: query: explain select * from loc_orc where (year=2001 or year is null) and (state='CA')
 PREHOOK: type: QUERY
-POSTHOOK: query: -- AND and OR together. left expr will yield 8 rows and right will yield 1 row
--- numRows: 1 rawDataSize: 102
-explain select * from loc_orc where (year=2001 or year is null) and (state='CA')
+POSTHOOK: query: explain select * from loc_orc where (year=2001 or year is null) and (state='CA')
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -834,7 +772,7 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (((year = 2001) or year is null) and (state = 'CA')) (type: boolean)
               Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
@@ -846,8 +784,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -856,13 +794,9 @@ STAGE PLANS:
       Processor Tree:
         ListSink
 
-PREHOOK: query: -- all inequality conditions rows/3 is the rules
--- numRows: 2 rawDataSize: 204
-explain select * from loc_orc where locid < 30
+PREHOOK: query: explain select * from loc_orc where locid < 30
 PREHOOK: type: QUERY
-POSTHOOK: query: -- all inequality conditions rows/3 is the rules
--- numRows: 2 rawDataSize: 204
-explain select * from loc_orc where locid < 30
+POSTHOOK: query: explain select * from loc_orc where locid < 30
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
   Stage-1 is a root stage
@@ -874,20 +808,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (locid < 30) (type: boolean)
-              Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -910,20 +844,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (locid > 30) (type: boolean)
-              Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -946,20 +880,20 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (locid <= 30) (type: boolean)
-              Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
                 outputColumnNames: _col0, _col1, _col2, _col3
-                Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                 File Output Operator
                   compressed: false
-                  Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -982,9 +916,45 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             alias: loc_orc
-            Statistics: Num rows: 8 Data size: 796 Basic stats: COMPLETE Column stats: COMPLETE
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
             Filter Operator
               predicate: (locid >= 30) (type: boolean)
+              Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+              Select Operator
+                expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
+                outputColumnNames: _col0, _col1, _col2, _col3
+                Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+                File Output Operator
+                  compressed: false
+                  Statistics: Num rows: 1 Data size: 102 Basic stats: COMPLETE Column stats: COMPLETE
+                  table:
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Processor Tree:
+        ListSink
+
+PREHOOK: query: explain select * from loc_orc where locid < 3
+PREHOOK: type: QUERY
+POSTHOOK: query: explain select * from loc_orc where locid < 3
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-1 is a root stage
+  Stage-0 depends on stages: Stage-1
+
+STAGE PLANS:
+  Stage: Stage-1
+    Map Reduce
+      Map Operator Tree:
+          TableScan
+            alias: loc_orc
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
+            Filter Operator
+              predicate: (locid < 3) (type: boolean)
               Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
               Select Operator
                 expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
@@ -994,8 +964,116 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Processor Tree:
+        ListSink
+
+PREHOOK: query: explain select * from loc_orc where locid > 3
+PREHOOK: type: QUERY
+POSTHOOK: query: explain select * from loc_orc where locid > 3
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-1 is a root stage
+  Stage-0 depends on stages: Stage-1
+
+STAGE PLANS:
+  Stage: Stage-1
+    Map Reduce
+      Map Operator Tree:
+          TableScan
+            alias: loc_orc
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
+            Filter Operator
+              predicate: (locid > 3) (type: boolean)
+              Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+              Select Operator
+                expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
+                outputColumnNames: _col0, _col1, _col2, _col3
+                Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                File Output Operator
+                  compressed: false
+                  Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                  table:
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Processor Tree:
+        ListSink
+
+PREHOOK: query: explain select * from loc_orc where locid <= 3
+PREHOOK: type: QUERY
+POSTHOOK: query: explain select * from loc_orc where locid <= 3
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-1 is a root stage
+  Stage-0 depends on stages: Stage-1
+
+STAGE PLANS:
+  Stage: Stage-1
+    Map Reduce
+      Map Operator Tree:
+          TableScan
+            alias: loc_orc
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
+            Filter Operator
+              predicate: (locid <= 3) (type: boolean)
+              Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+              Select Operator
+                expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
+                outputColumnNames: _col0, _col1, _col2, _col3
+                Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                File Output Operator
+                  compressed: false
+                  Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                  table:
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Processor Tree:
+        ListSink
+
+PREHOOK: query: explain select * from loc_orc where locid >= 3
+PREHOOK: type: QUERY
+POSTHOOK: query: explain select * from loc_orc where locid >= 3
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-1 is a root stage
+  Stage-0 depends on stages: Stage-1
+
+STAGE PLANS:
+  Stage: Stage-1
+    Map Reduce
+      Map Operator Tree:
+          TableScan
+            alias: loc_orc
+            Statistics: Num rows: 8 Data size: 816 Basic stats: COMPLETE Column stats: COMPLETE
+            Filter Operator
+              predicate: (locid >= 3) (type: boolean)
+              Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+              Select Operator
+                expressions: state (type: string), locid (type: int), zip (type: bigint), year (type: int)
+                outputColumnNames: _col0, _col1, _col2, _col3
+                Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                File Output Operator
+                  compressed: false
+                  Statistics: Num rows: 2 Data size: 204 Basic stats: COMPLETE Column stats: COMPLETE
+                  table:
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0

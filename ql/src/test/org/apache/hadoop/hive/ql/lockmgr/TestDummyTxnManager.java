@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -26,6 +26,8 @@ import org.junit.Before;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.ql.Context;
+import org.apache.hadoop.hive.ql.ErrorMsg;
+import org.apache.hadoop.hive.ql.Driver.LockedDriverState;
 import org.apache.hadoop.hive.ql.QueryPlan;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
@@ -33,8 +35,6 @@ import org.apache.hadoop.hive.ql.lockmgr.HiveLockObject.HiveLockObjectData;
 import org.apache.hadoop.hive.ql.lockmgr.zookeeper.ZooKeeperHiveLock;
 import org.apache.hadoop.hive.ql.metadata.Table;
 import org.apache.hadoop.hive.ql.session.SessionState;
-import org.apache.log4j.Level;
-import org.apache.log4j.LogManager;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
@@ -50,7 +50,7 @@ import java.util.List;
 
 @RunWith(MockitoJUnitRunner.class)
 public class TestDummyTxnManager {
-  private HiveConf conf = new HiveConf();
+  private final HiveConf conf = new HiveConf();
   private HiveTxnManager txnMgr;
   private Context ctx;
   private int nextInput = 1;
@@ -59,28 +59,41 @@ public class TestDummyTxnManager {
   HiveLockManager mockLockManager;
 
   @Mock
+  HiveLockManagerCtx mockLockManagerCtx;
+
+  @Mock
   QueryPlan mockQueryPlan;
 
   @Before
   public void setUp() throws Exception {
     conf.setBoolVar(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY, true);
     conf.setVar(HiveConf.ConfVars.HIVE_TXN_MANAGER, DummyTxnManager.class.getName());
+    conf
+    .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
     SessionState.start(conf);
     ctx = new Context(conf);
-    LogManager.getRootLogger().setLevel(Level.DEBUG);
 
     txnMgr = TxnManagerFactory.getTxnManagerFactory().getTxnManager(conf);
     Assert.assertTrue(txnMgr instanceof DummyTxnManager);
+
     // Use reflection to set LockManager since creating the object using the
     // relection in DummyTxnManager won't take Mocked object
     Field field = DummyTxnManager.class.getDeclaredField("lockMgr");
     field.setAccessible(true);
     field.set(txnMgr, mockLockManager);
+
+    Field field2 = DummyTxnManager.class.getDeclaredField("lockManagerCtx");
+    field2.setAccessible(true);
+    field2.set(txnMgr, mockLockManagerCtx);
+
   }
 
   @After
   public void tearDown() throws Exception {
-    if (txnMgr != null) txnMgr.closeTxnManager();
+    if (txnMgr != null) {
+      txnMgr.closeTxnManager();
+    }
   }
 
   /**
@@ -95,8 +108,12 @@ public class TestDummyTxnManager {
     List<HiveLock> expectedLocks = new ArrayList<HiveLock>();
     expectedLocks.add(new ZooKeeperHiveLock("default", new HiveLockObject(), HiveLockMode.SHARED));
     expectedLocks.add(new ZooKeeperHiveLock("default.table1", new HiveLockObject(), HiveLockMode.SHARED));
-
-    when(mockLockManager.lock(anyListOf(HiveLockObj.class), eq(false))).thenReturn(expectedLocks);
+    LockedDriverState lDrvState = new LockedDriverState();
+    LockedDriverState lDrvInp = new LockedDriverState();
+    lDrvInp.abort();
+    LockException lEx = new LockException(ErrorMsg.LOCK_ACQUIRE_CANCELLED.getMsg());
+    when(mockLockManager.lock(anyListOf(HiveLockObj.class), eq(false), eq(lDrvState))).thenReturn(expectedLocks);
+    when(mockLockManager.lock(anyListOf(HiveLockObj.class), eq(false), eq(lDrvInp))).thenThrow(lEx);
     doNothing().when(mockLockManager).setContext(any(HiveLockManagerCtx.class));
     doNothing().when(mockLockManager).close();
     ArgumentCaptor<List> lockObjsCaptor = ArgumentCaptor.forClass(List.class);
@@ -105,7 +122,7 @@ public class TestDummyTxnManager {
     when(mockQueryPlan.getOutputs()).thenReturn(new HashSet<WriteEntity>());
 
     // Execute
-    txnMgr.acquireLocks(mockQueryPlan, ctx, "fred");
+    txnMgr.acquireLocks(mockQueryPlan, ctx, "fred", lDrvState);
 
     // Verify
     Assert.assertEquals("db1", SessionState.get().getCurrentDatabase());
@@ -116,13 +133,22 @@ public class TestDummyTxnManager {
     Assert.assertEquals(expectedLocks.get(1).getHiveLockMode(), resultLocks.get(1).getHiveLockMode());
     Assert.assertEquals(expectedLocks.get(0).getHiveLockObject().getName(), resultLocks.get(0).getHiveLockObject().getName());
 
-    verify(mockLockManager).lock((List<HiveLockObj>)lockObjsCaptor.capture(), eq(false));
-    List<HiveLockObj> lockObjs = (List<HiveLockObj>)lockObjsCaptor.getValue();
+    verify(mockLockManager).lock(lockObjsCaptor.capture(), eq(false), eq(lDrvState));
+    List<HiveLockObj> lockObjs = lockObjsCaptor.getValue();
     Assert.assertEquals(2, lockObjs.size());
     Assert.assertEquals("default", lockObjs.get(0).getName());
     Assert.assertEquals(HiveLockMode.SHARED, lockObjs.get(0).mode);
     Assert.assertEquals("default/table1", lockObjs.get(1).getName());
     Assert.assertEquals(HiveLockMode.SHARED, lockObjs.get(1).mode);
+
+    // Execute
+    try {
+      txnMgr.acquireLocks(mockQueryPlan, ctx, "fred", lDrvInp);
+      Assert.fail();
+    } catch(LockException le) {
+      Assert.assertEquals(le.getMessage(), ErrorMsg.LOCK_ACQUIRE_CANCELLED.getMsg());
+    }
+
   }
 
   @Test
@@ -131,9 +157,9 @@ public class TestDummyTxnManager {
     String path1 = "path1";
     String path2 = "path2";
     HiveLockObjectData lockData1 = new HiveLockObjectData(
-        "query1", "1", "IMPLICIT", "drop table table1");
+        "query1", "1", "IMPLICIT", "drop table table1", conf);
     HiveLockObjectData lockData2 = new HiveLockObjectData(
-        "query1", "1", "IMPLICIT", "drop table table1");
+        "query1", "1", "IMPLICIT", "drop table table1", conf);
 
     // Start with the following locks:
     // [path1, shared]
@@ -157,6 +183,7 @@ public class TestDummyTxnManager {
     Assert.assertEquals("Locks should be deduped", 2, lockObjs.size());
 
     Comparator<HiveLockObj> cmp = new Comparator<HiveLockObj>() {
+      @Override
       public int compare(HiveLockObj lock1, HiveLockObj lock2) {
         return lock1.getName().compareTo(lock2.getName());
       }

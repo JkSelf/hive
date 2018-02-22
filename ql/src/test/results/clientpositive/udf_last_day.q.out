@@ -12,6 +12,8 @@ date is a string in the format 'yyyy-MM-dd HH:mm:ss' or 'yyyy-MM-dd'. The time p
 Example:
   > SELECT last_day('2009-01-12') FROM src LIMIT 1;
  '2009-01-31'
+Function class:org.apache.hadoop.hive.ql.udf.generic.GenericUDFLastDay
+Function type:BUILTIN
 PREHOOK: query: explain select last_day('2015-02-05')
 PREHOOK: type: QUERY
 POSTHOOK: query: explain select last_day('2015-02-05')
@@ -27,7 +29,7 @@ STAGE PLANS:
         TableScan
           alias: _dummy_table
           Row Limit Per Split: 1
-          Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: COMPLETE
+          Statistics: Num rows: 1 Data size: 10 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: '2015-02-28' (type: string)
             outputColumnNames: _col0

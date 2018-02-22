@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -29,15 +29,14 @@ import org.apache.calcite.plan.RelOptUtil.InputFinder;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rel.core.RelFactories;
 import org.apache.calcite.rel.rules.FilterJoinRule;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.tools.RelBuilderFactory;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.hadoop.hive.ql.optimizer.calcite.HiveCalciteUtil;
-import org.apache.hadoop.hive.ql.optimizer.calcite.reloperators.HiveFilter;
-import org.apache.hadoop.hive.ql.optimizer.calcite.reloperators.HiveProject;
+import org.apache.hadoop.hive.ql.optimizer.calcite.HiveRelFactories;
 
 public abstract class HiveFilterJoinRule extends FilterJoinRule {
 
@@ -49,8 +48,8 @@ public abstract class HiveFilterJoinRule extends FilterJoinRule {
    * Creates a PushFilterPastJoinRule with an explicit root operand.
    */
   protected HiveFilterJoinRule(RelOptRuleOperand operand, String id, boolean smart,
-      RelFactories.FilterFactory filterFactory, RelFactories.ProjectFactory projectFactory) {
-    super(operand, id, smart, filterFactory, projectFactory);
+      RelBuilderFactory relBuilderFactory) {
+    super(operand, id, smart, relBuilderFactory, TRUE_PREDICATE);
   }
 
   /**
@@ -60,8 +59,7 @@ public abstract class HiveFilterJoinRule extends FilterJoinRule {
   public static class HiveFilterJoinMergeRule extends HiveFilterJoinRule {
     public HiveFilterJoinMergeRule() {
       super(RelOptRule.operand(Filter.class, RelOptRule.operand(Join.class, RelOptRule.any())),
-          "HiveFilterJoinRule:filter", true, HiveFilter.DEFAULT_FILTER_FACTORY,
-          HiveProject.DEFAULT_PROJECT_FACTORY);
+          "HiveFilterJoinRule:filter", true, HiveRelFactories.HIVE_BUILDER);
     }
 
     @Override
@@ -84,7 +82,7 @@ public abstract class HiveFilterJoinRule extends FilterJoinRule {
   public static class HiveFilterJoinTransposeRule extends HiveFilterJoinRule {
     public HiveFilterJoinTransposeRule() {
       super(RelOptRule.operand(Join.class, RelOptRule.any()), "HiveFilterJoinRule:no-filter", true,
-          HiveFilter.DEFAULT_FILTER_FACTORY, HiveProject.DEFAULT_PROJECT_FACTORY);
+          HiveRelFactories.HIVE_BUILDER);
     }
 
     @Override
@@ -105,57 +103,6 @@ public abstract class HiveFilterJoinRule extends FilterJoinRule {
     public void onMatch(RelOptRuleCall call) {
       Join join = call.rel(0);
       super.perform(call, null, join);
-    }
-  }
-
-  /*
-   * Any predicates pushed down to joinFilters that aren't equality conditions:
-   * put them back as aboveFilters because Hive doesn't support not equi join
-   * conditions.
-   */
-  @Override
-  protected void validateJoinFilters(List<RexNode> aboveFilters, List<RexNode> joinFilters,
-      Join join, JoinRelType joinType) {
-    if (joinType.equals(JoinRelType.INNER)) {
-      ListIterator<RexNode> filterIter = joinFilters.listIterator();
-      while (filterIter.hasNext()) {
-        RexNode exp = filterIter.next();
-
-        if (exp instanceof RexCall) {
-          RexCall c = (RexCall) exp;
-          boolean validHiveJoinFilter = false;
-
-          if ((c.getOperator().getKind() == SqlKind.EQUALS)) {
-            validHiveJoinFilter = true;
-            for (RexNode rn : c.getOperands()) {
-              // NOTE: Hive dis-allows projections from both left & right side
-              // of join condition. Example: Hive disallows
-              // (r1.x +r2.x)=(r1.y+r2.y) on join condition.
-              if (filterRefersToBothSidesOfJoin(rn, join)) {
-                validHiveJoinFilter = false;
-                break;
-              }
-            }
-          } else if ((c.getOperator().getKind() == SqlKind.LESS_THAN)
-              || (c.getOperator().getKind() == SqlKind.GREATER_THAN)
-              || (c.getOperator().getKind() == SqlKind.LESS_THAN_OR_EQUAL)
-              || (c.getOperator().getKind() == SqlKind.GREATER_THAN_OR_EQUAL)) {
-            validHiveJoinFilter = true;
-            // NOTE: Hive dis-allows projections from both left & right side of
-            // join in in equality condition. Example: Hive disallows (r1.x <
-            // r2.x) on join condition.
-            if (filterRefersToBothSidesOfJoin(c, join)) {
-              validHiveJoinFilter = false;
-            }
-          }
-
-          if (validHiveJoinFilter)
-            continue;
-        }
-
-        aboveFilters.add(exp);
-        filterIter.remove();
-      }
     }
   }
 

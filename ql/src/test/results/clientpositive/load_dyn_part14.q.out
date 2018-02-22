@@ -1,19 +1,9 @@
-PREHOOK: query: -- EXCLUDE_OS_WINDOWS
--- excluded on windows because of difference in file name encoding logic
-
--- SORT_QUERY_RESULTS
-
-create table if not exists nzhang_part14 (key string)
+PREHOOK: query: create table if not exists nzhang_part14 (key string)
   partitioned by (value string)
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@nzhang_part14
-POSTHOOK: query: -- EXCLUDE_OS_WINDOWS
--- excluded on windows because of difference in file name encoding logic
-
--- SORT_QUERY_RESULTS
-
-create table if not exists nzhang_part14 (key string)
+POSTHOOK: query: create table if not exists nzhang_part14 (key string)
   partitioned by (value string)
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
@@ -29,7 +19,6 @@ value               	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 value               	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -74,21 +63,21 @@ STAGE PLANS:
             alias: src
             Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: COMPLETE
             Select Operator
-              Statistics: Num rows: 500 Data size: 43000 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 500 Data size: 2000 Basic stats: COMPLETE Column stats: COMPLETE
               Limit
                 Number of rows: 2
-                Statistics: Num rows: 2 Data size: 172 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 2 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
                 Reduce Output Operator
                   sort order: 
-                  Statistics: Num rows: 2 Data size: 172 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 2 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
       Reduce Operator Tree:
         Limit
           Number of rows: 2
-          Statistics: Num rows: 2 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+          Statistics: Num rows: 2 Data size: 16 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: 'k1' (type: string), null (type: string)
             outputColumnNames: _col0, _col1
-            Statistics: Num rows: 2 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+            Statistics: Num rows: 2 Data size: 256 Basic stats: COMPLETE Column stats: COMPLETE
             File Output Operator
               compressed: false
               table:
@@ -101,37 +90,103 @@ STAGE PLANS:
       Map Operator Tree:
           TableScan
             Union
-              Statistics: Num rows: 6 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+              Statistics: Num rows: 6 Data size: 938 Basic stats: COMPLETE Column stats: COMPLETE
               File Output Operator
                 compressed: false
-                Statistics: Num rows: 6 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+                Statistics: Num rows: 6 Data size: 938 Basic stats: COMPLETE Column stats: COMPLETE
                 table:
                     input format: org.apache.hadoop.mapred.TextInputFormat
                     output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                     serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                     name: default.nzhang_part14
+              Select Operator
+                expressions: _col0 (type: string), _col1 (type: string)
+                outputColumnNames: key, value
+                Statistics: Num rows: 6 Data size: 771 Basic stats: COMPLETE Column stats: COMPLETE
+                Group By Operator
+                  aggregations: compute_stats(key, 'hll')
+                  keys: value (type: string)
+                  mode: hash
+                  outputColumnNames: _col0, _col1
+                  Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+                  Reduce Output Operator
+                    key expressions: _col0 (type: string)
+                    sort order: +
+                    Map-reduce partition columns: _col0 (type: string)
+                    Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+                    value expressions: _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
           TableScan
             Union
-              Statistics: Num rows: 6 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+              Statistics: Num rows: 6 Data size: 938 Basic stats: COMPLETE Column stats: COMPLETE
               File Output Operator
                 compressed: false
-                Statistics: Num rows: 6 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+                Statistics: Num rows: 6 Data size: 938 Basic stats: COMPLETE Column stats: COMPLETE
                 table:
                     input format: org.apache.hadoop.mapred.TextInputFormat
                     output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                     serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                     name: default.nzhang_part14
+              Select Operator
+                expressions: _col0 (type: string), _col1 (type: string)
+                outputColumnNames: key, value
+                Statistics: Num rows: 6 Data size: 771 Basic stats: COMPLETE Column stats: COMPLETE
+                Group By Operator
+                  aggregations: compute_stats(key, 'hll')
+                  keys: value (type: string)
+                  mode: hash
+                  outputColumnNames: _col0, _col1
+                  Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+                  Reduce Output Operator
+                    key expressions: _col0 (type: string)
+                    sort order: +
+                    Map-reduce partition columns: _col0 (type: string)
+                    Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+                    value expressions: _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
           TableScan
             Union
-              Statistics: Num rows: 6 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+              Statistics: Num rows: 6 Data size: 938 Basic stats: COMPLETE Column stats: COMPLETE
               File Output Operator
                 compressed: false
-                Statistics: Num rows: 6 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+                Statistics: Num rows: 6 Data size: 938 Basic stats: COMPLETE Column stats: COMPLETE
                 table:
                     input format: org.apache.hadoop.mapred.TextInputFormat
                     output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                     serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                     name: default.nzhang_part14
+              Select Operator
+                expressions: _col0 (type: string), _col1 (type: string)
+                outputColumnNames: key, value
+                Statistics: Num rows: 6 Data size: 771 Basic stats: COMPLETE Column stats: COMPLETE
+                Group By Operator
+                  aggregations: compute_stats(key, 'hll')
+                  keys: value (type: string)
+                  mode: hash
+                  outputColumnNames: _col0, _col1
+                  Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+                  Reduce Output Operator
+                    key expressions: _col0 (type: string)
+                    sort order: +
+                    Map-reduce partition columns: _col0 (type: string)
+                    Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+                    value expressions: _col1 (type: struct<columntype:string,maxlength:bigint,sumlength:bigint,count:bigint,countnulls:bigint,bitvector:binary>)
+      Reduce Operator Tree:
+        Group By Operator
+          aggregations: compute_stats(VALUE._col0)
+          keys: KEY._col0 (type: string)
+          mode: mergepartial
+          outputColumnNames: _col0, _col1
+          Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+          Select Operator
+            expressions: _col1 (type: struct<columntype:string,maxlength:bigint,avglength:double,countnulls:bigint,numdistinctvalues:bigint,ndvbitvector:binary>), _col0 (type: string)
+            outputColumnNames: _col0, _col1
+            Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+            File Output Operator
+              compressed: false
+              Statistics: Num rows: 2 Data size: 1050 Basic stats: COMPLETE Column stats: COMPLETE
+              table:
+                  input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                  output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                  serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-8
     Conditional Operator
@@ -155,7 +210,12 @@ STAGE PLANS:
               name: default.nzhang_part14
 
   Stage: Stage-3
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
+      Column Stats Desc:
+          Columns: key
+          Column Types: string
+          Table: default.nzhang_part14
 
   Stage: Stage-4
     Map Reduce
@@ -194,21 +254,21 @@ STAGE PLANS:
             alias: src
             Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: COMPLETE
             Select Operator
-              Statistics: Num rows: 500 Data size: 85000 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 500 Data size: 2000 Basic stats: COMPLETE Column stats: COMPLETE
               Limit
                 Number of rows: 2
-                Statistics: Num rows: 2 Data size: 340 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 2 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
                 Reduce Output Operator
                   sort order: 
-                  Statistics: Num rows: 2 Data size: 340 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 2 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
       Reduce Operator Tree:
         Limit
           Number of rows: 2
-          Statistics: Num rows: 2 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+          Statistics: Num rows: 2 Data size: 16 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: 'k2' (type: string), '' (type: string)
             outputColumnNames: _col0, _col1
-            Statistics: Num rows: 2 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+            Statistics: Num rows: 2 Data size: 340 Basic stats: COMPLETE Column stats: COMPLETE
             File Output Operator
               compressed: false
               table:
@@ -223,21 +283,21 @@ STAGE PLANS:
             alias: src
             Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: COMPLETE
             Select Operator
-              Statistics: Num rows: 500 Data size: 85500 Basic stats: COMPLETE Column stats: COMPLETE
+              Statistics: Num rows: 500 Data size: 2000 Basic stats: COMPLETE Column stats: COMPLETE
               Limit
                 Number of rows: 2
-                Statistics: Num rows: 2 Data size: 342 Basic stats: COMPLETE Column stats: COMPLETE
+                Statistics: Num rows: 2 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
                 Reduce Output Operator
                   sort order: 
-                  Statistics: Num rows: 2 Data size: 342 Basic stats: COMPLETE Column stats: COMPLETE
+                  Statistics: Num rows: 2 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
       Reduce Operator Tree:
         Limit
           Number of rows: 2
-          Statistics: Num rows: 2 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+          Statistics: Num rows: 2 Data size: 16 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: 'k3' (type: string), ' ' (type: string)
             outputColumnNames: _col0, _col1
-            Statistics: Num rows: 2 Data size: 0 Basic stats: PARTIAL Column stats: COMPLETE
+            Statistics: Num rows: 2 Data size: 342 Basic stats: COMPLETE Column stats: COMPLETE
             File Output Operator
               compressed: false
               table:

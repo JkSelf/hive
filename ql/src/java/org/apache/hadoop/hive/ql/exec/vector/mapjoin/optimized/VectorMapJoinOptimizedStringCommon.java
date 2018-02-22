@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -44,32 +44,6 @@ public class VectorMapJoinOptimizedStringCommon {
   private transient Output output;
 
   private transient SerializedBytes serializedBytes;
-
-  /*
-  private BytesWritable bytesWritable;
-
-  public void adaptPutRow(VectorMapJoinOptimizedHashTable hashTable,
-      BytesWritable currentKey, BytesWritable currentValue)
-      throws SerDeException, HiveException, IOException {
-
-    byte[] keyBytes = currentKey.getBytes();
-    int keyLength = currentKey.getLength();
-    keyBinarySortableDeserializeRead.set(keyBytes, 0, keyLength);
-    if (keyBinarySortableDeserializeRead.readCheckNull()) {
-      if (isOuterJoin) {
-        return;
-      } else {
-        // For inner join, we expect all NULL values to have been filtered out before now.
-        throw new HiveException("Unexpected NULL");
-      }
-    }
-    keyBinarySortableDeserializeRead.readString(readStringResults);
-
-    bytesWritable.set(readStringResults.bytes, readStringResults.start, readStringResults.length);
-
-    hashTable.putRowInternal(bytesWritable, currentValue);
-  }
-  */
 
   public SerializedBytes serialize(byte[] keyBytes, int keyStart, int keyLength) throws IOException {
 

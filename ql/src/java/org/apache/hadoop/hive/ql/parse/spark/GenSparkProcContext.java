@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.hive.ql.parse.spark;
 
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.ObjectPair;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.DependencyCollectionTask;
@@ -26,6 +27,7 @@ import org.apache.hadoop.hive.ql.exec.MapJoinOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.ReduceSinkOperator;
 import org.apache.hadoop.hive.ql.exec.SMBMapJoinOperator;
+import org.apache.hadoop.hive.ql.exec.TableScanOperator;
 import org.apache.hadoop.hive.ql.exec.Task;
 import org.apache.hadoop.hive.ql.exec.TaskFactory;
 import org.apache.hadoop.hive.ql.exec.UnionOperator;
@@ -37,6 +39,7 @@ import org.apache.hadoop.hive.ql.lib.NodeProcessorCtx;
 import org.apache.hadoop.hive.ql.parse.ParseContext;
 import org.apache.hadoop.hive.ql.plan.BaseWork;
 import org.apache.hadoop.hive.ql.plan.DependencyCollectionWork;
+import org.apache.hadoop.hive.ql.plan.FileSinkDesc;
 import org.apache.hadoop.hive.ql.plan.MoveWork;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 import org.apache.hadoop.hive.ql.plan.ReduceWork;
@@ -129,14 +132,15 @@ public class GenSparkProcContext implements NodeProcessorCtx {
   public final Map<Operator<?>, BaseWork> unionWorkMap;
   public final List<UnionOperator> currentUnionOperators;
   public final Set<BaseWork> workWithUnionOperators;
-  public final Set<ReduceSinkOperator> clonedReduceSinks;
 
+  // we link filesink that will write to the same final location
+  public final Map<Path, List<FileSinkDesc>> linkedFileSinks;
   public final Set<FileSinkOperator> fileSinkSet;
   public final Map<FileSinkOperator, List<FileSinkOperator>> fileSinkMap;
 
   // Alias to operator map, from the semantic analyzer.
   // This is necessary as sometimes semantic analyzer's mapping is different than operator's own alias.
-  public final Map<String, Operator<? extends OperatorDesc>> topOps;
+  public final Map<String, TableScanOperator> topOps;
 
   // The set of pruning sinks
   public final Set<Operator<?>> pruningSinkSet;
@@ -152,7 +156,7 @@ public class GenSparkProcContext implements NodeProcessorCtx {
       List<Task<? extends Serializable>> rootTasks,
       Set<ReadEntity> inputs,
       Set<WriteEntity> outputs,
-      Map<String, Operator<? extends OperatorDesc>> topOps) {
+      Map<String, TableScanOperator> topOps) {
     this.conf = conf;
     this.parseContext = parseContext;
     this.moveTask = moveTask;
@@ -180,7 +184,7 @@ public class GenSparkProcContext implements NodeProcessorCtx {
     this.unionWorkMap = new LinkedHashMap<Operator<?>, BaseWork>();
     this.currentUnionOperators = new LinkedList<UnionOperator>();
     this.workWithUnionOperators = new LinkedHashSet<BaseWork>();
-    this.clonedReduceSinks = new LinkedHashSet<ReduceSinkOperator>();
+    this.linkedFileSinks = new LinkedHashMap<>();
     this.fileSinkSet = new LinkedHashSet<FileSinkOperator>();
     this.fileSinkMap = new LinkedHashMap<FileSinkOperator, List<FileSinkOperator>>();
     this.pruningSinkSet = new LinkedHashSet<Operator<?>>();

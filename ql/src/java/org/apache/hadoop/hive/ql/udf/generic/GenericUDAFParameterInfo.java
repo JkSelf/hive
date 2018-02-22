@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hive.ql.udf.generic;
 
+import org.apache.hadoop.hive.common.classification.InterfaceAudience;
+import org.apache.hadoop.hive.common.classification.InterfaceStability;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 
@@ -40,6 +42,8 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
  * data bound to parameter types for <tt>DISTINCT</tt> implementation is
  * handled by the framework and not the <tt>COUNT</tt> UDAF implementation.
  */
+@InterfaceAudience.Public
+@InterfaceStability.Stable
 public interface GenericUDAFParameterInfo {
 
   /**
@@ -66,6 +70,13 @@ public interface GenericUDAFParameterInfo {
    */
   boolean isDistinct();
 
+  /**
+   * The flag to indicate if the UDAF invocation was from the windowing function
+   * call or not.
+   * @return <tt>true</tt> if the UDAF invocation was from the windowing function
+   * call.
+   */
+  boolean isWindowing();
   /**
    * Returns <tt>true</tt> if the UDAF invocation was done via the wildcard
    * syntax <tt>FUNCTION(*)</tt>. Note that this is provided for informational

@@ -1,14 +1,8 @@
-PREHOOK: query: -- Uberized mode is a YARN option, ignore this test for non-YARN Hadoop versions
--- EXCLUDE_HADOOP_MAJOR_VERSIONS(0.20S)
-
-CREATE TABLE T1(key STRING, val STRING)
+PREHOOK: query: CREATE TABLE T1(key STRING, val STRING)
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@T1
-POSTHOOK: query: -- Uberized mode is a YARN option, ignore this test for non-YARN Hadoop versions
--- EXCLUDE_HADOOP_MAJOR_VERSIONS(0.20S)
-
-CREATE TABLE T1(key STRING, val STRING)
+POSTHOOK: query: CREATE TABLE T1(key STRING, val STRING)
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@T1
@@ -23,9 +17,9 @@ POSTHOOK: Output: default@t1
 PREHOOK: query: SELECT count(*) FROM T1
 PREHOOK: type: QUERY
 PREHOOK: Input: default@t1
-#### A masked pattern was here ####
+PREHOOK: Output: hdfs://### HDFS PATH ###
 POSTHOOK: query: SELECT count(*) FROM T1
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@t1
-#### A masked pattern was here ####
+POSTHOOK: Output: hdfs://### HDFS PATH ###
 6

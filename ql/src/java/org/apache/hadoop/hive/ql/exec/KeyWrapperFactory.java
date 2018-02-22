@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -29,6 +29,7 @@ import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.Object
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.StringObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
+import org.apache.hadoop.io.DoubleWritable;
 import org.apache.hadoop.io.Text;
 
 public class KeyWrapperFactory {
@@ -98,28 +99,16 @@ public class KeyWrapperFactory {
 
     @Override
     public boolean equals(Object obj) {
+      if (!(obj instanceof ListKeyWrapper)) {
+        return false;
+      }
       Object[] copied_in_hashmap = ((ListKeyWrapper) obj).keys;
       return equalComparer.areEqual(copied_in_hashmap, keys);
     }
 
     @Override
     public void setHashKey() {
-      if (keys == null) {
-        hashcode = 0;
-      } else {
-        hashcode = 1;
-        for (Object element : keys) {
-          hashcode = 31 * hashcode;
-          if(element != null) {
-            if(element instanceof LazyDouble) {
-              long v = Double.doubleToLongBits(((LazyDouble)element).getWritableObject().get());
-              hashcode = hashcode + (int) (v ^ (v >>> 32));
-            } else {
-              hashcode = hashcode + element.hashCode();
-            }
-          }
-        }
-      }
+      hashcode = ObjectInspectorUtils.writableArrayHashCode(keys);
     }
 
     @Override
@@ -196,6 +185,9 @@ public class KeyWrapperFactory {
 
     @Override
     public boolean equals(Object other) {
+      if (!(other instanceof TextKeyWrapper)) {
+        return false;
+      }
       Object obj = ((TextKeyWrapper) other).key;
       Text t1;
       Text t2;

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,10 +21,14 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.llap.LlapDaemonInfo;
+import org.apache.hadoop.hive.ql.exec.MemoryMonitorInfo;
+import org.apache.hadoop.hive.ql.exec.mapjoin.MapJoinMemoryExhaustionError;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.MapJoinOperator;
@@ -38,6 +42,7 @@ import org.apache.hadoop.hive.ql.exec.persistence.MapJoinObjectSerDeContext;
 import org.apache.hadoop.hive.ql.exec.persistence.MapJoinTableContainer;
 import org.apache.hadoop.hive.ql.exec.persistence.MapJoinTableContainerSerDe;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.MapJoinDesc;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
@@ -55,11 +60,12 @@ import org.apache.tez.runtime.library.api.KeyValueReader;
  */
 public class HashTableLoader implements org.apache.hadoop.hive.ql.exec.HashTableLoader {
 
-  private static final Log LOG = LogFactory.getLog(HashTableLoader.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(HashTableLoader.class.getName());
 
   private Configuration hconf;
   private MapJoinDesc desc;
   private TezContext tezContext;
+  private String cacheKey;
 
   @Override
   public void init(ExecMapperContext context, MapredContext mrContext, Configuration hconf,
@@ -67,6 +73,7 @@ public class HashTableLoader implements org.apache.hadoop.hive.ql.exec.HashTable
     this.tezContext = (TezContext) mrContext;
     this.hconf = hconf;
     this.desc = joinOp.getConf();
+    this.cacheKey = joinOp.getCacheKey();
   }
 
   @Override
@@ -77,6 +84,12 @@ public class HashTableLoader implements org.apache.hadoop.hive.ql.exec.HashTable
     Map<Integer, String> parentToInput = desc.getParentToInput();
     Map<Integer, Long> parentKeyCounts = desc.getParentKeyCounts();
 
+    boolean isCrossProduct = false;
+    List<ExprNodeDesc> joinExprs = desc.getKeys().values().iterator().next();
+    if (joinExprs.size() == 0) {
+      isCrossProduct = true;
+    }
+
     boolean useOptimizedTables = HiveConf.getBoolVar(
         hconf, HiveConf.ConfVars.HIVEMAPJOINUSEOPTIMIZEDTABLE);
     boolean useHybridGraceHashJoin = desc.isHybridHashJoin();
@@ -84,6 +97,7 @@ public class HashTableLoader implements org.apache.hadoop.hive.ql.exec.HashTable
 
     // Get the total available memory from memory manager
     long totalMapJoinMemory = desc.getMemoryNeeded();
+    LOG.info("Memory manager allocates " + totalMapJoinMemory + " bytes for the loading hashtable.");
     if (totalMapJoinMemory <= 0) {
       totalMapJoinMemory = HiveConf.getLongVar(
         hconf, HiveConf.ConfVars.HIVECONVERTJOINNOCONDITIONALTASKTHRESHOLD);
@@ -107,6 +121,7 @@ public class HashTableLoader implements org.apache.hadoop.hive.ql.exec.HashTable
     if (useHybridGraceHashJoin && mapJoinTables.length > 2) {
       // Create a Conf for n-way HybridHashTableContainers
       nwayConf = new HybridHashTableConf();
+      LOG.info("N-way join: " + (mapJoinTables.length - 1) + " small tables.");
 
       // Find the biggest small table; also calculate total data size of all small tables
       long maxSize = Long.MIN_VALUE; // the size of the biggest small table
@@ -128,22 +143,44 @@ public class HashTableLoader implements org.apache.hadoop.hive.ql.exec.HashTable
       long memory = tableMemorySizes.get(biggest);
       int numPartitions = 0;
       try {
-        numPartitions = HybridHashTableContainer.calcNumPartitions(memory,
-            maxSize,
+        numPartitions = HybridHashTableContainer.calcNumPartitions(memory, maxSize,
             HiveConf.getIntVar(hconf, HiveConf.ConfVars.HIVEHYBRIDGRACEHASHJOINMINNUMPARTITIONS),
-            HiveConf.getIntVar(hconf, HiveConf.ConfVars.HIVEHYBRIDGRACEHASHJOINMINWBSIZE),
-            nwayConf);
+            HiveConf.getIntVar(hconf, HiveConf.ConfVars.HIVEHYBRIDGRACEHASHJOINMINWBSIZE));
       } catch (IOException e) {
         throw new HiveException(e);
       }
       nwayConf.setNumberOfPartitions(numPartitions);
     }
+    MemoryMonitorInfo memoryMonitorInfo = desc.getMemoryMonitorInfo();
+    boolean doMemCheck = false;
+    long effectiveThreshold = 0;
+    if (memoryMonitorInfo != null) {
+      effectiveThreshold = memoryMonitorInfo.getEffectiveThreshold(desc.getMaxMemoryAvailable());
 
+      // hash table loading happens in server side, LlapDecider could kick out some fragments to run outside of LLAP.
+      // Flip the flag at runtime in case if we are running outside of LLAP
+      if (!LlapDaemonInfo.INSTANCE.isLlap()) {
+        memoryMonitorInfo.setLlap(false);
+      }
+      if (memoryMonitorInfo.doMemoryMonitoring()) {
+        doMemCheck = true;
+        if (LOG.isInfoEnabled()) {
+          LOG.info("Memory monitoring for hash table loader enabled. {}", memoryMonitorInfo);
+        }
+      }
+    }
+
+    if (!doMemCheck) {
+      if (LOG.isInfoEnabled()) {
+        LOG.info("Not doing hash table memory monitoring. {}", memoryMonitorInfo);
+      }
+    }
     for (int pos = 0; pos < mapJoinTables.length; pos++) {
       if (pos == desc.getPosBigTable()) {
         continue;
       }
 
+      long numEntries = 0;
       String inputName = parentToInput.get(pos);
       LogicalInput input = tezContext.getInput(inputName);
 
@@ -185,19 +222,51 @@ public class HashTableLoader implements org.apache.hadoop.hive.ql.exec.HashTable
           }
         }
 
-        MapJoinTableContainer tableContainer = useOptimizedTables
-            ? (useHybridGraceHashJoin ? new HybridHashTableContainer(hconf, keyCount,
-                                            memory, desc.getParentDataSizes().get(pos), nwayConf)
-                                      : new MapJoinBytesTableContainer(hconf, valCtx, keyCount, 0))
-            : new HashMapWrapper(hconf, keyCount);
-        LOG.info("Using tableContainer " + tableContainer.getClass().getSimpleName());
+        MapJoinTableContainer tableContainer;
+        if (useOptimizedTables) {
+          if (!useHybridGraceHashJoin || isCrossProduct) {
+            tableContainer = new MapJoinBytesTableContainer(hconf, valCtx, keyCount, 0);
+          } else {
+            tableContainer = new HybridHashTableContainer(hconf, keyCount, memory,
+                desc.getParentDataSizes().get(pos), nwayConf);
+          }
+        } else {
+          tableContainer = new HashMapWrapper(hconf, keyCount);
+        }
 
+        LOG.info("Loading hash table for input: {} cacheKey: {} tableContainer: {} smallTablePos: {}", inputName,
+          cacheKey, tableContainer.getClass().getSimpleName(), pos);
+
+        tableContainer.setSerde(keyCtx, valCtx);
         while (kvReader.next()) {
-          tableContainer.putRow(keyCtx, (Writable)kvReader.getCurrentKey(),
-              valCtx, (Writable)kvReader.getCurrentValue());
+          tableContainer.putRow((Writable) kvReader.getCurrentKey(), (Writable) kvReader.getCurrentValue());
+          numEntries++;
+          if (doMemCheck && (numEntries % memoryMonitorInfo.getMemoryCheckInterval() == 0)) {
+            final long estMemUsage = tableContainer.getEstimatedMemorySize();
+            if (estMemUsage > effectiveThreshold) {
+              String msg = "Hash table loading exceeded memory limits for input: " + inputName +
+                " numEntries: " + numEntries + " estimatedMemoryUsage: " + estMemUsage +
+                " effectiveThreshold: " + effectiveThreshold + " memoryMonitorInfo: " + memoryMonitorInfo;
+              LOG.error(msg);
+              throw new MapJoinMemoryExhaustionError(msg);
+            } else {
+              if (LOG.isInfoEnabled()) {
+                LOG.info("Checking hash table loader memory usage for input: {} numEntries: {} " +
+                  "estimatedMemoryUsage: {} effectiveThreshold: {}", inputName, numEntries, estMemUsage,
+                  effectiveThreshold);
+              }
+            }
+          }
         }
         tableContainer.seal();
         mapJoinTables[pos] = tableContainer;
+        if (doMemCheck) {
+          LOG.info("Finished loading hash table for input: {} cacheKey: {} numEntries: {} estimatedMemoryUsage: {}",
+            inputName, cacheKey, numEntries, tableContainer.getEstimatedMemorySize());
+        } else {
+          LOG.info("Finished loading hash table for input: {} cacheKey: {} numEntries: {}", inputName, cacheKey,
+            numEntries);
+        }
       } catch (Exception e) {
         throw new HiveException(e);
       }

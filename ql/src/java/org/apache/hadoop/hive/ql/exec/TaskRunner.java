@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,19 +21,19 @@ package org.apache.hadoop.hive.ql.exec;
 import java.io.Serializable;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.hadoop.hive.ql.session.OperationLog;
+import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.session.SessionState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * TaskRunner implementation.
  **/
 
 public class TaskRunner extends Thread {
-
   protected Task<? extends Serializable> tsk;
   protected TaskResult result;
   protected SessionState ss;
-  private OperationLog operationLog;
   private static AtomicLong taskCounter = new AtomicLong(0);
   private static ThreadLocal<Long> taskRunnerID = new ThreadLocal<Long>() {
     @Override
@@ -44,9 +44,11 @@ public class TaskRunner extends Thread {
 
   protected Thread runner;
 
-  public TaskRunner(Task<? extends Serializable> tsk, TaskResult result) {
+  private static transient final Logger LOG = LoggerFactory.getLogger(TaskRunner.class);
+
+  public TaskRunner(Task<? extends Serializable> tsk) {
     this.tsk = tsk;
-    this.result = result;
+    this.result = new TaskResult();
     ss = SessionState.get();
   }
 
@@ -70,10 +72,16 @@ public class TaskRunner extends Thread {
   public void run() {
     runner = Thread.currentThread();
     try {
-      OperationLog.setCurrentOperationLog(operationLog);
       SessionState.start(ss);
       runSequential();
     } finally {
+      try {
+        // Call Hive.closeCurrent() that closes the HMS connection, causes
+        // HMS connection leaks otherwise.
+        Hive.closeCurrent();
+      } catch (Exception e) {
+        LOG.warn("Exception closing Metastore connection:" + e.getMessage());
+      }
       runner = null;
       result.setRunning(false);
     }
@@ -86,21 +94,20 @@ public class TaskRunner extends Thread {
   public void runSequential() {
     int exitVal = -101;
     try {
-      exitVal = tsk.executeTask();
+      exitVal = tsk.executeTask(ss == null ? null : ss.getHiveHistory());
     } catch (Throwable t) {
       if (tsk.getException() == null) {
         tsk.setException(t);
       }
-      t.printStackTrace();
+      LOG.error("Error in executeTask", t);
     }
-    result.setExitVal(exitVal, tsk.getException());
+    result.setExitVal(exitVal);
+    if (tsk.getException() != null) {
+      result.setTaskError(tsk.getException());
+    }
   }
 
   public static long getTaskRunnerID () {
     return taskRunnerID.get();
-  }
-
-  public void setOperationLog(OperationLog operationLog) {
-    this.operationLog = operationLog;
   }
 }

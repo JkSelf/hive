@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,25 +21,29 @@ package org.apache.hadoop.hive.ql.parse.spark;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
-import java.util.Collection;
-import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
+import org.apache.hadoop.hive.ql.exec.MapJoinOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
+import org.apache.hadoop.hive.ql.exec.ReduceSinkOperator;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.optimizer.spark.SparkPartitionPruningSinkDesc;
 import org.apache.hadoop.hive.ql.plan.api.OperatorType;
+import org.apache.hadoop.hive.serde2.Serializer;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.util.ReflectionUtils;
-import org.apache.hadoop.hive.serde2.Serializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * This operator gets partition info from the upstream operators, and write them
@@ -51,15 +55,28 @@ public class SparkPartitionPruningSinkOperator extends Operator<SparkPartitionPr
   @SuppressWarnings("deprecation")
   protected transient Serializer serializer;
   protected transient DataOutputBuffer buffer;
-  protected static final Log LOG = LogFactory.getLog(SparkPartitionPruningSinkOperator.class);
+  protected static final Logger LOG = LoggerFactory.getLogger(SparkPartitionPruningSinkOperator.class);
+  private static final AtomicLong SEQUENCE_NUM = new AtomicLong(0);
 
+  private transient String uniqueId = null;
+
+  /** Kryo ctor. */
+  @VisibleForTesting
+  public SparkPartitionPruningSinkOperator() {
+    super();
+  }
+
+  public SparkPartitionPruningSinkOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  @Override
   @SuppressWarnings("deprecation")
-  public Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
-    Collection<Future<?>> result = super.initializeOp(hconf);
+  public void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
     serializer = (Serializer) ReflectionUtils.newInstance(
         conf.getTable().getDeserializerClass(), null);
     buffer = new DataOutputBuffer();
-    return result;
   }
 
   @Override
@@ -84,6 +101,53 @@ public class SparkPartitionPruningSinkOperator extends Operator<SparkPartitionPr
     }
   }
 
+  /* This function determines whether sparkpruningsink is with mapjoin.  This will be called
+     to check whether the tree should be split for dpp.  For mapjoin it won't be.  Also called
+     to determine whether dpp should be enabled for anything other than mapjoin.
+   */
+  public boolean isWithMapjoin() {
+    Operator<?> branchingOp = this.getBranchingOp();
+
+    // Check if this is a MapJoin. If so, do not split.
+    for (Operator<?> childOp : branchingOp.getChildOperators()) {
+      if (childOp instanceof ReduceSinkOperator &&
+          childOp.getChildOperators().get(0) instanceof MapJoinOperator) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /* Locate the op where the branch starts.  This function works only for the following pattern.
+   *     TS1       TS2
+   *      |         |
+   *     FIL       FIL
+   *      |         |
+   *      |     ---------
+   *      RS    |   |   |
+   *      |    RS  SEL SEL
+   *      |    /    |   |
+   *      |   /    GBY GBY
+   *      JOIN       |  |
+   *                 |  SPARKPRUNINGSINK
+   *                 |
+   *              SPARKPRUNINGSINK
+   */
+  public Operator<?> getBranchingOp() {
+    Operator<?> branchingOp = this;
+
+    while (branchingOp != null) {
+      if (branchingOp.getNumChild() > 1) {
+        break;
+      } else {
+        branchingOp = branchingOp.getParentOperators().get(0);
+      }
+    }
+
+    return branchingOp;
+  }
+
   private void flushToFile() throws IOException {
     // write an intermediate file to the specified path
     // the format of the path is: tmpPath/targetWorkId/sourceWorkId/randInt
@@ -105,8 +169,11 @@ public class SparkPartitionPruningSinkOperator extends Operator<SparkPartitionPr
 
     try {
       fsout = fs.create(path, numOfRepl);
-      out = new ObjectOutputStream(new BufferedOutputStream(fsout, 4096));
-      out.writeUTF(conf.getTargetColumnName());
+      out = new ObjectOutputStream(new BufferedOutputStream(fsout));
+      out.writeInt(conf.getTargetInfos().size());
+      for (SparkPartitionPruningSinkDesc.DPPTargetInfo info : conf.getTargetInfos()) {
+        out.writeUTF(info.columnName);
+      }
       buffer.writeTo(out);
     } catch (Exception e) {
       try {
@@ -132,11 +199,21 @@ public class SparkPartitionPruningSinkOperator extends Operator<SparkPartitionPr
 
   @Override
   public String getName() {
-    return getOperatorName();
+    return SparkPartitionPruningSinkOperator.getOperatorName();
   }
 
   public static String getOperatorName() {
     return "SPARKPRUNINGSINK";
   }
 
+  public synchronized String getUniqueId() {
+    if (uniqueId == null) {
+      uniqueId = getOperatorId() + "_" + SEQUENCE_NUM.getAndIncrement();
+    }
+    return uniqueId;
+  }
+
+  public synchronized void setUniqueId(String uniqueId) {
+    this.uniqueId = uniqueId;
+  }
 }

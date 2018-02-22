@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,10 +21,10 @@ package org.apache.hadoop.hive.ql.security;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hive.metastore.HiveMetaStore.HMSHandler;
+import org.apache.hadoop.hive.metastore.IHMSHandler;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.ql.metadata.AuthorizationException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -80,7 +80,7 @@ public class DummyHiveMetastoreAuthorizationProvider implements HiveMetastoreAut
   public static final List<AuthCallContext> authCalls = new ArrayList<AuthCallContext>();
 
   private Configuration conf;
-  public static final Log LOG = LogFactory.getLog(
+  public static final Logger LOG = LoggerFactory.getLogger(
       DummyHiveMetastoreAuthorizationProvider.class);;
 
   @Override
@@ -187,7 +187,7 @@ public class DummyHiveMetastoreAuthorizationProvider implements HiveMetastoreAut
   }
 
   private String debugPrivPrint(Privilege[] privileges) {
-    StringBuffer sb = new StringBuffer();
+    StringBuilder sb = new StringBuilder();
     sb.append("Privileges{");
     if (privileges != null){
     for (Privilege p : privileges){
@@ -201,7 +201,7 @@ public class DummyHiveMetastoreAuthorizationProvider implements HiveMetastoreAut
   }
 
   @Override
-  public void setMetaStoreHandler(HMSHandler handler) {
+  public void setMetaStoreHandler(IHMSHandler handler) {
     debugLog("DHMAP.setMetaStoreHandler");
   }
 

@@ -1,5 +1,6 @@
+set hive.stats.column.autogather=false;
+set hive.mapred.mode=nonstrict;
 set hive.explain.user=false;
-set hive.stats.dbclass=fs;
 set hive.compute.query.using.stats=true;
 set hive.stats.autogather=true;
 create table over10k(
@@ -12,7 +13,7 @@ create table over10k(
            bo boolean,
            s string,
            ts timestamp, 
-           dec decimal,  
+           `dec` decimal,  
            bin binary)
        row format delimited
        fields terminated by '|';
@@ -29,7 +30,7 @@ create table stats_tbl(
            bo boolean,
            s string,
            ts timestamp,
-           dec decimal,  
+           `dec` decimal,  
            bin binary);
 
 create table stats_tbl_part(
@@ -42,7 +43,7 @@ create table stats_tbl_part(
            bo boolean,
            s string,
            ts timestamp,
-           dec decimal,  
+           `dec` decimal,  
            bin binary) partitioned by (dt string);
 
 
@@ -57,6 +58,11 @@ select count(*), sum(1), sum(0.2), count(1), count(s), count(bo), count(bin), co
 explain
 select count(*), sum(1), sum(0.2), count(1), count(s), count(bo), count(bin), count(si), max(i), min(b) from stats_tbl_part;
 
+explain 
+select count(*), '1' as one, sum(1), sum(0.2), 2 as two, count(1), count(s), 3+4.0 as three, count(bo), count(bin), count(si), max(i), min(b) from stats_tbl;
+explain
+select count(*), '1' as one, sum(1), sum(0.2), 2 as two, count(1), count(s), 3+4.0 as three, count(bo), count(bin), count(si), max(i), min(b) from stats_tbl_part;
+
 analyze table stats_tbl compute statistics for columns t,si,i,b,f,d,bo,s,bin;
 analyze table stats_tbl_part partition(dt='2010') compute statistics for columns t,si,i,b,f,d,bo,s,bin;
 analyze table stats_tbl_part partition(dt='2011') compute statistics for columns t,si,i,b,f,d,bo,s,bin;
@@ -69,6 +75,12 @@ explain
 select min(i), max(i), min(b), max(b), min(f), max(f), min(d), max(d) from stats_tbl;
 select min(i), max(i), min(b), max(b), min(f), max(f), min(d), max(d) from stats_tbl;
 
+explain
+select min(i), '1' as one, max(i), min(b), max(b), min(f), max(f), 3+4.0 as three, min(d), max(d) from stats_tbl;
+select min(i), '1' as one, max(i), min(b), max(b), min(f), max(f), 3+4.0 as three, min(d), max(d) from stats_tbl;
+
+
+
 explain 
 select count(*), sum(1), sum(0.2), count(1), count(s), count(bo), count(bin), count(si) from stats_tbl_part;
 select count(*), sum(1), sum(0.2), count(1), count(s), count(bo), count(bin), count(si) from stats_tbl_part;
@@ -76,10 +88,19 @@ explain
 select min(i), max(i), min(b), max(b), min(f), max(f), min(d), max(d) from stats_tbl_part;
 select min(i), max(i), min(b), max(b), min(f), max(f), min(d), max(d) from stats_tbl_part;
 
+explain
+select min(i), '1' as one, max(i), min(b), max(b), min(f), max(f), 3+4.0 as three, min(d), max(d) from stats_tbl_part;
+select min(i), '1' as one, max(i), min(b), max(b), min(f), max(f), 3+4.0 as three, min(d), max(d) from stats_tbl_part;
+
 explain select count(ts) from stats_tbl_part;
+
+explain select count('1') from stats_tbl group by '1';
+select count('1') from stats_tbl group by '1';
+
+explain select count('1') from stats_tbl_part group by '1';
+select count('1') from stats_tbl_part group by '1';
 
 drop table stats_tbl;
 drop table stats_tbl_part;
 
 set hive.compute.query.using.stats=false;
-set hive.stats.dbclass=jdbc:derby;

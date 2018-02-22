@@ -13,7 +13,6 @@ POSTHOOK: query: desc FORMATTED alter_file_format_test
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_file_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -24,6 +23,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
+	numFiles            	0                   
+	numRows             	0                   
+	rawDataSize         	0                   
+	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -51,7 +55,6 @@ POSTHOOK: query: desc FORMATTED alter_file_format_test
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_file_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -62,11 +65,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -95,7 +98,6 @@ POSTHOOK: query: desc FORMATTED alter_file_format_test
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_file_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -106,11 +108,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -139,7 +141,6 @@ POSTHOOK: query: desc FORMATTED alter_file_format_test
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_file_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -150,11 +151,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -183,7 +184,6 @@ POSTHOOK: query: desc FORMATTED alter_file_format_test
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_file_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -194,11 +194,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -227,7 +227,6 @@ POSTHOOK: query: desc FORMATTED alter_file_format_test
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_file_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -238,11 +237,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -271,7 +270,6 @@ POSTHOOK: query: desc FORMATTED alter_file_format_test
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_file_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
@@ -282,11 +280,11 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -304,13 +302,11 @@ PREHOOK: query: drop table alter_partition_format_test
 PREHOOK: type: DROPTABLE
 POSTHOOK: query: drop table alter_partition_format_test
 POSTHOOK: type: DROPTABLE
-PREHOOK: query: --partitioned table
-create table alter_partition_format_test (key int, value string) partitioned by (ds string)
+PREHOOK: query: create table alter_partition_format_test (key int, value string) partitioned by (ds string)
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@alter_partition_format_test
-POSTHOOK: query: --partitioned table
-create table alter_partition_format_test (key int, value string) partitioned by (ds string)
+POSTHOOK: query: create table alter_partition_format_test (key int, value string) partitioned by (ds string)
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@alter_partition_format_test
@@ -328,13 +324,11 @@ POSTHOOK: query: desc FORMATTED alter_partition_format_test partition(ds='2010')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_partition_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -343,6 +337,11 @@ Database:           	default
 Table:              	alter_partition_format_test	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
+	numFiles            	0                   
+	numRows             	0                   
+	rawDataSize         	0                   
+	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -371,13 +370,11 @@ POSTHOOK: query: desc FORMATTED alter_partition_format_test partition(ds='2010')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_partition_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -386,11 +383,11 @@ Database:           	default
 Table:              	alter_partition_format_test	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -420,13 +417,11 @@ POSTHOOK: query: desc FORMATTED alter_partition_format_test partition(ds='2010')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_partition_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -435,11 +430,11 @@ Database:           	default
 Table:              	alter_partition_format_test	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -469,13 +464,11 @@ POSTHOOK: query: desc FORMATTED alter_partition_format_test partition(ds='2010')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_partition_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -484,11 +477,11 @@ Database:           	default
 Table:              	alter_partition_format_test	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -518,13 +511,11 @@ POSTHOOK: query: desc FORMATTED alter_partition_format_test partition(ds='2010')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_partition_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -533,11 +524,11 @@ Database:           	default
 Table:              	alter_partition_format_test	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
@@ -567,13 +558,11 @@ POSTHOOK: query: desc FORMATTED alter_partition_format_test partition(ds='2010')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@alter_partition_format_test
 # col_name            	data_type           	comment             
-	 	 
 key                 	int                 	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -582,11 +571,11 @@ Database:           	default
 Table:              	alter_partition_format_test	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	false               
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	0                   
-	numRows             	-1                  
-	rawDataSize         	-1                  
+	numRows             	0                   
+	rawDataSize         	0                   
 	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 

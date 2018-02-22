@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,8 +21,9 @@ package org.apache.hadoop.hive.ql.exec.vector.mapjoin;
 import java.io.IOException;
 import java.util.Arrays;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizationContext;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
@@ -31,13 +32,16 @@ import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHash
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
 // Multi-Key hash table import.
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinBytesHashMultiSet;
 
 // Multi-Key specific imports.
-import org.apache.hadoop.hive.ql.exec.vector.VectorSerializeRowNoNulls;
+import org.apache.hadoop.hive.ql.exec.vector.VectorSerializeRow;
 import org.apache.hadoop.hive.serde2.ByteStream.Output;
 import org.apache.hadoop.hive.serde2.binarysortable.fast.BinarySortableSerializeWrite;
+
+import com.google.common.base.Preconditions;
 
 /*
  * Specialized class for doing a vectorized map join that is an inner join on Multi-Key
@@ -47,8 +51,17 @@ import org.apache.hadoop.hive.serde2.binarysortable.fast.BinarySortableSerialize
 public class VectorMapJoinInnerBigOnlyMultiKeyOperator extends VectorMapJoinInnerBigOnlyGenerateResultOperator {
 
   private static final long serialVersionUID = 1L;
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinInnerBigOnlyMultiKeyOperator.class.getName());
+
+  //------------------------------------------------------------------------------------------------
+
   private static final String CLASS_NAME = VectorMapJoinInnerBigOnlyMultiKeyOperator.class.getName();
+  private static final Logger LOG = LoggerFactory.getLogger(CLASS_NAME);
+
+  protected String getLoggingPrefix() {
+    return super.getLoggingPrefix(CLASS_NAME);
+  }
+
+  //------------------------------------------------------------------------------------------------
 
   // (none)
 
@@ -65,7 +78,7 @@ public class VectorMapJoinInnerBigOnlyMultiKeyOperator extends VectorMapJoinInne
 
   // Object that can take a set of columns in row in a vectorized row batch and serialized it.
   // Known to not have any nulls.
-  private transient VectorSerializeRowNoNulls keyVectorSerializeWriteNoNulls;
+  private transient VectorSerializeRow keyVectorSerializeWrite;
 
   // The BinarySortable serialization of the current key.
   private transient Output currentKeyOutput;
@@ -77,12 +90,18 @@ public class VectorMapJoinInnerBigOnlyMultiKeyOperator extends VectorMapJoinInne
   // Pass-thru constructors.
   //
 
-  public VectorMapJoinInnerBigOnlyMultiKeyOperator() {
+  /** Kryo ctor. */
+  protected VectorMapJoinInnerBigOnlyMultiKeyOperator() {
     super();
   }
 
-  public VectorMapJoinInnerBigOnlyMultiKeyOperator(VectorizationContext vContext, OperatorDesc conf) throws HiveException {
-    super(vContext, conf);
+  public VectorMapJoinInnerBigOnlyMultiKeyOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorMapJoinInnerBigOnlyMultiKeyOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) throws HiveException {
+    super(ctx, conf, vContext, vectorDesc);
   }
 
   //---------------------------------------------------------------------------
@@ -105,9 +124,9 @@ public class VectorMapJoinInnerBigOnlyMultiKeyOperator extends VectorMapJoinInne
          * Initialize Multi-Key members for this specialized class.
          */
 
-        keyVectorSerializeWriteNoNulls = new VectorSerializeRowNoNulls(
+        keyVectorSerializeWrite = new VectorSerializeRow(
                                         new BinarySortableSerializeWrite(bigTableKeyColumnMap.length));
-        keyVectorSerializeWriteNoNulls.init(bigTableKeyTypeNames, bigTableKeyColumnMap);
+        keyVectorSerializeWrite.init(bigTableKeyTypeInfos, bigTableKeyColumnMap);
 
         currentKeyOutput = new Output();
         saveKeyOutput = new Output();
@@ -194,11 +213,16 @@ public class VectorMapJoinInnerBigOnlyMultiKeyOperator extends VectorMapJoinInne
          * Multi-Key specific repeated lookup.
          */
 
-        keyVectorSerializeWriteNoNulls.setOutput(currentKeyOutput);
-        keyVectorSerializeWriteNoNulls.serializeWriteNoNulls(batch, 0);
-        byte[] keyBytes = currentKeyOutput.getData();
-        int keyLength = currentKeyOutput.getLength();
-        JoinUtil.JoinResult joinResult = hashMultiSet.contains(keyBytes, 0, keyLength, hashMultiSetResults[0]);
+        keyVectorSerializeWrite.setOutput(currentKeyOutput);
+        keyVectorSerializeWrite.serializeWrite(batch, 0);
+        JoinUtil.JoinResult joinResult;
+        if (keyVectorSerializeWrite.getHasAnyNulls()) {
+          joinResult = JoinUtil.JoinResult.NOMATCH;
+        } else {
+          byte[] keyBytes = currentKeyOutput.getData();
+          int keyLength = currentKeyOutput.getLength();
+          joinResult = hashMultiSet.contains(keyBytes, 0, keyLength, hashMultiSetResults[0]);
+        }
 
         /*
          * Common repeated join result processing.
@@ -248,14 +272,15 @@ public class VectorMapJoinInnerBigOnlyMultiKeyOperator extends VectorMapJoinInne
            */
 
           // Generate binary sortable key for current row in vectorized row batch.
-          keyVectorSerializeWriteNoNulls.setOutput(currentKeyOutput);
-          keyVectorSerializeWriteNoNulls.serializeWriteNoNulls(batch, batchIndex);
+          keyVectorSerializeWrite.setOutput(currentKeyOutput);
+          keyVectorSerializeWrite.serializeWrite(batch, batchIndex);
+          boolean isAnyNulls = keyVectorSerializeWrite.getHasAnyNulls();
 
           /*
            * Equal key series checking.
            */
 
-          if (!haveSaveKey || !saveKeyOutput.arraysEquals(currentKeyOutput)) {
+          if (isAnyNulls || !haveSaveKey || !saveKeyOutput.arraysEquals(currentKeyOutput)) {
 
             // New key.
 
@@ -275,25 +300,30 @@ public class VectorMapJoinInnerBigOnlyMultiKeyOperator extends VectorMapJoinInne
               }
             }
 
-            // Regardless of our matching result, we keep that information to make multiple use
-            // of it for a possible series of equal keys.
-            haveSaveKey = true;
+            if (isAnyNulls) {
+              saveJoinResult = JoinUtil.JoinResult.NOMATCH;
+              haveSaveKey = false;
+            } else {
+              // Regardless of our matching result, we keep that information to make multiple use
+              // of it for a possible series of equal keys.
+              haveSaveKey = true;
 
-            /*
-             * Multi-Key specific save key.
-             */
+              /*
+               * Multi-Key specific save key.
+               */
 
-            temp = saveKeyOutput;
-            saveKeyOutput = currentKeyOutput;
-            currentKeyOutput = temp;
-
-            /*
-             * Single-Column Long specific lookup key.
-             */
-
-            byte[] keyBytes = saveKeyOutput.getData();
-            int keyLength = saveKeyOutput.getLength();
-            saveJoinResult = hashMultiSet.contains(keyBytes, 0, keyLength, hashMultiSetResults[hashMultiSetResultCount]);
+              temp = saveKeyOutput;
+              saveKeyOutput = currentKeyOutput;
+              currentKeyOutput = temp;
+  
+              /*
+               * Single-Column Long specific lookup key.
+               */
+  
+              byte[] keyBytes = saveKeyOutput.getData();
+              int keyLength = saveKeyOutput.getLength();
+              saveJoinResult = hashMultiSet.contains(keyBytes, 0, keyLength, hashMultiSetResults[hashMultiSetResultCount]);
+            }
 
             /*
              * Common inner big-only join result processing.

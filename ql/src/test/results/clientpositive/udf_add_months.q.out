@@ -12,6 +12,8 @@ start_date is a string in the format 'yyyy-MM-dd HH:mm:ss' or 'yyyy-MM-dd'. num_
 Example:
   > SELECT add_months('2009-08-31', 1) FROM src LIMIT 1;
  '2009-09-30'
+Function class:org.apache.hadoop.hive.ql.udf.generic.GenericUDFAddMonths
+Function type:BUILTIN
 PREHOOK: query: explain select add_months('2014-01-14', 1)
 PREHOOK: type: QUERY
 POSTHOOK: query: explain select add_months('2014-01-14', 1)
@@ -27,7 +29,7 @@ STAGE PLANS:
         TableScan
           alias: _dummy_table
           Row Limit Per Split: 1
-          Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: COMPLETE
+          Statistics: Num rows: 1 Data size: 10 Basic stats: COMPLETE Column stats: COMPLETE
           Select Operator
             expressions: '2014-02-14' (type: string)
             outputColumnNames: _col0

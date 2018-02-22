@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,17 +21,14 @@ import java.io.BufferedOutputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
-import java.util.Collection;
 import java.util.Set;
-import java.util.concurrent.Future;
 
 import org.apache.commons.io.FileExistsException;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.persistence.MapJoinPersistableTableContainer;
 import org.apache.hadoop.hive.ql.exec.persistence.MapJoinTableContainerSerDe;
 import org.apache.hadoop.hive.ql.log.PerfLogger;
@@ -41,32 +38,45 @@ import org.apache.hadoop.hive.ql.plan.MapredLocalWork;
 import org.apache.hadoop.hive.ql.plan.SparkBucketMapJoinContext;
 import org.apache.hadoop.hive.ql.plan.SparkHashTableSinkDesc;
 import org.apache.hadoop.hive.ql.plan.api.OperatorType;
+import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SparkHashTableSinkOperator
     extends TerminalOperator<SparkHashTableSinkDesc> implements Serializable {
-  private static final int MIN_REPLICATION = 10;
   private static final long serialVersionUID = 1L;
   private final String CLASS_NAME = this.getClass().getName();
-  private final PerfLogger perfLogger = PerfLogger.getPerfLogger();
-  protected static final Log LOG = LogFactory.getLog(SparkHashTableSinkOperator.class.getName());
+  private final transient PerfLogger perfLogger = SessionState.getPerfLogger();
+  protected static final Logger LOG = LoggerFactory.getLogger(SparkHashTableSinkOperator.class.getName());
+  private static final String MAPRED_FILE_REPLICATION = "mapreduce.client.submit.file.replication";
+  private static final int DEFAULT_REPLICATION = 10;
 
   private final HashTableSinkOperator htsOperator;
 
-  public SparkHashTableSinkOperator() {
-    htsOperator = new HashTableSinkOperator();
+  private short numReplication;
+
+  /** Kryo ctor. */
+  protected SparkHashTableSinkOperator() {
+    super();
+    htsOperator = null; // Kryo will set this; or so we hope.
+  }
+
+  public SparkHashTableSinkOperator(CompilationOpContext ctx) {
+    super(ctx);
+    htsOperator = new HashTableSinkOperator(ctx);
   }
 
   @Override
-  protected Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
-    Collection<Future<?>> result = super.initializeOp(hconf);
+  protected void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
     ObjectInspector[] inputOIs = new ObjectInspector[conf.getTagLength()];
     byte tag = conf.getTag();
     inputOIs[tag] = inputObjInspectors[0];
     conf.setTagOrder(new Byte[]{ tag });
+    numReplication = (short) hconf.getInt(MAPRED_FILE_REPLICATION, DEFAULT_REPLICATION);
     htsOperator.setConf(conf);
     htsOperator.initialize(hconf, inputOIs);
-    return result;
   }
 
   @Override
@@ -126,7 +136,6 @@ public class SparkHashTableSinkOperator
     String dumpFilePrefix = conf.getDumpFilePrefix();
     Path path = Utilities.generatePath(tmpURI, dumpFilePrefix, tag, fileName);
     FileSystem fs = path.getFileSystem(htsOperator.getConfiguration());
-    short replication = fs.getDefaultReplication(path);
 
     fs.mkdirs(path);  // Create the folder and its parents if not there
     while (true) {
@@ -141,19 +150,26 @@ public class SparkHashTableSinkOperator
         // No problem, use a new name
       }
     }
-    // TODO find out numOfPartitions for the big table
-    int numOfPartitions = replication;
-    replication = (short) Math.max(MIN_REPLICATION, numOfPartitions);
+
     htsOperator.console.printInfo(Utilities.now() + "\tDump the side-table for tag: " + tag
       + " with group count: " + tableContainer.size() + " into file: " + path);
-    // get the hashtable file and path
-    OutputStream os = null;
-    ObjectOutputStream out = null;
     try {
-      os = fs.create(path, replication);
-      out = new ObjectOutputStream(new BufferedOutputStream(os, 4096));
+      // get the hashtable file and path
+      OutputStream os = null;
+      ObjectOutputStream out = null;
       MapJoinTableContainerSerDe mapJoinTableSerde = htsOperator.mapJoinTableSerdes[tag];
-      mapJoinTableSerde.persist(out, tableContainer);
+      try {
+        os = fs.create(path, numReplication);
+        out = new ObjectOutputStream(new BufferedOutputStream(os, 4096));
+        mapJoinTableSerde.persist(out, tableContainer);
+      } finally {
+        if (out != null) {
+          out.close();
+        } else if (os != null) {
+          os.close();
+        }
+      }
+
       FileStatus status = fs.getFileStatus(path);
       htsOperator.console.printInfo(Utilities.now() + "\tUploaded 1 File to: " + path
         + " (" + status.getLen() + " bytes)");
@@ -166,12 +182,6 @@ public class SparkHashTableSinkOperator
           + tag + ", file " + path, ex);
       }
       throw e;
-    } finally {
-      if (out != null) {
-        out.close();
-      } else if (os != null) {
-        os.close();
-      }
     }
     tableContainer.clear();
   }
@@ -183,6 +193,10 @@ public class SparkHashTableSinkOperator
    */
   @Override
   public String getName() {
+    return SparkHashTableSinkOperator.getOperatorName();
+  }
+
+  public static String getOperatorName() {
     return HashTableSinkOperator.getOperatorName();
   }
 

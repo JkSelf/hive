@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -17,8 +17,9 @@
  */
 package org.apache.hadoop.hive.ql.exec;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.io.RCFile;
 import org.apache.hadoop.hive.ql.io.RCFileOutputFormat;
 import org.apache.hadoop.hive.ql.io.rcfile.merge.RCFileKeyBufferWrapper;
@@ -36,11 +37,21 @@ import java.io.IOException;
  */
 public class RCFileMergeOperator
     extends AbstractFileMergeOperator<RCFileMergeDesc> {
-  public final static Log LOG = LogFactory.getLog("RCFileMergeMapper");
+
+  public final static Logger LOG = LoggerFactory.getLogger("RCFileMergeMapper");
 
   RCFile.Writer outWriter;
   CompressionCodec codec = null;
   int columnNumber = 0;
+
+  /** Kryo ctor. */
+  protected RCFileMergeOperator() {
+    super();
+  }
+
+  public RCFileMergeOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
 
   @Override
   public void process(Object row, int tag) throws HiveException {
@@ -66,7 +77,7 @@ public class RCFileMergeOperator
         codec = key.getCodec();
         columnNumber = key.getKeyBuffer().getColumnNumber();
         RCFileOutputFormat.setColumnNumber(jc, columnNumber);
-        outWriter = new RCFile.Writer(fs, jc, outPath, null, codec);
+        outWriter = new RCFile.Writer(fs, jc, getOutPath(), null, codec);
       }
 
       boolean sameCodec = ((codec == key.getCodec()) || codec.getClass().equals(
@@ -83,7 +94,6 @@ public class RCFileMergeOperator
           key.getRecordLength(), key.getKeyLength(),
           key.getCompressedKeyLength());
     } catch (Throwable e) {
-      this.exception = true;
       closeOp(true);
       throw new HiveException(e);
     }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -174,7 +174,7 @@ public class HBaseRowSerializer {
           continue;
         }
 
-        put.add(colMap.familyNameBytes, columnQualifierBytes, bytes);
+        put.addColumn(colMap.familyNameBytes, columnQualifierBytes, bytes);
       }
     } else {
       byte[] bytes;
@@ -198,7 +198,7 @@ public class HBaseRowSerializer {
         return;
       }
 
-      put.add(colMap.familyNameBytes, colMap.qualifierNameBytes, bytes);
+      put.addColumn(colMap.familyNameBytes, colMap.qualifierNameBytes, bytes);
     }
   }
 
@@ -271,8 +271,11 @@ public class HBaseRowSerializer {
               ss.write(sep);
             }
             serialize(entry.getKey(), koi, level+2, ss);
-            ss.write(keyValueSeparator);
-            serialize(entry.getValue(), voi, level+2, ss);
+
+            if ( entry.getValue() != null) {
+              ss.write(keyValueSeparator);
+              serialize(entry.getValue(), voi, level+2, ss);
+            }
           }
         }
         return true;

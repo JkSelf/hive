@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,8 +20,12 @@
 package org.apache.hive.hcatalog.messaging;
 
 import org.apache.hadoop.hive.common.JavaUtils;
+import org.apache.hadoop.hive.common.classification.InterfaceAudience;
+import org.apache.hadoop.hive.common.classification.InterfaceStability;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.Database;
+import org.apache.hadoop.hive.metastore.api.Function;
+import org.apache.hadoop.hive.metastore.api.Index;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.util.ReflectionUtils;
@@ -34,9 +38,11 @@ import java.util.Map;
 /**
  * Abstract Factory for the construction of HCatalog message instances.
  */
+@InterfaceAudience.Public
+@InterfaceStability.Stable
 public abstract class MessageFactory {
 
-  private static MessageFactory instance = new JSONMessageFactory();
+  private static MessageFactory instance = null;
 
   protected static final HiveConf hiveConf = new HiveConf();
   static {
@@ -163,6 +169,42 @@ public abstract class MessageFactory {
   public abstract DropPartitionMessage buildDropPartitionMessage(Table table, Iterator<Partition> partitions);
 
   /**
+   * Factory method for CreateFunctionMessage.
+   * @param fn The Function being added.
+   * @return CreateFunctionMessage instance.
+   */
+  public abstract CreateFunctionMessage buildCreateFunctionMessage(Function fn);
+
+  /**
+   * Factory method for DropFunctionMessage.
+   * @param fn The Function being dropped.
+   * @return DropFunctionMessage instance.
+   */
+  public abstract DropFunctionMessage buildDropFunctionMessage(Function fn);
+
+  /**
+   * Factory method for CreateIndexMessage.
+   * @param idx The Index being added.
+   * @return CreateIndexMessage instance.
+   */
+  public abstract CreateIndexMessage buildCreateIndexMessage(Index idx);
+
+  /**
+   * Factory method for DropIndexMessage.
+   * @param idx The Index being dropped.
+   * @return DropIndexMessage instance.
+   */
+  public abstract DropIndexMessage buildDropIndexMessage(Index idx);
+
+  /**
+   * Factory method for AlterIndexMessage.
+   * @param before The index before the alter
+   * @param after The index after the alter
+   * @return AlterIndexMessage
+   */
+  public abstract AlterIndexMessage buildAlterIndexMessage(Index before, Index after);
+
+  /**
    * Factory method for building insert message
    * @param db Name of the database the insert occurred in
    * @param table Name of the table the insert occurred in
@@ -173,4 +215,16 @@ public abstract class MessageFactory {
    */
   public abstract InsertMessage buildInsertMessage(String db, String table,
                                                    Map<String,String> partVals, List<String> files);
+
+  /**
+   * Factory method for building insert message
+   * @param db Name of the database the insert occurred in
+   * @param table Table the insert occurred in
+   * @param partVals Partition values for the partition that the insert occurred in, may be null
+   *                 if the insert was done into a non-partitioned table
+   * @param files List of files created as a result of the insert, may be null.
+   * @return instance of InsertMessage
+   */
+  public abstract InsertMessage buildInsertMessage(String db, Table table,
+      Map<String,String> partVals, List<String> files);
 }

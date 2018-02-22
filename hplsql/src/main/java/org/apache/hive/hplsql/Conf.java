@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -57,7 +57,7 @@ public class Conf extends Configuration {
   InsertValues insertValues = InsertValues.NATIVE;
   TempTables tempTables = TempTables.NATIVE;
   
-  String dualTable = "default.dual";
+  String dualTable = null;
   
   String tempTablesSchema = "";
   String tempTablesLocation = "/tmp/hplsql";

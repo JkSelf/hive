@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,6 +20,10 @@ package org.apache.hadoop.hive.ql.udf.generic;
 
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedExpressions;
+import org.apache.hadoop.hive.ql.exec.vector.VectorizedExpressionsSupportDecimal64;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongColNotEqualLongColumn;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongColNotEqualLongScalar;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.LongScalarNotEqualLongColumn;
 import org.apache.hadoop.hive.ql.exec.vector.expressions.gen.*;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils;
@@ -34,35 +38,64 @@ import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils;
   DoubleColNotEqualLongScalar.class, DoubleColNotEqualDoubleScalar.class,
   LongScalarNotEqualLongColumn.class, LongScalarNotEqualDoubleColumn.class,
   DoubleScalarNotEqualLongColumn.class, DoubleScalarNotEqualDoubleColumn.class,
+
   StringGroupColNotEqualStringGroupColumn.class, FilterStringGroupColNotEqualStringGroupColumn.class,
   StringGroupColNotEqualStringScalar.class,
   StringGroupColNotEqualVarCharScalar.class, StringGroupColNotEqualCharScalar.class,
   StringScalarNotEqualStringGroupColumn.class,
-  VarCharScalarNotEqualStringGroupColumn.class, CharScalarNotEqualStringGroupColumn.class, 
+  VarCharScalarNotEqualStringGroupColumn.class, CharScalarNotEqualStringGroupColumn.class,
+
   FilterStringGroupColNotEqualStringScalar.class, FilterStringScalarNotEqualStringGroupColumn.class,
   FilterStringGroupColNotEqualVarCharScalar.class, FilterVarCharScalarNotEqualStringGroupColumn.class,
   FilterStringGroupColNotEqualCharScalar.class, FilterCharScalarNotEqualStringGroupColumn.class,
+
   FilterLongColNotEqualLongColumn.class, FilterLongColNotEqualDoubleColumn.class,
   FilterDoubleColNotEqualLongColumn.class, FilterDoubleColNotEqualDoubleColumn.class,
   FilterLongColNotEqualLongScalar.class, FilterLongColNotEqualDoubleScalar.class,
   FilterDoubleColNotEqualLongScalar.class, FilterDoubleColNotEqualDoubleScalar.class,
   FilterLongScalarNotEqualLongColumn.class, FilterLongScalarNotEqualDoubleColumn.class,
   FilterDoubleScalarNotEqualLongColumn.class, FilterDoubleScalarNotEqualDoubleColumn.class,
+
   FilterDecimalColNotEqualDecimalColumn.class, FilterDecimalColNotEqualDecimalScalar.class,
   FilterDecimalScalarNotEqualDecimalColumn.class,
+
+  FilterDecimal64ColNotEqualDecimal64Column.class, FilterDecimal64ColNotEqualDecimal64Scalar.class,
+  FilterDecimal64ScalarNotEqualDecimal64Column.class,
+
+  TimestampColNotEqualTimestampColumn.class,
   TimestampColNotEqualTimestampScalar.class, TimestampScalarNotEqualTimestampColumn.class,
+  TimestampColNotEqualLongColumn.class,
+  TimestampColNotEqualLongScalar.class, TimestampScalarNotEqualLongColumn.class,
+  TimestampColNotEqualDoubleColumn.class,
+  TimestampColNotEqualDoubleScalar.class, TimestampScalarNotEqualDoubleColumn.class,
+  LongColNotEqualTimestampColumn.class,
+  LongColNotEqualTimestampScalar.class, LongScalarNotEqualTimestampColumn.class,
+  DoubleColNotEqualTimestampColumn.class,
+  DoubleColNotEqualTimestampScalar.class, DoubleScalarNotEqualTimestampColumn.class,
+
+  FilterTimestampColNotEqualTimestampColumn.class,
   FilterTimestampColNotEqualTimestampScalar.class, FilterTimestampScalarNotEqualTimestampColumn.class,
-  TimestampColNotEqualLongScalar.class, LongScalarNotEqualTimestampColumn.class,
-  FilterTimestampColNotEqualLongScalar.class, FilterLongScalarNotEqualTimestampColumn.class,
-  TimestampColNotEqualDoubleScalar.class, DoubleScalarNotEqualTimestampColumn.class,
-  FilterTimestampColNotEqualDoubleScalar.class, FilterDoubleScalarNotEqualTimestampColumn.class,
+  FilterTimestampColNotEqualLongColumn.class,
+  FilterTimestampColNotEqualLongScalar.class, FilterTimestampScalarNotEqualLongColumn.class,
+  FilterTimestampColNotEqualDoubleColumn.class,
+  FilterTimestampColNotEqualDoubleScalar.class, FilterTimestampScalarNotEqualDoubleColumn.class,
+  FilterLongColNotEqualTimestampColumn.class,
+  FilterLongColNotEqualTimestampScalar.class, FilterLongScalarNotEqualTimestampColumn.class,
+  FilterDoubleColNotEqualTimestampColumn.class,
+  FilterDoubleColNotEqualTimestampScalar.class, FilterDoubleScalarNotEqualTimestampColumn.class,
+
   IntervalYearMonthScalarNotEqualIntervalYearMonthColumn.class, FilterIntervalYearMonthScalarNotEqualIntervalYearMonthColumn.class,
   IntervalYearMonthColNotEqualIntervalYearMonthScalar.class, FilterIntervalYearMonthColNotEqualIntervalYearMonthScalar.class,
+
+  IntervalDayTimeColNotEqualIntervalDayTimeColumn.class, FilterIntervalDayTimeColNotEqualIntervalDayTimeColumn.class,
   IntervalDayTimeScalarNotEqualIntervalDayTimeColumn.class, FilterIntervalDayTimeScalarNotEqualIntervalDayTimeColumn.class,
   IntervalDayTimeColNotEqualIntervalDayTimeScalar.class, FilterIntervalDayTimeColNotEqualIntervalDayTimeScalar.class,
+
   DateColNotEqualDateScalar.class,FilterDateColNotEqualDateScalar.class,
   DateScalarNotEqualDateColumn.class,FilterDateScalarNotEqualDateColumn.class,
   })
+@VectorizedExpressionsSupportDecimal64()
+@NDV(maxNdv = 2)
 public class GenericUDFOPNotEqual extends GenericUDFBaseCompare {
   public GenericUDFOPNotEqual(){
     this.opName = "NOT EQUAL";

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,15 +18,42 @@
 
 package org.apache.hadoop.hive.ql.exec.vector.mapjoin.fast;
 
+import java.io.IOException;
+
+import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.io.BytesWritable;
+
+import com.google.common.annotations.VisibleForTesting;
+
 /*
- * An multi-key value hash multi-set optimized for vector map join.
+ * An multi-key hash multi-set optimized for vector map join.
+ *
+ * The key is stored as the provided bytes (uninterpreted).
  */
 public class VectorMapJoinFastMultiKeyHashMultiSet
         extends VectorMapJoinFastBytesHashMultiSet {
 
+  /*
+   * A Unit Test convenience method for putting the key into the hash table using the
+   * actual type.
+   */
+  @VisibleForTesting
+  public void testPutRow(byte[] currentKey) throws HiveException, IOException {
+    if (testKeyBytesWritable == null) {
+      testKeyBytesWritable = new BytesWritable();
+    }
+    testKeyBytesWritable.set(currentKey, 0, currentKey.length);
+    putRow(testKeyBytesWritable, null);
+  }
+
   public VectorMapJoinFastMultiKeyHashMultiSet(
         boolean isOuterJoin,
-        int initialCapacity, float loadFactor, int writeBuffersSize) {
-    super(initialCapacity, loadFactor, writeBuffersSize);
+        int initialCapacity, float loadFactor, int writeBuffersSize, long estimatedKeyCount) {
+    super(initialCapacity, loadFactor, writeBuffersSize, estimatedKeyCount);
+  }
+
+  @Override
+  public long getEstimatedMemorySize() {
+    return super.getEstimatedMemorySize();
   }
 }

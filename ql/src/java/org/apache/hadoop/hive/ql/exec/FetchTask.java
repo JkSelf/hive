@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -22,13 +22,14 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.List;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.ql.CommandNeedRetryException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.DriverContext;
 import org.apache.hadoop.hive.ql.QueryPlan;
+import org.apache.hadoop.hive.ql.QueryState;
 import org.apache.hadoop.hive.ql.exec.mr.ExecMapper;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.hive.ql.io.HiveInputFormat;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.VirtualColumn;
@@ -39,29 +40,30 @@ import org.apache.hadoop.hive.ql.plan.api.StageType;
 import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.mapred.JobConf;
-import org.apache.hadoop.util.StringUtils;
 
 /**
  * FetchTask implementation.
  **/
 public class FetchTask extends Task<FetchWork> implements Serializable {
   private static final long serialVersionUID = 1L;
-
   private int maxRows = 100;
   private FetchOperator fetch;
   private ListSinkOperator sink;
   private int totalRows;
-
-  private static transient final Log LOG = LogFactory.getLog(FetchTask.class);
+  private static transient final Logger LOG = LoggerFactory.getLogger(FetchTask.class);
 
   public FetchTask() {
     super();
   }
 
+  public void setValidTxnList(String txnStr) {
+    fetch.setValidTxnList(txnStr);
+  }
   @Override
-  public void initialize(HiveConf conf, QueryPlan queryPlan, DriverContext ctx) {
-    super.initialize(conf, queryPlan, ctx);
-    work.initializeForFetch();
+  public void initialize(QueryState queryState, QueryPlan queryPlan, DriverContext ctx,
+      CompilationOpContext opContext) {
+    super.initialize(queryState, queryPlan, ctx, opContext);
+    work.initializeForFetch(opContext);
 
     try {
       // Create a file system handle
@@ -72,9 +74,12 @@ public class FetchTask extends Task<FetchWork> implements Serializable {
         TableScanOperator ts = (TableScanOperator) source;
         // push down projections
         ColumnProjectionUtils.appendReadColumns(
-            job, ts.getNeededColumnIDs(), ts.getNeededColumns());
+            job, ts.getNeededColumnIDs(), ts.getNeededColumns(), ts.getNeededNestedColumnPaths());
         // push down filters
-        HiveInputFormat.pushFilters(job, ts);
+        HiveInputFormat.pushFilters(job, ts, null);
+
+        AcidUtils.setAcidOperationalProperties(job, ts.getConf().isTranscationalTable(),
+            ts.getConf().getAcidOperationalProperties());
       }
       sink = work.getSink();
       fetch = new FetchOperator(work, job, source, getVirtualColumns(source));
@@ -85,7 +90,7 @@ public class FetchTask extends Task<FetchWork> implements Serializable {
     } catch (Exception e) {
       // Bail out ungracefully - we should never hit
       // this here - but would have hit it in SemanticAnalyzer
-      LOG.error(StringUtils.stringifyException(e));
+      LOG.error("Initialize failed", e);
       throw new RuntimeException(e);
     }
   }
@@ -124,7 +129,7 @@ public class FetchTask extends Task<FetchWork> implements Serializable {
     this.maxRows = maxRows;
   }
 
-  public boolean fetch(List res) throws IOException, CommandNeedRetryException {
+  public boolean fetch(List res) throws IOException {
     sink.reset(res);
     int rowsRet = work.getLeastNumRows();
     if (rowsRet <= 0) {
@@ -139,15 +144,17 @@ public class FetchTask extends Task<FetchWork> implements Serializable {
       while (sink.getNumRows() < rowsRet) {
         if (!fetch.pushRow()) {
           if (work.getLeastNumRows() > 0) {
-            throw new CommandNeedRetryException();
+            throw new HiveException("leastNumRows check failed");
           }
+
+          // Closing the operator can sometimes yield more rows (HIVE-11892)
+          fetch.closeOperator();
+
           return fetched;
         }
         fetched = true;
       }
       return true;
-    } catch (CommandNeedRetryException e) {
-      throw e;
     } catch (IOException e) {
       throw e;
     } catch (Exception e) {
@@ -180,5 +187,10 @@ public class FetchTask extends Task<FetchWork> implements Serializable {
     if (fetch != null) {
       fetch.clearFetchContext();
     }
+  }
+
+  @Override
+  public boolean canExecuteInParallel() {
+    return false;
   }
 }

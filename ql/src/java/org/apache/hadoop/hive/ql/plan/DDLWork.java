@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,6 +23,7 @@ import java.util.HashSet;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.parse.AlterTablePartMergeFilesDesc;
+import org.apache.hadoop.hive.ql.parse.PreInsertTableDesc;
 import org.apache.hadoop.hive.ql.plan.Explain.Level;
 
 /**
@@ -31,9 +32,11 @@ import org.apache.hadoop.hive.ql.plan.Explain.Level;
  */
 public class DDLWork implements Serializable {
   private static final long serialVersionUID = 1L;
-  private CreateIndexDesc createIndexDesc;
-  private AlterIndexDesc alterIndexDesc;
-  private DropIndexDesc dropIdxDesc;
+
+  // TODO: this can probably be replaced with much less code via dynamic dispatch and/or templates.
+  private PreInsertTableDesc preInsertTableDesc;
+  private InsertTableDesc insertTableDesc;
+  private AlterMaterializedViewDesc alterMVDesc;
   private CreateDatabaseDesc createDatabaseDesc;
   private SwitchDatabaseDesc switchDatabaseDesc;
   private DropDatabaseDesc dropDatabaseDesc;
@@ -44,7 +47,6 @@ public class DDLWork implements Serializable {
   private CreateViewDesc createVwDesc;
   private DropTableDesc dropTblDesc;
   private AlterTableDesc alterTblDesc;
-  private AlterIndexDesc alterIdxDesc;
   private ShowDatabasesDesc showDatabasesDesc;
   private ShowTablesDesc showTblsDesc;
   private ShowColumnsDesc showColumnsDesc;
@@ -55,8 +57,10 @@ public class DDLWork implements Serializable {
   private ShowLocksDesc showLocksDesc;
   private ShowCompactionsDesc showCompactionsDesc;
   private ShowTxnsDesc showTxnsDesc;
+  private AbortTxnsDesc abortTxnsDesc;
   private DescFunctionDesc descFunctionDesc;
   private ShowPartitionsDesc showPartsDesc;
+  private ShowCreateDatabaseDesc showCreateDbDesc;
   private ShowCreateTableDesc showCreateTblDesc;
   private DescTableDesc descTblDesc;
   private AddPartitionDesc addPartitionDesc;
@@ -64,12 +68,12 @@ public class DDLWork implements Serializable {
   private AlterTableSimpleDesc alterTblSimpleDesc;
   private MsckDesc msckDesc;
   private ShowTableStatusDesc showTblStatusDesc;
-  private ShowIndexesDesc showIndexesDesc;
   private DescDatabaseDesc descDbDesc;
   private AlterDatabaseDesc alterDbDesc;
   private AlterTableAlterPartDesc alterTableAlterPartDesc;
   private TruncateTableDesc truncateTblDesc;
   private AlterTableExchangePartition alterTableExchangePartition;
+  private KillQueryDesc killQueryDesc;
 
   private RoleDDLDesc roleDDLDesc;
   private GrantDesc grantDesc;
@@ -78,6 +82,23 @@ public class DDLWork implements Serializable {
   private GrantRevokeRoleDDL grantRevokeRoleDDL;
 
   private ShowConfDesc showConfDesc;
+
+  private CreateResourcePlanDesc createResourcePlanDesc;
+  private ShowResourcePlanDesc showResourcePlanDesc;
+  private DropResourcePlanDesc dropResourcePlanDesc;
+  private AlterResourcePlanDesc alterResourcePlanDesc;
+
+  private CreateWMTriggerDesc createWMTriggerDesc;
+  private AlterWMTriggerDesc alterWMTriggerDesc;
+  private DropWMTriggerDesc dropWMTriggerDesc;
+
+  private CreateOrAlterWMPoolDesc wmPoolDesc;
+  private DropWMPoolDesc dropWMPoolDesc;
+
+  private CreateOrAlterWMMappingDesc wmMappingDesc;
+  private DropWMMappingDesc dropWMMappingDesc;
+
+  private CreateOrDropTriggerToPoolMappingDesc triggerToPoolMappingDesc;
 
   boolean needLock = false;
 
@@ -90,6 +111,7 @@ public class DDLWork implements Serializable {
    */
   protected HashSet<WriteEntity> outputs;
   private AlterTablePartMergeFilesDesc mergeFilesDesc;
+  private CacheMetadataDesc cacheMetadataDesc;
 
   public DDLWork() {
   }
@@ -97,16 +119,6 @@ public class DDLWork implements Serializable {
   public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs) {
     this.inputs = inputs;
     this.outputs = outputs;
-  }
-
-  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
-      CreateIndexDesc createIndex) {
-    this(inputs, outputs);
-    this.createIndexDesc = createIndex;
-  }
-
-  public DDLWork(AlterIndexDesc alterIndex) {
-    this.alterIndexDesc = alterIndex;
   }
 
   /**
@@ -183,13 +195,13 @@ public class DDLWork implements Serializable {
   }
 
   /**
-   * @param alterIdxDesc
-   *          alter index descriptor
+   * @param alterMVDesc
+   *          alter materialized view descriptor
    */
   public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
-      AlterIndexDesc alterIdxDesc) {
+      AlterMaterializedViewDesc alterMVDesc) {
     this(inputs, outputs);
-    this.alterIdxDesc = alterIdxDesc;
+    this.alterMVDesc = alterMVDesc;
   }
 
   /**
@@ -346,6 +358,12 @@ public class DDLWork implements Serializable {
     this.showTxnsDesc = showTxnsDesc;
   }
 
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+                 AbortTxnsDesc abortTxnsDesc) {
+    this(inputs, outputs);
+    this.abortTxnsDesc = abortTxnsDesc;
+  }
+
    /**
    * @param descFuncDesc
    */
@@ -364,6 +382,16 @@ public class DDLWork implements Serializable {
     this(inputs, outputs);
 
     this.showPartsDesc = showPartsDesc;
+  }
+
+  /**
+   * @param showCreateDbDesc
+   */
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      ShowCreateDatabaseDesc showCreateDbDesc) {
+    this(inputs, outputs);
+
+    this.showCreateDbDesc = showCreateDbDesc;
   }
 
   /**
@@ -440,12 +468,6 @@ public class DDLWork implements Serializable {
   }
 
   public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
-      DropIndexDesc dropIndexDesc) {
-    this(inputs, outputs);
-    this.dropIdxDesc = dropIndexDesc;
-  }
-
-  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
       RoleDDLDesc roleDDLDesc) {
     this(inputs, outputs);
     this.roleDDLDesc = roleDDLDesc;
@@ -476,12 +498,6 @@ public class DDLWork implements Serializable {
   }
 
   public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
-      ShowIndexesDesc showIndexesDesc) {
-    this(inputs, outputs);
-    this.showIndexesDesc = showIndexesDesc;
-  }
-
-  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
       AlterTablePartMergeFilesDesc mergeDesc) {
     this(inputs, outputs);
     this.mergeFilesDesc = mergeDesc;
@@ -499,7 +515,103 @@ public class DDLWork implements Serializable {
     this.alterTableExchangePartition = alterTableExchangePartition;
   }
 
-    /**
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      CacheMetadataDesc cacheMetadataDesc) {
+    this(inputs, outputs);
+    this.cacheMetadataDesc = cacheMetadataDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+          InsertTableDesc insertTableDesc) {
+    this(inputs, outputs);
+    this.insertTableDesc = insertTableDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+          PreInsertTableDesc preInsertTableDesc) {
+    this(inputs, outputs);
+    this.preInsertTableDesc = preInsertTableDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+                 KillQueryDesc killQueryDesc) {
+    this(inputs, outputs);
+    this.killQueryDesc = killQueryDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      CreateResourcePlanDesc createResourcePlanDesc) {
+    this(inputs, outputs);
+    this.createResourcePlanDesc = createResourcePlanDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      ShowResourcePlanDesc showResourcePlanDesc) {
+    this(inputs, outputs);
+    this.showResourcePlanDesc = showResourcePlanDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      DropResourcePlanDesc dropResourcePlanDesc) {
+    this(inputs, outputs);
+    this.dropResourcePlanDesc = dropResourcePlanDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      AlterResourcePlanDesc alterResourcePlanDesc) {
+    this(inputs, outputs);
+    this.alterResourcePlanDesc = alterResourcePlanDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      CreateWMTriggerDesc createWMTriggerDesc) {
+    this(inputs, outputs);
+    this.createWMTriggerDesc = createWMTriggerDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      AlterWMTriggerDesc alterWMTriggerDesc) {
+    this(inputs, outputs);
+    this.alterWMTriggerDesc = alterWMTriggerDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      DropWMTriggerDesc dropWMTriggerDesc) {
+    this(inputs, outputs);
+    this.dropWMTriggerDesc = dropWMTriggerDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      CreateOrAlterWMPoolDesc wmPoolDesc) {
+    this(inputs, outputs);
+    this.wmPoolDesc = wmPoolDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      DropWMPoolDesc dropWMPoolDesc) {
+    this(inputs, outputs);
+    this.dropWMPoolDesc = dropWMPoolDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      CreateOrAlterWMMappingDesc wmMappingDesc) {
+    this(inputs, outputs);
+    this.wmMappingDesc = wmMappingDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      DropWMMappingDesc dropWMMappingDesc) {
+    this(inputs, outputs);
+    this.dropWMMappingDesc = dropWMMappingDesc;
+  }
+
+  public DDLWork(HashSet<ReadEntity> inputs, HashSet<WriteEntity> outputs,
+      CreateOrDropTriggerToPoolMappingDesc triggerToPoolMappingDesc) {
+    this(inputs, outputs);
+    this.triggerToPoolMappingDesc = triggerToPoolMappingDesc;
+  }
+
+  /**
    * @return Create Database descriptor
    */
   public CreateDatabaseDesc getCreateDatabaseDesc() {
@@ -577,36 +689,6 @@ public class DDLWork implements Serializable {
   }
 
   /**
-   * @return the createIndexDesc
-   */
-  public CreateIndexDesc getCreateIndexDesc() {
-    return createIndexDesc;
-  }
-
-  /**
-   * @param createIndexDesc
-   *          the createIndexDesc to set
-   */
-  public void setCreateIndexDesc(CreateIndexDesc createIndexDesc) {
-    this.createIndexDesc = createIndexDesc;
-  }
-
-  /**
-   * @return the alterIndexDesc
-   */
-  public AlterIndexDesc getAlterIndexDesc() {
-    return alterIndexDesc;
-  }
-
-  /**
-   * @param alterIndexDesc
-   *          the alterIndexDesc to set
-   */
-  public void setAlterIndexDesc(AlterIndexDesc alterIndexDesc) {
-    this.alterIndexDesc = alterIndexDesc;
-  }
-
-  /**
    * @return the createTblDesc
    */
   @Explain(displayName = "Create Table Operator", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
@@ -668,6 +750,22 @@ public class DDLWork implements Serializable {
    */
   public void setAlterTblDesc(AlterTableDesc alterTblDesc) {
     this.alterTblDesc = alterTblDesc;
+  }
+
+  /**
+   * @return the alterMVDesc
+   */
+  @Explain(displayName = "Alter Materialized View Operator", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public AlterMaterializedViewDesc getAlterMaterializedViewDesc() {
+    return alterMVDesc;
+  }
+
+  /**
+   * @param alterMVDesc
+   *          the alterMVDesc to set
+   */
+  public void setAlterMVDesc(AlterMaterializedViewDesc alterMVDesc) {
+    this.alterMVDesc = alterMVDesc;
   }
 
   /**
@@ -744,6 +842,11 @@ public class DDLWork implements Serializable {
     return showTxnsDesc;
   }
 
+  @Explain(displayName = "Abort Transactions Operator", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public AbortTxnsDesc getAbortTxnsDesc() {
+    return abortTxnsDesc;
+  }
+
   /**
    * @return the lockTblDesc
    */
@@ -768,6 +871,11 @@ public class DDLWork implements Serializable {
     return descFunctionDesc;
   }
 
+  @Explain(displayName = "Kill Query Operator", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public KillQueryDesc getKillQueryDesc() {
+    return killQueryDesc;
+  }
+
   /**
    * @param showFuncsDesc
    *          the showFuncsDesc to set
@@ -790,6 +898,14 @@ public class DDLWork implements Serializable {
 
   public void setShowTxnsDesc(ShowTxnsDesc showTxnsDesc) {
     this.showTxnsDesc = showTxnsDesc;
+  }
+
+  public void setAbortTxnsDesc(AbortTxnsDesc abortTxnsDesc) {
+    this.abortTxnsDesc = abortTxnsDesc;
+  }
+
+  public void setKillQueryDesc(KillQueryDesc killQueryDesc) {
+    this.killQueryDesc = killQueryDesc;
   }
 
   /**
@@ -832,6 +948,16 @@ public class DDLWork implements Serializable {
     this.showPartsDesc = showPartsDesc;
   }
 
+  @Explain(displayName = "Show Create Database Operator",
+      explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public ShowCreateDatabaseDesc getShowCreateDbDesc() {
+    return showCreateDbDesc;
+  }
+
+  public void setShowCreateDbDesc(ShowCreateDatabaseDesc showCreateDbDesc) {
+    this.showCreateDbDesc = showCreateDbDesc;
+  }
+
   /**
    * @return the showCreateTblDesc
    */
@@ -846,18 +972,6 @@ public class DDLWork implements Serializable {
    */
   public void setShowCreateTblDesc(ShowCreateTableDesc showCreateTblDesc) {
     this.showCreateTblDesc = showCreateTblDesc;
-  }
-
-  /**
-   * @return the showIndexesDesc
-   */
-  @Explain(displayName = "Show Index Operator", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
-  public ShowIndexesDesc getShowIndexesDesc() {
-    return showIndexesDesc;
-  }
-
-  public void setShowIndexesDesc(ShowIndexesDesc showIndexesDesc) {
-    this.showIndexesDesc = showIndexesDesc;
   }
 
   /**
@@ -960,14 +1074,6 @@ public class DDLWork implements Serializable {
     this.showTblPropertiesDesc = showTblPropertiesDesc;
   }
 
-  public CreateViewDesc getCreateVwDesc() {
-    return createVwDesc;
-  }
-
-  public void setCreateVwDesc(CreateViewDesc createVwDesc) {
-    this.createVwDesc = createVwDesc;
-  }
-
   public void setDescFunctionDesc(DescFunctionDesc descFunctionDesc) {
     this.descFunctionDesc = descFunctionDesc;
   }
@@ -986,14 +1092,6 @@ public class DDLWork implements Serializable {
 
   public void setOutputs(HashSet<WriteEntity> outputs) {
     this.outputs = outputs;
-  }
-
-  public DropIndexDesc getDropIdxDesc() {
-    return dropIdxDesc;
-  }
-
-  public void setDropIdxDesc(DropIndexDesc dropIdxDesc) {
-    this.dropIdxDesc = dropIdxDesc;
   }
 
   /**
@@ -1119,6 +1217,13 @@ public class DDLWork implements Serializable {
   }
 
   /**
+   * @return information about the metadata to be cached
+   */
+  public CacheMetadataDesc getCacheMetadataDesc() {
+    return this.cacheMetadataDesc;
+  }
+
+  /**
    * @param alterTableExchangePartition
    *          set the value of the table partition to be exchanged
    */
@@ -1133,5 +1238,121 @@ public class DDLWork implements Serializable {
 
   public void setShowConfDesc(ShowConfDesc showConfDesc) {
     this.showConfDesc = showConfDesc;
+  }
+
+  @Explain(displayName = "Insert operator", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public InsertTableDesc getInsertTableDesc() {
+    return insertTableDesc;
+  }
+
+  public void setInsertTableDesc(InsertTableDesc insertTableDesc) {
+    this.insertTableDesc = insertTableDesc;
+  }
+
+  @Explain(displayName = "Pre Insert operator", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  public PreInsertTableDesc getPreInsertTableDesc() {
+    return preInsertTableDesc;
+  }
+
+  public void setPreInsertTableDesc(PreInsertTableDesc preInsertTableDesc) {
+    this.preInsertTableDesc = preInsertTableDesc;
+  }
+
+  @Explain(displayName = "Create resource plan")
+  public CreateResourcePlanDesc getCreateResourcePlanDesc() {
+    return createResourcePlanDesc;
+  }
+
+  public void setCreateResourcePlanDesc(CreateResourcePlanDesc createResourcePlanDesc) {
+    this.createResourcePlanDesc = createResourcePlanDesc;
+  }
+
+  @Explain(displayName = "Show resource plan")
+  public ShowResourcePlanDesc getShowResourcePlanDesc() {
+    return showResourcePlanDesc;
+  }
+
+  public void setShowResourcePlanDesc(ShowResourcePlanDesc showResourcePlanDesc) {
+    this.showResourcePlanDesc = showResourcePlanDesc;
+  }
+
+  public DropResourcePlanDesc getDropResourcePlanDesc() {
+    return dropResourcePlanDesc;
+  }
+
+  public void setDropResourcePlanDesc(DropResourcePlanDesc dropResourcePlanDesc) {
+    this.dropResourcePlanDesc = dropResourcePlanDesc;
+  }
+
+  public AlterResourcePlanDesc getAlterResourcePlanDesc() {
+    return alterResourcePlanDesc;
+  }
+
+  public void setAlterResourcePlanDesc(AlterResourcePlanDesc alterResourcePlanDesc) {
+    this.alterResourcePlanDesc = alterResourcePlanDesc;
+  }
+
+  public CreateWMTriggerDesc getCreateWMTriggerDesc() {
+    return createWMTriggerDesc;
+  }
+
+  public void setCreateWMTriggerDesc(CreateWMTriggerDesc createWMTriggerDesc) {
+    this.createWMTriggerDesc = createWMTriggerDesc;
+  }
+
+  public AlterWMTriggerDesc getAlterWMTriggerDesc() {
+    return alterWMTriggerDesc;
+  }
+
+  public void setAlterWMTriggerDesc(AlterWMTriggerDesc alterWMTriggerDesc) {
+    this.alterWMTriggerDesc = alterWMTriggerDesc;
+  }
+
+  public DropWMTriggerDesc getDropWMTriggerDesc() {
+    return dropWMTriggerDesc;
+  }
+
+  public void setDropWMTriggerDesc(DropWMTriggerDesc dropWMTriggerDesc) {
+    this.dropWMTriggerDesc = dropWMTriggerDesc;
+  }
+
+  public CreateOrAlterWMPoolDesc getWmPoolDesc() {
+    return wmPoolDesc;
+  }
+
+  public void setWmPoolDesc(CreateOrAlterWMPoolDesc wmPoolDesc) {
+    this.wmPoolDesc = wmPoolDesc;
+  }
+
+  public DropWMPoolDesc getDropWMPoolDesc() {
+    return dropWMPoolDesc;
+  }
+
+  public void setDropWMPoolDesc(DropWMPoolDesc dropWMPoolDesc) {
+    this.dropWMPoolDesc = dropWMPoolDesc;
+  }
+
+  public CreateOrAlterWMMappingDesc getWmMappingDesc() {
+    return wmMappingDesc;
+  }
+
+  public void setWmMappingDesc(CreateOrAlterWMMappingDesc wmMappingDesc) {
+    this.wmMappingDesc = wmMappingDesc;
+  }
+
+  public DropWMMappingDesc getDropWMMappingDesc() {
+    return dropWMMappingDesc;
+  }
+
+  public void setDropWMMappingDesc(DropWMMappingDesc dropWMMappingDesc) {
+    this.dropWMMappingDesc = dropWMMappingDesc;
+  }
+
+  public CreateOrDropTriggerToPoolMappingDesc getTriggerToPoolMappingDesc() {
+    return triggerToPoolMappingDesc;
+  }
+
+  public void setTriggerToPoolMappingDesc(CreateOrDropTriggerToPoolMappingDesc triggerToPoolMappingDesc) {
+    this.triggerToPoolMappingDesc = triggerToPoolMappingDesc;
   }
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -36,8 +36,8 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Random;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
@@ -59,9 +59,9 @@ import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.ObjectInspectorCopyOption;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
-import org.apache.hadoop.hive.shims.ShimLoader;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.compress.CompressionCodec;
@@ -71,6 +71,7 @@ import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
+import org.apache.hive.common.util.HiveTestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -81,7 +82,7 @@ import org.junit.Test;
  */
 public class TestRCFile {
 
-  private static final Log LOG = LogFactory.getLog(TestRCFile.class);
+  private static final Logger LOG = LoggerFactory.getLogger(TestRCFile.class);
 
   private Configuration conf;
   private ColumnarSerDe serDe;
@@ -101,7 +102,7 @@ public class TestRCFile {
   private final BytesRefArrayWritable patialS = new BytesRefArrayWritable();
   private byte[][] bytesArray;
   private BytesRefArrayWritable s;
-
+  private int numRepeat = 1000;
   @Before
   public void setup() throws Exception {
     conf = new Configuration();
@@ -142,6 +143,8 @@ public class TestRCFile {
       patialS.set(6, new BytesRefWritable("NULL".getBytes("UTF-8")));
       // LazyString has no so-called NULL sequence. The value is empty string if not.
       patialS.set(7, new BytesRefWritable("".getBytes("UTF-8")));
+
+      numRepeat = (int) Math.ceil((double)SequenceFile.SYNC_INTERVAL / (double)bytesArray.length);
 
     } catch (UnsupportedEncodingException e) {
       throw new RuntimeException(e);
@@ -392,7 +395,7 @@ public class TestRCFile {
     String[] row = new String[]{"Tester", "Bart", "333 X St.", "Reno", "NV",
                                 "USA"};
     RCFile.Reader reader =
-      new RCFile.Reader(fs, new Path("src/test/data/rc-file-v0.rc"), conf);
+      new RCFile.Reader(fs, new Path(HiveTestUtils.getFileFromClasspath("rc-file-v0.rc")), conf);
     LongWritable rowID = new LongWritable();
     BytesRefArrayWritable cols = new BytesRefArrayWritable();
     assertTrue("old file reader first row", reader.next(rowID));
@@ -642,9 +645,7 @@ public class TestRCFile {
     RCFileInputFormat inputFormat = new RCFileInputFormat();
     JobConf jobconf = new JobConf(cloneConf);
     jobconf.set("mapred.input.dir", testDir.toString());
-    jobconf.setLong(
-        ShimLoader.getHadoopShims().getHadoopConfNames().get("MAPREDMINSPLITSIZE"),
-        fileLen);
+    HiveConf.setLongVar(jobconf, HiveConf.ConfVars.MAPREDMINSPLITSIZE, fileLen);
     InputSplit[] splits = inputFormat.getSplits(jobconf, 1);
     RCFileRecordReader rr = new RCFileRecordReader(jobconf, (FileSplit)splits[0]);
     long lastSync = 0;
@@ -661,24 +662,24 @@ public class TestRCFile {
   }
 
   private void splitBeforeSync() throws IOException {
-    writeThenReadByRecordReader(600, 1000, 2, 1, null);
+    writeThenReadByRecordReader(600, numRepeat, 2, 1, null);
   }
 
   private void splitRightBeforeSync() throws IOException {
-    writeThenReadByRecordReader(500, 1000, 2, 17750, null);
+    writeThenReadByRecordReader(500, numRepeat, 2, 17750, null);
   }
 
   private void splitInMiddleOfSync() throws IOException {
-    writeThenReadByRecordReader(500, 1000, 2, 17760, null);
+    writeThenReadByRecordReader(500, numRepeat, 2, 17760, null);
 
   }
 
   private void splitRightAfterSync() throws IOException {
-    writeThenReadByRecordReader(500, 1000, 2, 17770, null);
+    writeThenReadByRecordReader(500, numRepeat, 2, 17770, null);
   }
 
   private void splitAfterSync() throws IOException {
-    writeThenReadByRecordReader(500, 1000, 2, 19950, null);
+    writeThenReadByRecordReader(500, numRepeat, 2, 19950, null);
   }
 
   private void writeThenReadByRecordReader(int intervalRecordCount,
@@ -711,11 +712,9 @@ public class TestRCFile {
     RCFileInputFormat inputFormat = new RCFileInputFormat();
     JobConf jonconf = new JobConf(cloneConf);
     jonconf.set("mapred.input.dir", testDir.toString());
-    jonconf.setLong(
-        ShimLoader.getHadoopShims().getHadoopConfNames().get("MAPREDMINSPLITSIZE"),
-        minSplitSize);
+    HiveConf.setLongVar(jonconf, HiveConf.ConfVars.MAPREDMINSPLITSIZE, minSplitSize);
     InputSplit[] splits = inputFormat.getSplits(jonconf, splitNumber);
-    assertEquals("splits length should be " + splitNumber, splits.length, splitNumber);
+    assertEquals("splits length should be " + splitNumber, splitNumber, splits.length);
     int readCount = 0;
     for (int i = 0; i < splits.length; i++) {
       int previousReadCount = readCount;

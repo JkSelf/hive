@@ -31,6 +31,9 @@ import org.apache.hadoop.hive.conf.HiveConf;
   }
   
   protected boolean allowQuotedId() {
+    if(hiveConf == null){
+      return false;
+    }
     String supportedQIds = HiveConf.getVar(hiveConf, HiveConf.ConfVars.HIVE_QUOTEDID_SUPPORT);
     return !"none".equals(supportedQIds);
   }
@@ -46,12 +49,15 @@ KW_AND : 'AND';
 KW_OR : 'OR';
 KW_NOT : 'NOT' | '!';
 KW_LIKE : 'LIKE';
+KW_ANY : 'ANY';
 
 KW_IF : 'IF';
 KW_EXISTS : 'EXISTS';
 
 KW_ASC : 'ASC';
 KW_DESC : 'DESC';
+KW_NULLS : 'NULLS';
+KW_LAST : 'LAST';
 KW_ORDER : 'ORDER';
 KW_GROUP : 'GROUP';
 KW_BY : 'BY';
@@ -91,6 +97,7 @@ KW_CLUSTER: 'CLUSTER';
 KW_DISTRIBUTE: 'DISTRIBUTE';
 KW_SORT: 'SORT';
 KW_UNION: 'UNION';
+KW_EXCEPT: 'EXCEPT';
 KW_LOAD: 'LOAD';
 KW_EXPORT: 'EXPORT';
 KW_IMPORT: 'IMPORT';
@@ -115,15 +122,19 @@ KW_COMMENT: 'COMMENT';
 KW_BOOLEAN: 'BOOLEAN';
 KW_TINYINT: 'TINYINT';
 KW_SMALLINT: 'SMALLINT';
-KW_INT: 'INT';
+KW_INT: 'INT' | 'INTEGER';
 KW_BIGINT: 'BIGINT';
 KW_FLOAT: 'FLOAT';
 KW_DOUBLE: 'DOUBLE';
+KW_PRECISION: 'PRECISION';
 KW_DATE: 'DATE';
 KW_DATETIME: 'DATETIME';
 KW_TIMESTAMP: 'TIMESTAMP';
+KW_TIMESTAMPLOCALTZ: 'TIMESTAMPLOCALTZ';
+KW_TIME: 'TIME';
+KW_ZONE: 'ZONE';
 KW_INTERVAL: 'INTERVAL';
-KW_DECIMAL: 'DECIMAL';
+KW_DECIMAL: 'DECIMAL' | 'DEC' | 'NUMERIC';
 KW_STRING: 'STRING';
 KW_CHAR: 'CHAR';
 KW_VARCHAR: 'VARCHAR';
@@ -148,6 +159,7 @@ KW_COLLECTION: 'COLLECTION';
 KW_ITEMS: 'ITEMS';
 KW_KEYS: 'KEYS';
 KW_KEY_TYPE: '$KEY$';
+KW_KILL: 'KILL';
 KW_LINES: 'LINES';
 KW_STORED: 'STORED';
 KW_FILEFORMAT: 'FILEFORMAT';
@@ -176,7 +188,6 @@ KW_JAR: 'JAR';
 KW_EXPLAIN: 'EXPLAIN';
 KW_EXTENDED: 'EXTENDED';
 KW_FORMATTED: 'FORMATTED';
-KW_PRETTY: 'PRETTY';
 KW_DEPENDENCY: 'DEPENDENCY';
 KW_LOGICAL: 'LOGICAL';
 KW_SERDE: 'SERDE';
@@ -185,6 +196,7 @@ KW_DEFERRED: 'DEFERRED';
 KW_SERDEPROPERTIES: 'SERDEPROPERTIES';
 KW_DBPROPERTIES: 'DBPROPERTIES';
 KW_LIMIT: 'LIMIT';
+KW_OFFSET: 'OFFSET';
 KW_SET: 'SET';
 KW_UNSET: 'UNSET';
 KW_TBLPROPERTIES: 'TBLPROPERTIES';
@@ -199,7 +211,6 @@ KW_ELSE: 'ELSE';
 KW_END: 'END';
 KW_MAPJOIN: 'MAPJOIN';
 KW_STREAMTABLE: 'STREAMTABLE';
-KW_HOLD_DDLTIME: 'HOLD_DDLTIME';
 KW_CLUSTERSTATUS: 'CLUSTERSTATUS';
 KW_UTC: 'UTC';
 KW_UTCTIMESTAMP: 'UTC_TMESTAMP';
@@ -210,6 +221,7 @@ KW_MINUS: 'MINUS';
 KW_FETCH: 'FETCH';
 KW_INTERSECT: 'INTERSECT';
 KW_VIEW: 'VIEW';
+KW_VIEWS: 'VIEWS';
 KW_IN: 'IN';
 KW_DATABASE: 'DATABASE';
 KW_DATABASES: 'DATABASES';
@@ -276,7 +288,6 @@ KW_GROUPING: 'GROUPING';
 KW_SETS: 'SETS';
 KW_TRUNCATE: 'TRUNCATE';
 KW_NOSCAN: 'NOSCAN';
-KW_PARTIALSCAN: 'PARTIALSCAN';
 KW_USER: 'USER';
 KW_ROLE: 'ROLE';
 KW_ROLES: 'ROLES';
@@ -295,12 +306,16 @@ KW_AUTHORIZATION: 'AUTHORIZATION';
 KW_CONF: 'CONF';
 KW_VALUES: 'VALUES';
 KW_RELOAD: 'RELOAD';
-KW_YEAR: 'YEAR';
-KW_MONTH: 'MONTH';
-KW_DAY: 'DAY';
-KW_HOUR: 'HOUR';
-KW_MINUTE: 'MINUTE';
-KW_SECOND: 'SECOND';
+KW_YEAR: 'YEAR' | 'YEARS';
+KW_QUERY: 'QUERY';
+KW_QUARTER: 'QUARTER';
+KW_MONTH: 'MONTH' | 'MONTHS';
+KW_WEEK: 'WEEK' | 'WEEKS';
+KW_DAY: 'DAY' | 'DAYS';
+KW_DOW: 'DAYOFWEEK';
+KW_HOUR: 'HOUR' | 'HOURS';
+KW_MINUTE: 'MINUTE' | 'MINUTES';
+KW_SECOND: 'SECOND' | 'SECONDS';
 KW_START: 'START';
 KW_TRANSACTION: 'TRANSACTION';
 KW_COMMIT: 'COMMIT';
@@ -312,6 +327,50 @@ KW_ISOLATION: 'ISOLATION';
 KW_LEVEL: 'LEVEL';
 KW_SNAPSHOT: 'SNAPSHOT';
 KW_AUTOCOMMIT: 'AUTOCOMMIT';
+KW_CACHE: 'CACHE';
+KW_PRIMARY: 'PRIMARY';
+KW_FOREIGN: 'FOREIGN';
+KW_REFERENCES: 'REFERENCES';
+KW_CONSTRAINT: 'CONSTRAINT';
+KW_ENFORCED: 'ENFORCED';
+KW_VALIDATE: 'VALIDATE';
+KW_NOVALIDATE: 'NOVALIDATE';
+KW_RELY: 'RELY';
+KW_NORELY: 'NORELY';
+KW_UNIQUE: 'UNIQUE';
+KW_KEY: 'KEY';
+KW_ABORT: 'ABORT';
+KW_EXTRACT: 'EXTRACT';
+KW_FLOOR: 'FLOOR';
+KW_MERGE: 'MERGE';
+KW_MATCHED: 'MATCHED';
+KW_REPL: 'REPL';
+KW_DUMP: 'DUMP';
+KW_STATUS: 'STATUS';
+KW_VECTORIZATION: 'VECTORIZATION';
+KW_SUMMARY: 'SUMMARY';
+KW_OPERATOR: 'OPERATOR';
+KW_EXPRESSION: 'EXPRESSION';
+KW_DETAIL: 'DETAIL';
+KW_WAIT: 'WAIT';
+KW_RESOURCE: 'RESOURCE';
+KW_PLAN: 'PLAN';
+KW_QUERY_PARALLELISM: 'QUERY_PARALLELISM';
+KW_PLANS: 'PLANS';
+KW_ACTIVATE: 'ACTIVATE';
+KW_DEFAULT: 'DEFAULT';
+KW_POOL: 'POOL';
+KW_MOVE: 'MOVE';
+KW_DO: 'DO';
+KW_ALLOC_FRACTION: 'ALLOC_FRACTION';
+KW_SCHEDULING_POLICY: 'SCHEDULING_POLICY';
+KW_PATH: 'PATH';
+KW_MAPPING: 'MAPPING';
+KW_WORKLOAD: 'WORKLOAD';
+KW_MANAGEMENT: 'MANAGEMENT';
+KW_ACTIVE: 'ACTIVE';
+KW_UNMANAGED: 'UNMANAGED';
+KW_APPLICATION: 'APPLICATION';
 
 // Operators
 // NOTE: if you add a new function/operator, add it to sysFuncNames so that describe function _FUNC_ will work.
@@ -346,6 +405,7 @@ DIV : 'DIV';
 AMPERSAND : '&';
 TILDE : '~';
 BITWISEOR : '|';
+CONCATENATE : '||';
 BITWISEXOR : '^';
 QUESTION : '?';
 DOLLAR : '$';
@@ -378,7 +438,7 @@ RegexComponent
     : 'a'..'z' | 'A'..'Z' | '0'..'9' | '_'
     | PLUS | STAR | QUESTION | MINUS | DOT
     | LPAREN | RPAREN | LSQUARE | RSQUARE | LCURLY | RCURLY
-    | BITWISEXOR | BITWISEOR | DOLLAR
+    | BITWISEXOR | BITWISEOR | DOLLAR | '!'
     ;
 
 StringLiteral
@@ -394,29 +454,34 @@ CharSetLiteral
     | '0' 'X' (HexDigit|Digit)+
     ;
 
-BigintLiteral
+IntegralLiteral
     :
-    (Digit)+ 'L'
+    (Digit)+ ('L' | 'S' | 'Y')
     ;
 
-SmallintLiteral
+NumberLiteral
     :
-    (Digit)+ 'S'
-    ;
-
-TinyintLiteral
-    :
-    (Digit)+ 'Y'
-    ;
-
-DecimalLiteral
-    :
-    Number 'B' 'D'
+    Number ('D' | 'B' 'D')
     ;
 
 ByteLengthLiteral
     :
     (Digit)+ ('b' | 'B' | 'k' | 'K' | 'm' | 'M' | 'g' | 'G')
+    ;
+
+TimeFullLiteral
+    :
+    (Digit)+ ('NS' | 'NSEC' | 'NSECS' | 'NANOSECOND' | 'NANOSECONDS' |
+          'US' | 'USEC' | 'USECS' | 'MICROSECOND' | 'MICROSECONDS' |
+          'MS' | 'MSEC' | 'MSECS' | 'MILLISECOND' | 'MILLISECONDS' |
+          'SEC' | 'SECS' | 'SECOND' | 'SECONDS' |
+          'MIN' | 'MINS' | 'MINUTE' | 'MINUTES' |
+          'HOUR' | 'HOURS' | 'DAY' | 'DAYS')
+    ;
+
+ByteLengthFullLiteral
+    :
+    (Digit)+ ('KB' | 'MB' | 'GB' | 'TB' | 'PB')
     ;
 
 Number
@@ -467,8 +532,10 @@ CharSetName
 WS  :  (' '|'\r'|'\t'|'\n') {$channel=HIDDEN;}
     ;
 
-COMMENT
-  : '--' (~('\n'|'\r'))*
-    { $channel=HIDDEN; }
-  ;
+LINE_COMMENT
+    : '--' (~('\n'|'\r'))* { $channel=HIDDEN; }
+    ;
 
+QUERY_HINT
+    : '/*' (options { greedy=false; } : QUERY_HINT|.)* '*/' { if(getText().charAt(2) != '+') { $channel=HIDDEN; } else { setText(getText().substring(3, getText().length() - 2)); } }
+    ;

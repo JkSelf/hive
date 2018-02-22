@@ -85,7 +85,7 @@ SELECT agg.amount
 FROM agg_01 agg,
 dim_shops d1
 WHERE agg.dim_shops_id = d1.id
-and agg.dim_shops_id = 1;
+and agg.dim_shops_id = 1 order by agg.amount;
 
 set hive.tez.dynamic.partition.pruning.max.event.size=1;
 set hive.tez.dynamic.partition.pruning.max.data.size=1000000;
@@ -121,7 +121,7 @@ UNION ALL
 SELECT amount FROM agg_01, dim_shops WHERE dim_shops_id = id AND label = 'bar';
 
 set hive.tez.dynamic.partition.pruning.max.event.size=1000000;
-set hive.tez.dynamic.partition.pruning.max.data.size=10000;
+set hive.tez.dynamic.partition.pruning.max.data.size=100;
 -- Dynamic partition pruning will be removed as data size exceeds the limit;
 -- and for self join on partitioning column, it should not fail (HIVE-10559).
 explain

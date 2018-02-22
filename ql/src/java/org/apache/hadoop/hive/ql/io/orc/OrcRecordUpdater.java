@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,51 +25,61 @@ import java.nio.charset.CharsetDecoder;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.io.AcidOutputFormat;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.apache.hadoop.hive.ql.io.BucketCodec;
 import org.apache.hadoop.hive.ql.io.RecordIdentifier;
 import org.apache.hadoop.hive.ql.io.RecordUpdater;
+import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.serde2.SerDeStats;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructField;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.IntObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.LongObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
+import org.apache.orc.OrcConf;
+import org.apache.orc.impl.AcidStats;
+import org.apache.orc.impl.OrcAcidUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A RecordUpdater where the files are stored as ORC.
+ * A note on various record structures: the {@code row} coming in (as in {@link #insert(long, Object)}
+ * for example), is a struct like <RecordIdentifier, f1, ... fn> but what is written to the file
+ * * is <op, otid, writerId, rowid, ctid, <f1, ... fn>> (see {@link #createEventSchema(ObjectInspector)})
+ * So there are OIs here to make the translation.
  */
 public class OrcRecordUpdater implements RecordUpdater {
 
-  private static final Log LOG = LogFactory.getLog(OrcRecordUpdater.class);
+  private static final Logger LOG = LoggerFactory.getLogger(OrcRecordUpdater.class);
 
-  public static final String ACID_KEY_INDEX_NAME = "hive.acid.key.index";
-  public static final String ACID_FORMAT = "_orc_acid_version";
-  public static final String ACID_STATS = "hive.acid.stats";
-  public static final int ORC_ACID_VERSION = 0;
+  static final String ACID_KEY_INDEX_NAME = "hive.acid.key.index";
+  private static final String ACID_FORMAT = "_orc_acid_version";
+  private static final int ORC_ACID_VERSION = 0;
 
 
   final static int INSERT_OPERATION = 0;
   final static int UPDATE_OPERATION = 1;
   final static int DELETE_OPERATION = 2;
-
+  //column indexes of corresponding data in storage layer
   final static int OPERATION = 0;
   final static int ORIGINAL_TRANSACTION = 1;
   final static int BUCKET = 2;
   final static int ROW_ID = 3;
   final static int CURRENT_TRANSACTION = 4;
   final static int ROW = 5;
+  /**
+   * total number of fields (above)
+   */
   final static int FIELDS = 6;
 
   final static int DELTA_BUFFER_SIZE = 16 * 1024;
@@ -78,9 +88,15 @@ public class OrcRecordUpdater implements RecordUpdater {
   private static final Charset UTF8 = Charset.forName("UTF-8");
 
   private final AcidOutputFormat.Options options;
+  private final AcidUtils.AcidOperationalProperties acidOperationalProperties;
   private final Path path;
+  private Path deleteEventPath;
   private final FileSystem fs;
-  private Writer writer;
+  private OrcFile.WriterOptions writerOptions;
+  private OrcFile.WriterOptions deleteWriterOptions;
+  private Writer writer = null;
+  private boolean writerClosed = false;
+  private Writer deleteEventWriter = null;
   private final FSDataOutputStream flushLengths;
   private final OrcStruct item;
   private final IntWritable operation = new IntWritable();
@@ -89,50 +105,21 @@ public class OrcRecordUpdater implements RecordUpdater {
   private final IntWritable bucket = new IntWritable();
   private final LongWritable rowId = new LongWritable();
   private long insertedRows = 0;
-  private long rowIdOffset = 0;
   // This records how many rows have been inserted or deleted.  It is separate from insertedRows
   // because that is monotonically increasing to give new unique row ids.
   private long rowCountDelta = 0;
-  private final KeyIndexBuilder indexBuilder = new KeyIndexBuilder();
+  private final KeyIndexBuilder indexBuilder = new KeyIndexBuilder("insert");
+  private KeyIndexBuilder deleteEventIndexBuilder;
   private StructField recIdField = null; // field to look for the record identifier in
   private StructField rowIdField = null; // field inside recId to look for row id in
   private StructField originalTxnField = null;  // field inside recId to look for original txn in
+  private StructField bucketField = null; // field inside recId to look for bucket in
   private StructObjectInspector rowInspector; // OI for the original row
   private StructObjectInspector recIdInspector; // OI for the record identifier struct
   private LongObjectInspector rowIdInspector; // OI for the long row id inside the recordIdentifier
   private LongObjectInspector origTxnInspector; // OI for the original txn inside the record
   // identifer
-
-  static class AcidStats {
-    long inserts;
-    long updates;
-    long deletes;
-
-    AcidStats() {
-      // nothing
-    }
-
-    AcidStats(String serialized) {
-      String[] parts = serialized.split(",");
-      inserts = Long.parseLong(parts[0]);
-      updates = Long.parseLong(parts[1]);
-      deletes = Long.parseLong(parts[2]);
-    }
-
-    String serialize() {
-      StringBuilder builder = new StringBuilder();
-      builder.append(inserts);
-      builder.append(",");
-      builder.append(updates);
-      builder.append(",");
-      builder.append(deletes);
-      return builder.toString();
-    }
-  }
-
-  static Path getSideFile(Path main) {
-    return new Path(main + AcidUtils.DELTA_SIDE_FILE_SUFFIX);
-  }
+  private IntObjectInspector bucketInspector;
 
   static int getOperation(OrcStruct struct) {
     return ((IntWritable) struct.getFieldValue(OPERATION)).get();
@@ -165,20 +152,23 @@ public class OrcRecordUpdater implements RecordUpdater {
   /**
    * An extension to AcidOutputFormat that allows users to add additional
    * options.
+   *
+   * todo: since this is only used for testing could we not control the writer some other way?
+   * to simplify {@link #OrcRecordUpdater(Path, AcidOutputFormat.Options)}
    */
-  public static class OrcOptions extends AcidOutputFormat.Options {
+   final static class OrcOptions extends AcidOutputFormat.Options {
     OrcFile.WriterOptions orcOptions = null;
 
-    public OrcOptions(Configuration conf) {
+    OrcOptions(Configuration conf) {
       super(conf);
     }
 
-    public OrcOptions orcOptions(OrcFile.WriterOptions opts) {
+    OrcOptions orcOptions(OrcFile.WriterOptions opts) {
       this.orcOptions = opts;
       return this;
     }
 
-    public OrcFile.WriterOptions getOrcOptions() {
+    OrcFile.WriterOptions getOrcOptions() {
       return orcOptions;
     }
   }
@@ -206,51 +196,124 @@ public class OrcRecordUpdater implements RecordUpdater {
     fields.add(new OrcStruct.Field("row", rowInspector, ROW));
     return new OrcStruct.OrcStructInspector(fields);
   }
-
+  /**
+   * @param path - partition root
+   */
   OrcRecordUpdater(Path path,
                    AcidOutputFormat.Options options) throws IOException {
     this.options = options;
-    this.bucket.set(options.getBucket());
+    // Initialize acidOperationalProperties based on table properties, and
+    // if they are not available, see if we can find it in the job configuration.
+    // We have to look at these two places instead of just the conf, because Streaming Ingest
+    // uses table properties, while normal Hive SQL inserts/updates/deletes will place this
+    // value in the configuration object.
+    if (options.getTableProperties() != null) {
+      this.acidOperationalProperties =
+          AcidUtils.getAcidOperationalProperties(options.getTableProperties());
+    } else {
+      this.acidOperationalProperties =
+          AcidUtils.getAcidOperationalProperties(options.getConfiguration());
+    }
+    assert this.acidOperationalProperties.isSplitUpdate() : "HIVE-17089?!";
+    BucketCodec bucketCodec = BucketCodec.V1;
+    if(options.getConfiguration() != null) {
+      //so that we can test "old" files
+      Configuration hc = options.getConfiguration();
+      if(hc.getBoolean(HiveConf.ConfVars.HIVE_IN_TEST.name(), false) ||
+        hc.getBoolean(HiveConf.ConfVars.HIVE_IN_TEZ_TEST.name(), false)) {
+        bucketCodec = BucketCodec.getCodec(
+          hc.getInt(HiveConf.ConfVars.TESTMODE_BUCKET_CODEC_VERSION.name(),
+            BucketCodec.V1.getVersion()));
+      }
+    }
+    this.bucket.set(bucketCodec.encode(options));
     this.path = AcidUtils.createFilename(path, options);
+    this.deleteEventWriter = null;
+    this.deleteEventPath = null;
     FileSystem fs = options.getFilesystem();
     if (fs == null) {
       fs = path.getFileSystem(options.getConfiguration());
     }
     this.fs = fs;
-    try {
-      FSDataOutputStream strm = fs.create(new Path(path, ACID_FORMAT), false);
-      strm.writeInt(ORC_ACID_VERSION);
-      strm.close();
-    } catch (IOException ioe) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Failed to create " + path + "/" + ACID_FORMAT + " with " +
+    Path formatFile = new Path(path, ACID_FORMAT);
+    if(!fs.exists(formatFile)) {
+      try (FSDataOutputStream strm = fs.create(formatFile, false)) {
+        strm.writeInt(ORC_ACID_VERSION);
+      } catch (IOException ioe) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Failed to create " + path + "/" + ACID_FORMAT + " with " +
             ioe);
+        }
       }
     }
     if (options.getMinimumTransactionId() != options.getMaximumTransactionId()
         && !options.isWritingBase()){
-      flushLengths = fs.create(getSideFile(this.path), true, 8,
+      //throw if file already exists as that should never happen
+      flushLengths = fs.create(OrcAcidUtils.getSideFile(this.path), false, 8,
           options.getReporter());
+      flushLengths.writeLong(0);
+      OrcInputFormat.SHIMS.hflush(flushLengths);
     } else {
       flushLengths = null;
     }
-    OrcFile.WriterOptions writerOptions = null;
-    if (options instanceof OrcOptions) {
-      writerOptions = ((OrcOptions) options).getOrcOptions();
-    }
-    if (writerOptions == null) {
-      writerOptions = OrcFile.writerOptions(options.getConfiguration());
+    this.writerOptions = null;
+    // If writing delta dirs, we need to make a clone of original options, to avoid polluting it for
+    // the base writer
+    if (options.isWritingBase()) {
+      if (options instanceof OrcOptions) {
+        writerOptions = ((OrcOptions) options).getOrcOptions();
+      }
+      if (writerOptions == null) {
+        writerOptions = OrcFile.writerOptions(options.getTableProperties(),
+            options.getConfiguration());
+      }
+    } else {  // delta writer
+      AcidOutputFormat.Options optionsCloneForDelta = options.clone();
+
+      if (optionsCloneForDelta instanceof OrcOptions) {
+        writerOptions = ((OrcOptions) optionsCloneForDelta).getOrcOptions();
+      }
+      if (writerOptions == null) {
+        writerOptions = OrcFile.writerOptions(optionsCloneForDelta.getTableProperties(),
+            optionsCloneForDelta.getConfiguration());
+      }
+      if (this.acidOperationalProperties.isSplitUpdate()) {
+        AcidOutputFormat.Options deleteOptions = options.clone().writingDeleteDelta(true);
+        // If this is a split-update, we initialize a delete delta file path in anticipation that
+        // they would write update/delete events to that separate file.
+        // This writes to a file in directory which starts with "delete_delta_..."
+        // The actual initialization of a writer only happens if any delete events are written
+        //to avoid empty files.
+        this.deleteEventPath = AcidUtils.createFilename(path, deleteOptions);
+        /**
+         * HIVE-14514 is not done so we can't clone writerOptions().  So here we create a new
+         * options object to make sure insert and delete writers don't share them (like the
+         * callback object, for example)
+         * In any case insert writer and delete writer would most likely have very different
+         * characteristics - delete writer only writes a tiny amount of data.  Once we do early
+         * update split, each {@link OrcRecordUpdater} will have only 1 writer. (except for Mutate API)
+         * Then it would perhaps make sense to take writerOptions as input - how?.
+         */
+        this.deleteWriterOptions = OrcFile.writerOptions(optionsCloneForDelta.getTableProperties(),
+          optionsCloneForDelta.getConfiguration());
+        this.deleteWriterOptions.inspector(createEventSchema(findRecId(options.getInspector(),
+          options.getRecordIdColumn())));
+      }
+
+      // get buffer size and stripe size for base writer
+      int baseBufferSizeValue = writerOptions.getBufferSize();
+      long baseStripeSizeValue = writerOptions.getStripeSize();
+
+      // overwrite buffer size and stripe size for delta writer, based on BASE_DELTA_RATIO
+      int ratio = (int) OrcConf.BASE_DELTA_RATIO.getLong(options.getConfiguration());
+      writerOptions.bufferSize(baseBufferSizeValue / ratio);
+      writerOptions.stripeSize(baseStripeSizeValue / ratio);
+      writerOptions.blockPadding(false);
     }
     writerOptions.fileSystem(fs).callback(indexBuilder);
-    if (!options.isWritingBase()) {
-      writerOptions.blockPadding(false);
-      writerOptions.bufferSize(DELTA_BUFFER_SIZE);
-      writerOptions.stripeSize(DELTA_STRIPE_SIZE);
-    }
     rowInspector = (StructObjectInspector)options.getInspector();
     writerOptions.inspector(createEventSchema(findRecId(options.getInspector(),
         options.getRecordIdColumn())));
-    this.writer = OrcFile.createWriter(this.path, writerOptions);
     item = new OrcStruct(FIELDS);
     item.setFieldValue(OPERATION, operation);
     item.setFieldValue(CURRENT_TRANSACTION, currentTransaction);
@@ -259,40 +322,9 @@ public class OrcRecordUpdater implements RecordUpdater {
     item.setFieldValue(ROW_ID, rowId);
   }
 
-  /**
-   * To handle multiple INSERT... statements in a single transaction, we want to make sure
-   * to generate unique {@code rowId} for all inserted rows of the transaction.
-   * @return largest rowId created by previous statements (maybe 0)
-   * @throws IOException
-   */
-  private long findRowIdOffsetForInsert() throws IOException {
-    /*
-    * 1. need to know bucket we are writing to
-    * 2. need to know which delta dir it's in
-    * Then,
-    * 1. find the same bucket file in previous delta dir for this txn
-    * 2. read the footer and get AcidStats which has insert count
-     * 2.1 if AcidStats.inserts>0 done
-     *  else go to previous delta file
-     *  For example, consider insert/update/insert case...*/
-    if(options.getStatementId() <= 0) {
-      return 0;//there is only 1 statement in this transaction (so far)
-    }
-    for(int pastStmt = options.getStatementId() - 1; pastStmt >= 0; pastStmt--) {
-      Path matchingBucket = AcidUtils.createFilename(options.getFinalDestination(), options.clone().statementId(pastStmt));
-      if(!fs.exists(matchingBucket)) {
-        continue;
-      }
-      Reader reader = OrcFile.createReader(matchingBucket, OrcFile.readerOptions(options.getConfiguration()));
-      //no close() on Reader?!
-      AcidStats acidStats = parseAcidStats(reader);
-      if(acidStats.inserts > 0) {
-        return acidStats.inserts;
-      }
-    }
-    //if we got here, we looked at all delta files in this txn, prior to current statement and didn't 
-    //find any inserts...
-    return 0;
+  @Override
+  public String toString() {
+    return getClass().getName() + "[" + path +"]";
   }
   // Find the record identifier column (if there) and return a possibly new ObjectInspector that
   // will strain out the record id for the underlying writer.
@@ -313,6 +345,8 @@ public class OrcRecordUpdater implements RecordUpdater {
       // in RecordIdentifier is transactionId, bucketId, rowId
       originalTxnField = fields.get(0);
       origTxnInspector = (LongObjectInspector)originalTxnField.getFieldObjectInspector();
+      bucketField = fields.get(1);
+      bucketInspector = (IntObjectInspector) bucketField.getFieldObjectInspector();
       rowIdField = fields.get(2);
       rowIdInspector = (LongObjectInspector)rowIdField.getFieldObjectInspector();
 
@@ -322,10 +356,16 @@ public class OrcRecordUpdater implements RecordUpdater {
     }
   }
 
-  private void addEvent(int operation, long currentTransaction, long rowId, Object row)
+  /**
+   * The INSERT event always uses {@link #bucket} that this {@link RecordUpdater} was created with
+   * thus even for unbucketed tables, the N in bucket_N file name matches writerId/bucketId even for
+   * late split
+   */
+  private void addSimpleEvent(int operation, long currentTransaction, long rowId, Object row)
       throws IOException {
     this.operation.set(operation);
     this.currentTransaction.set(currentTransaction);
+    Integer currentBucket = null;
     // If this is an insert, originalTransaction should be set to this transaction.  If not,
     // it will be reset by the following if anyway.
     long originalTransaction = currentTransaction;
@@ -334,26 +374,79 @@ public class OrcRecordUpdater implements RecordUpdater {
       originalTransaction = origTxnInspector.get(
           recIdInspector.getStructFieldData(rowIdValue, originalTxnField));
       rowId = rowIdInspector.get(recIdInspector.getStructFieldData(rowIdValue, rowIdField));
-    }
-    else if(operation == INSERT_OPERATION) {
-      rowId += rowIdOffset;
+      currentBucket = setBucket(bucketInspector.get(
+        recIdInspector.getStructFieldData(rowIdValue, bucketField)), operation);
     }
     this.rowId.set(rowId);
     this.originalTransaction.set(originalTransaction);
+    item.setFieldValue(OrcRecordUpdater.OPERATION, new IntWritable(operation));
     item.setFieldValue(OrcRecordUpdater.ROW, (operation == DELETE_OPERATION ? null : row));
     indexBuilder.addKey(operation, originalTransaction, bucket.get(), rowId);
+    if (writer == null) {
+      writer = OrcFile.createWriter(path, writerOptions);
+    }
     writer.addRow(item);
+    restoreBucket(currentBucket, operation);
+  }
+
+  private void addSplitUpdateEvent(int operation, long currentTransaction, long rowId, Object row)
+      throws IOException {
+    if (operation == INSERT_OPERATION) {
+      // Just insert the record in the usual way, i.e., default to the simple behavior.
+      addSimpleEvent(operation, currentTransaction, rowId, row);
+      return;
+    }
+    this.operation.set(operation);
+    this.currentTransaction.set(currentTransaction);
+    Object rowValue = rowInspector.getStructFieldData(row, recIdField);
+    long originalTransaction = origTxnInspector.get(
+            recIdInspector.getStructFieldData(rowValue, originalTxnField));
+    rowId = rowIdInspector.get(
+            recIdInspector.getStructFieldData(rowValue, rowIdField));
+    Integer currentBucket = null;
+
+    if (operation == DELETE_OPERATION || operation == UPDATE_OPERATION) {
+      /**
+       * make sure bucketProperty in the delete event is from the {@link row} rather than whatever
+       * {@link this#bucket} is.  For bucketed tables, the 2 must agree on bucketId encoded in it
+       * not for necessarily the whole value.  For unbucketed tables there is no relationship.
+       */
+      currentBucket = setBucket(bucketInspector.get(
+        recIdInspector.getStructFieldData(rowValue, bucketField)), operation);
+      // Initialize a deleteEventWriter if not yet done. (Lazy initialization)
+      if (deleteEventWriter == null) {
+        // Initialize an indexBuilder for deleteEvents. (HIVE-17284)
+        deleteEventIndexBuilder = new KeyIndexBuilder("delete");
+        this.deleteEventWriter = OrcFile.createWriter(deleteEventPath,
+                                                      deleteWriterOptions.callback(deleteEventIndexBuilder));
+      }
+
+      // A delete/update generates a delete event for the original row.
+      this.rowId.set(rowId);
+      this.originalTransaction.set(originalTransaction);
+      item.setFieldValue(OrcRecordUpdater.OPERATION, new IntWritable(DELETE_OPERATION));
+      item.setFieldValue(OrcRecordUpdater.ROW, null); // ROW is null for delete events.
+      deleteEventIndexBuilder.addKey(DELETE_OPERATION, originalTransaction, bucket.get(), rowId);
+      deleteEventWriter.addRow(item);
+      restoreBucket(currentBucket, operation);
+    }
+
+    if (operation == UPDATE_OPERATION) {
+      // A new row is also inserted in the usual delta file for an update event.
+      addSimpleEvent(INSERT_OPERATION, currentTransaction, insertedRows++, row);
+    }
   }
 
   @Override
   public void insert(long currentTransaction, Object row) throws IOException {
     if (this.currentTransaction.get() != currentTransaction) {
       insertedRows = 0;
-      //this method is almost no-op in hcatalog.streaming case since statementId == 0 is
-      //always true in that case
-      rowIdOffset = findRowIdOffsetForInsert();
     }
-    addEvent(INSERT_OPERATION, currentTransaction, insertedRows++, row);
+    if (acidOperationalProperties.isSplitUpdate()) {
+      addSplitUpdateEvent(INSERT_OPERATION, currentTransaction, insertedRows++, row);
+    } else {
+      addSimpleEvent(INSERT_OPERATION, currentTransaction, insertedRows++, row);
+    }
     rowCountDelta++;
   }
 
@@ -362,7 +455,11 @@ public class OrcRecordUpdater implements RecordUpdater {
     if (this.currentTransaction.get() != currentTransaction) {
       insertedRows = 0;
     }
-    addEvent(UPDATE_OPERATION, currentTransaction, -1L, row);
+    if (acidOperationalProperties.isSplitUpdate()) {
+      addSplitUpdateEvent(UPDATE_OPERATION, currentTransaction, -1L, row);
+    } else {
+      addSimpleEvent(UPDATE_OPERATION, currentTransaction, -1L, row);
+    }
   }
 
   @Override
@@ -370,9 +467,12 @@ public class OrcRecordUpdater implements RecordUpdater {
     if (this.currentTransaction.get() != currentTransaction) {
       insertedRows = 0;
     }
-    addEvent(DELETE_OPERATION, currentTransaction, -1, row);
+    if (acidOperationalProperties.isSplitUpdate()) {
+      addSplitUpdateEvent(DELETE_OPERATION, currentTransaction, -1L, row);
+    } else {
+      addSimpleEvent(DELETE_OPERATION, currentTransaction, -1L, row);
+    }
     rowCountDelta--;
-
   }
 
   @Override
@@ -384,9 +484,14 @@ public class OrcRecordUpdater implements RecordUpdater {
       throw new IllegalStateException("Attempting to flush a RecordUpdater on "
          + path + " with a single transaction.");
     }
+    if (writer == null) {
+      writer = OrcFile.createWriter(path, writerOptions);
+    }
     long len = writer.writeIntermediateFooter();
     flushLengths.writeLong(len);
     OrcInputFormat.SHIMS.hflush(flushLengths);
+    //multiple transactions only happen for streaming ingest which only allows inserts
+    assert deleteEventWriter == null : "unexpected delete writer for " + path;
   }
 
   @Override
@@ -395,14 +500,38 @@ public class OrcRecordUpdater implements RecordUpdater {
       if (flushLengths == null) {
         fs.delete(path, false);
       }
-    } else {
-      if (writer != null) writer.close();
+    } else if (!writerClosed) {
+      if (acidOperationalProperties.isSplitUpdate()) {
+        // When split-update is enabled, we can choose not to write
+        // any delta files when there are no inserts. In such cases only the delete_deltas
+        // would be written & they are closed separately below.
+        if (writer != null && indexBuilder.acidStats.inserts > 0) {
+          writer.close(); // normal close, when there are inserts.
+        }
+      } else {
+        if (writer == null) {
+          //so that we create empty bucket files when needed (but see HIVE-17138)
+          writer = OrcFile.createWriter(path, writerOptions);
+        }
+        writer.close(); // normal close.
+      }
+      if (deleteEventWriter != null) {
+        if (deleteEventIndexBuilder.acidStats.deletes > 0) {
+          // Only need to write out & close the delete_delta if there have been any.
+          deleteEventWriter.close();
+        } else {
+          // Just remove delete_delta, if there have been no delete events.
+          fs.delete(deleteEventPath, false);
+        }
+      }
     }
     if (flushLengths != null) {
       flushLengths.close();
-      fs.delete(getSideFile(path), false);
+      fs.delete(OrcAcidUtils.getSideFile(path), false);
     }
     writer = null;
+    deleteEventWriter = null;
+    writerClosed = true;
   }
 
   @Override
@@ -412,11 +541,6 @@ public class OrcRecordUpdater implements RecordUpdater {
     // Don't worry about setting raw data size diff.  I have no idea how to calculate that
     // without finding the row we are updating or deleting, which would be a mess.
     return stats;
-  }
-
-  @VisibleForTesting
-  Writer getWriter() {
-    return writer;
   }
 
   private static final Charset utf8 = Charset.forName("UTF-8");
@@ -444,30 +568,18 @@ public class OrcRecordUpdater implements RecordUpdater {
     }
     return result;
   }
-  /**
-   * {@link KeyIndexBuilder} creates these
-   */
-  static AcidStats parseAcidStats(Reader reader) {
-    String statsSerialized;
-    try {
-      ByteBuffer val =
-        reader.getMetadataValue(OrcRecordUpdater.ACID_STATS)
-          .duplicate();
-      statsSerialized = utf8Decoder.decode(val).toString();
-    } catch (CharacterCodingException e) {
-      throw new IllegalArgumentException("Bad string encoding for " +
-        OrcRecordUpdater.ACID_STATS, e);
-    }
-    return new AcidStats(statsSerialized);
-  }
 
   static class KeyIndexBuilder implements OrcFile.WriterCallback {
-    StringBuilder lastKey = new StringBuilder();
+    private final String builderName;
+    StringBuilder lastKey = new StringBuilder();//list of last keys for each stripe
     long lastTransaction;
     int lastBucket;
     long lastRowId;
     AcidStats acidStats = new AcidStats();
 
+    KeyIndexBuilder(String name) {
+      this.builderName = name;
+    }
     @Override
     public void preStripeWrite(OrcFile.WriterContext context
     ) throws IOException {
@@ -484,7 +596,7 @@ public class OrcRecordUpdater implements RecordUpdater {
                                ) throws IOException {
       context.getWriter().addUserMetadata(ACID_KEY_INDEX_NAME,
           UTF8.encode(lastKey.toString()));
-      context.getWriter().addUserMetadata(ACID_STATS,
+      context.getWriter().addUserMetadata(OrcAcidUtils.ACID_STATS,
           UTF8.encode(acidStats.serialize()));
     }
 
@@ -569,5 +681,16 @@ public class OrcRecordUpdater implements RecordUpdater {
     StructField getRecId() {
       return recId;
     }
+  }
+  private void restoreBucket(Integer currentBucket, int operation) {
+    if(currentBucket != null) {
+      setBucket(currentBucket, operation);
+    }
+  }
+  private int setBucket(int bucketProperty, int operation) {
+    assert operation == UPDATE_OPERATION || operation == DELETE_OPERATION;
+    int currentBucketProperty = bucket.get();
+    bucket.set(bucketProperty);
+    return currentBucketProperty;
   }
 }

@@ -1,11 +1,7 @@
-PREHOOK: query: -- SORT_QUERY_RESULTS
-
-explain
+PREHOOK: query: explain
 SELECT * FROM src src1 LEFT OUTER JOIN src src2 ON (src1.key = src2.key AND src1.key < 10 AND src2.key > 10) RIGHT OUTER JOIN src src3 ON (src2.key = src3.key AND src3.key < 10) SORT BY src1.key, src1.value, src2.key, src2.value, src3.key, src3.value
 PREHOOK: type: QUERY
-POSTHOOK: query: -- SORT_QUERY_RESULTS
-
-explain
+POSTHOOK: query: explain
 SELECT * FROM src src1 LEFT OUTER JOIN src src2 ON (src1.key = src2.key AND src1.key < 10 AND src2.key > 10) RIGHT OUTER JOIN src src3 ON (src2.key = src3.key AND src3.key < 10) SORT BY src1.key, src1.value, src2.key, src2.value, src3.key, src3.value
 POSTHOOK: type: QUERY
 STAGE DEPENDENCIES:
@@ -67,8 +63,8 @@ STAGE PLANS:
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Map Join Operator
                     condition map:
-                         Left Outer Join0 to 1
-                         Right Outer Join1 to 2
+                         Left Outer Join 0 to 1
+                         Right Outer Join 1 to 2
                     filter predicates:
                       0 {(key < 10)}
                       1 
@@ -102,8 +98,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -661,7 +657,7 @@ STAGE PLANS:
                   alias: src3
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Filter Operator
-                    predicate: ((key > 10) and (key < 10)) (type: boolean)
+                    predicate: ((key < 10) and (key > 10)) (type: boolean)
                     Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                     Spark HashTable Sink Operator
                       filter predicates:
@@ -688,8 +684,8 @@ STAGE PLANS:
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Map Join Operator
                     condition map:
-                         Left Outer Join0 to 1
-                         Left Outer Join1 to 2
+                         Left Outer Join 0 to 1
+                         Left Outer Join 1 to 2
                     filter predicates:
                       0 {(key < 10)}
                       1 
@@ -723,8 +719,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -1309,8 +1305,8 @@ STAGE PLANS:
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Map Join Operator
                     condition map:
-                         Right Outer Join0 to 1
-                         Left Outer Join1 to 2
+                         Right Outer Join 0 to 1
+                         Left Outer Join 1 to 2
                     filter predicates:
                       0 
                       1 {(key > 10)}
@@ -1344,8 +1340,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -1939,8 +1935,8 @@ STAGE PLANS:
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Map Join Operator
                     condition map:
-                         Right Outer Join0 to 1
-                         Right Outer Join1 to 2
+                         Right Outer Join 0 to 1
+                         Right Outer Join 1 to 2
                     filter predicates:
                       0 
                       1 {(key > 10)}
@@ -1974,8 +1970,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -2541,7 +2537,7 @@ STAGE PLANS:
                   alias: src3
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Filter Operator
-                    predicate: ((key > 10) and (key < 10)) (type: boolean)
+                    predicate: ((key < 10) and (key > 10)) (type: boolean)
                     Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                     Spark HashTable Sink Operator
                       keys:
@@ -2563,12 +2559,12 @@ STAGE PLANS:
                   alias: src1
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Filter Operator
-                    predicate: ((key > 10) and (key < 10)) (type: boolean)
+                    predicate: ((key < 10) and (key > 10)) (type: boolean)
                     Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                     Map Join Operator
                       condition map:
                            Inner Join 0 to 1
-                           Left Outer Join1 to 2
+                           Left Outer Join 1 to 2
                       keys:
                         0 key (type: string)
                         1 key (type: string)
@@ -2598,8 +2594,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 121 Data size: 1284 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -2638,7 +2634,7 @@ STAGE PLANS:
                   alias: src1
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Filter Operator
-                    predicate: ((key > 10) and (key < 10)) (type: boolean)
+                    predicate: ((key < 10) and (key > 10)) (type: boolean)
                     Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                     Spark HashTable Sink Operator
                       filter predicates:
@@ -2685,7 +2681,7 @@ STAGE PLANS:
                   Map Join Operator
                     condition map:
                          Inner Join 0 to 1
-                         Right Outer Join1 to 2
+                         Right Outer Join 1 to 2
                     filter predicates:
                       0 
                       1 
@@ -2719,8 +2715,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -3278,7 +3274,7 @@ STAGE PLANS:
                   alias: src3
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Filter Operator
-                    predicate: ((key > 10) and (key < 10)) (type: boolean)
+                    predicate: ((key < 10) and (key > 10)) (type: boolean)
                     Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                     Spark HashTable Sink Operator
                       filter predicates:
@@ -3305,7 +3301,7 @@ STAGE PLANS:
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Map Join Operator
                     condition map:
-                         Left Outer Join0 to 1
+                         Left Outer Join 0 to 1
                          Inner Join 1 to 2
                     filter predicates:
                       0 {(key < 10)}
@@ -3340,8 +3336,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -3429,7 +3425,7 @@ STAGE PLANS:
                     Statistics: Num rows: 166 Data size: 1763 Basic stats: COMPLETE Column stats: NONE
                     Map Join Operator
                       condition map:
-                           Right Outer Join0 to 1
+                           Right Outer Join 0 to 1
                            Inner Join 1 to 2
                       filter predicates:
                         0 
@@ -3464,8 +3460,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 365 Data size: 3878 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -3541,7 +3537,7 @@ STAGE PLANS:
                   alias: src3
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Filter Operator
-                    predicate: ((key > 10) and (key < 10)) (type: boolean)
+                    predicate: ((key < 10) and (key > 10)) (type: boolean)
                     Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                     Spark HashTable Sink Operator
                       keys:
@@ -3563,7 +3559,7 @@ STAGE PLANS:
                   alias: src1
                   Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
                   Filter Operator
-                    predicate: ((key > 10) and (key < 10)) (type: boolean)
+                    predicate: ((key < 10) and (key > 10)) (type: boolean)
                     Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
                     Map Join Operator
                       condition map:
@@ -3598,8 +3594,8 @@ STAGE PLANS:
                   compressed: false
                   Statistics: Num rows: 121 Data size: 1284 Basic stats: COMPLETE Column stats: NONE
                   table:
-                      input format: org.apache.hadoop.mapred.TextInputFormat
-                      output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                       serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0

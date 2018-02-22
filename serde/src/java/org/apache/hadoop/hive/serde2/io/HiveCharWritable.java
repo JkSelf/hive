@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -73,7 +73,8 @@ public class HiveCharWritable extends HiveBaseCharWritable
   }
 
   public void enforceMaxLength(int maxLength) {
-    set(getHiveChar(), maxLength);
+    if (getCharacterLength()!=maxLength)
+      set(getHiveChar(), maxLength);
   }
 
   public Text getStrippedValue() {

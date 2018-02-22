@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -13,15 +13,17 @@
  */
 package org.apache.hadoop.hive.ql.io.parquet;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.hadoop.hive.ql.io.sarg.PredicateLeaf;
 import org.apache.hadoop.hive.ql.io.sarg.PredicateLeaf.Operator;
-
+import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.parquet.filter2.predicate.FilterApi;
 import org.apache.parquet.filter2.predicate.FilterPredicate;
 import org.apache.parquet.io.api.Binary;
+import org.apache.parquet.schema.PrimitiveType;
+import org.apache.parquet.schema.Type;
 
 import static org.apache.parquet.filter2.predicate.FilterApi.eq;
 import static org.apache.parquet.filter2.predicate.FilterApi.lt;
@@ -29,10 +31,11 @@ import static org.apache.parquet.filter2.predicate.FilterApi.ltEq;
 import static org.apache.parquet.filter2.predicate.FilterApi.binaryColumn;
 import static org.apache.parquet.filter2.predicate.FilterApi.booleanColumn;
 import static org.apache.parquet.filter2.predicate.FilterApi.doubleColumn;
+import static org.apache.parquet.filter2.predicate.FilterApi.floatColumn;
 import static org.apache.parquet.filter2.predicate.FilterApi.intColumn;
 
 public class LeafFilterFactory {
-  private static final Log LOG = LogFactory.getLog(LeafFilterFactory.class);
+  private static final Logger LOG = LoggerFactory.getLogger(LeafFilterFactory.class);
 
   class IntFilterPredicateLeafBuilder extends FilterPredicateLeafBuilder {
     /**
@@ -77,6 +80,25 @@ public class LeafFilterFactory {
             ((Number) constant).longValue());
         default:
           throw new RuntimeException("Unknown PredicateLeaf Operator type: " + op);
+      }
+    }
+  }
+
+  class FloatFilterPredicateLeafBuilder extends FilterPredicateLeafBuilder {
+    @Override
+    public FilterPredicate buildPredict(Operator op, Object constant, String columnName) {
+      switch (op) {
+      case LESS_THAN:
+        return lt(floatColumn(columnName), ((Number) constant).floatValue());
+      case IS_NULL:
+      case EQUALS:
+      case NULL_SAFE_EQUALS:
+        return eq(floatColumn(columnName),
+            (constant == null) ? null : ((Number) constant).floatValue());
+      case LESS_THAN_EQUALS:
+        return ltEq(FilterApi.floatColumn(columnName), ((Number) constant).floatValue());
+      default:
+        throw new RuntimeException("Unknown PredicateLeaf Operator type: " + op);
       }
     }
   }
@@ -145,15 +167,26 @@ public class LeafFilterFactory {
    * supported yet.
    * @param type FilterPredicateType
    * @return
+   * @throws HiveException Exception is thrown for unsupported data types so we can skip filtering
    */
-  public FilterPredicateLeafBuilder getLeafFilterBuilderByType(PredicateLeaf.Type type){
+  public FilterPredicateLeafBuilder getLeafFilterBuilderByType(
+      PredicateLeaf.Type type,
+      Type parquetType) throws HiveException {
     switch (type){
-      case INTEGER:
-        return new IntFilterPredicateLeafBuilder();
       case LONG:
-        return new LongFilterPredicateLeafBuilder();
-      case FLOAT:   // float and double
-        return new DoubleFilterPredicateLeafBuilder();
+        if (parquetType.asPrimitiveType().getPrimitiveTypeName() ==
+            PrimitiveType.PrimitiveTypeName.INT32) {
+          return new IntFilterPredicateLeafBuilder();
+        } else {
+          return new LongFilterPredicateLeafBuilder();
+        }
+      case FLOAT:
+        if (parquetType.asPrimitiveType().getPrimitiveTypeName() ==
+            PrimitiveType.PrimitiveTypeName.FLOAT) {
+          return new FloatFilterPredicateLeafBuilder();
+        } else {
+          return new DoubleFilterPredicateLeafBuilder();
+        }
       case STRING:  // string, char, varchar
         return new BinaryFilterPredicateLeafBuilder();
       case BOOLEAN:
@@ -162,8 +195,9 @@ public class LeafFilterFactory {
       case DECIMAL:
       case TIMESTAMP:
       default:
-        LOG.debug("Conversion to Parquet FilterPredicate not supported for " + type);
-        return null;
+        String msg = "Conversion to Parquet FilterPredicate not supported for " + type;
+        LOG.debug(msg);
+        throw new HiveException(msg);
     }
   }
 }

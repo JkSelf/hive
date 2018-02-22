@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,8 +20,9 @@ package org.apache.hadoop.hive.ql.exec.vector.mapjoin;
 
 import java.io.IOException;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.JoinUtil;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizationContext;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
@@ -31,6 +32,7 @@ import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHash
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHashMultiSetResult;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
 
 /**
  * This class has methods for generating vectorized join results for the big table only
@@ -47,7 +49,7 @@ public abstract class VectorMapJoinInnerBigOnlyGenerateResultOperator
         extends VectorMapJoinGenerateResultOperator {
 
   private static final long serialVersionUID = 1L;
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinInnerBigOnlyGenerateResultOperator.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(VectorMapJoinInnerBigOnlyGenerateResultOperator.class.getName());
 
   //---------------------------------------------------------------------------
   // Inner big-table only join specific members.
@@ -84,13 +86,18 @@ public abstract class VectorMapJoinInnerBigOnlyGenerateResultOperator
   // Pre-allocated member for storing index into the hashMultiSetResults for each spilled row.
   protected transient int[] spillHashMapResultIndices;
 
-  public VectorMapJoinInnerBigOnlyGenerateResultOperator() {
+  /** Kryo ctor. */
+  protected VectorMapJoinInnerBigOnlyGenerateResultOperator() {
     super();
   }
 
-  public VectorMapJoinInnerBigOnlyGenerateResultOperator(VectorizationContext vContext, OperatorDesc conf)
-              throws HiveException {
-    super(vContext, conf);
+  public VectorMapJoinInnerBigOnlyGenerateResultOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorMapJoinInnerBigOnlyGenerateResultOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) throws HiveException {
+    super(ctx, conf, vContext, vectorDesc);
   }
 
   /*

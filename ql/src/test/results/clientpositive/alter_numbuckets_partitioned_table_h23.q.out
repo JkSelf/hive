@@ -1,10 +1,8 @@
-PREHOOK: query: -- EXCLUDE_HADOOP_MAJOR_VERSIONS(0.20S)
-create table tst1(key string, value string) partitioned by (ds string) clustered by (key) into 10 buckets
+PREHOOK: query: create table tst1(key string, value string) partitioned by (ds string) clustered by (key) into 10 buckets
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@tst1
-POSTHOOK: query: -- EXCLUDE_HADOOP_MAJOR_VERSIONS(0.20S)
-create table tst1(key string, value string) partitioned by (ds string) clustered by (key) into 10 buckets
+POSTHOOK: query: create table tst1(key string, value string) partitioned by (ds string) clustered by (key) into 10 buckets
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: database:default
 POSTHOOK: Output: default@tst1
@@ -23,13 +21,11 @@ POSTHOOK: query: describe formatted tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -39,6 +35,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	0                   
+	numPartitions       	0                   
+	numRows             	0                   
+	rawDataSize         	0                   
+	totalSize           	0                   
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -68,13 +71,11 @@ POSTHOOK: query: describe formatted tst1 partition (ds = '1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -83,7 +84,7 @@ Database:           	default
 Table:              	tst1                	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 	numFiles            	8                   
 	numRows             	500                 
 	rawDataSize         	5312                
@@ -100,15 +101,11 @@ Bucket Columns:     	[key]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Test changing bucket number
-
-alter table tst1 clustered by (key) into 12 buckets
+PREHOOK: query: alter table tst1 clustered by (key) into 12 buckets
 PREHOOK: type: ALTERTABLE_CLUSTER_SORT
 PREHOOK: Input: default@tst1
 PREHOOK: Output: default@tst1
-POSTHOOK: query: -- Test changing bucket number
-
-alter table tst1 clustered by (key) into 12 buckets
+POSTHOOK: query: alter table tst1 clustered by (key) into 12 buckets
 POSTHOOK: type: ALTERTABLE_CLUSTER_SORT
 POSTHOOK: Input: default@tst1
 POSTHOOK: Output: default@tst1
@@ -129,13 +126,11 @@ POSTHOOK: query: describe formatted tst1 partition (ds = '1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -144,7 +139,7 @@ Database:           	default
 Table:              	tst1                	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 	numFiles            	12                  
 	numRows             	500                 
 	rawDataSize         	5312                
@@ -168,13 +163,11 @@ POSTHOOK: query: describe formatted tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -184,6 +177,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	12                  
+	numPartitions       	1                   
+	numRows             	500                 
+	rawDataSize         	5312                
+	totalSize           	5812                
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -196,14 +196,10 @@ Bucket Columns:     	[key]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Test changing bucket number of (table/partition)
-
-alter table tst1 into 4 buckets
+PREHOOK: query: alter table tst1 into 4 buckets
 PREHOOK: type: ALTERTABLE_BUCKETNUM
 PREHOOK: Input: default@tst1
-POSTHOOK: query: -- Test changing bucket number of (table/partition)
-
-alter table tst1 into 4 buckets
+POSTHOOK: query: alter table tst1 into 4 buckets
 POSTHOOK: type: ALTERTABLE_BUCKETNUM
 POSTHOOK: Input: default@tst1
 POSTHOOK: Output: default@tst1
@@ -214,13 +210,11 @@ POSTHOOK: query: describe formatted tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -230,6 +224,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	12                  
+	numPartitions       	1                   
+	numRows             	500                 
+	rawDataSize         	5312                
+	totalSize           	5812                
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -249,13 +250,11 @@ POSTHOOK: query: describe formatted tst1 partition (ds = '1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -264,7 +263,7 @@ Database:           	default
 Table:              	tst1                	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 	numFiles            	12                  
 	numRows             	500                 
 	rawDataSize         	5312                
@@ -296,13 +295,11 @@ POSTHOOK: query: describe formatted tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -312,6 +309,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	12                  
+	numPartitions       	1                   
+	numRows             	500                 
+	rawDataSize         	5312                
+	totalSize           	5812                
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -331,13 +335,11 @@ POSTHOOK: query: describe formatted tst1 partition (ds = '1')
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Partition Information	 	 
@@ -346,7 +348,7 @@ Database:           	default
 Table:              	tst1                	 
 #### A masked pattern was here ####
 Partition Parameters:	 	 
-	COLUMN_STATS_ACCURATE	true                
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\",\"COLUMN_STATS\":{\"key\":\"true\",\"value\":\"true\"}}
 #### A masked pattern was here ####
 	numFiles            	12                  
 	numRows             	500                 
@@ -364,15 +366,11 @@ Bucket Columns:     	[key]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Test adding sort order
-
-alter table tst1 clustered by (key) sorted by (key asc) into 12 buckets
+PREHOOK: query: alter table tst1 clustered by (key) sorted by (key asc) into 12 buckets
 PREHOOK: type: ALTERTABLE_CLUSTER_SORT
 PREHOOK: Input: default@tst1
 PREHOOK: Output: default@tst1
-POSTHOOK: query: -- Test adding sort order
-
-alter table tst1 clustered by (key) sorted by (key asc) into 12 buckets
+POSTHOOK: query: alter table tst1 clustered by (key) sorted by (key asc) into 12 buckets
 POSTHOOK: type: ALTERTABLE_CLUSTER_SORT
 POSTHOOK: Input: default@tst1
 POSTHOOK: Output: default@tst1
@@ -383,13 +381,11 @@ POSTHOOK: query: describe formatted tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -399,6 +395,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	12                  
+	numPartitions       	1                   
+	numRows             	500                 
+	rawDataSize         	5312                
+	totalSize           	5812                
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -411,15 +414,11 @@ Bucket Columns:     	[key]
 Sort Columns:       	[Order(col:key, order:1)]	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Test changing sort order
-
-alter table tst1 clustered by (key) sorted by (value desc) into 12 buckets
+PREHOOK: query: alter table tst1 clustered by (key) sorted by (value desc) into 12 buckets
 PREHOOK: type: ALTERTABLE_CLUSTER_SORT
 PREHOOK: Input: default@tst1
 PREHOOK: Output: default@tst1
-POSTHOOK: query: -- Test changing sort order
-
-alter table tst1 clustered by (key) sorted by (value desc) into 12 buckets
+POSTHOOK: query: alter table tst1 clustered by (key) sorted by (value desc) into 12 buckets
 POSTHOOK: type: ALTERTABLE_CLUSTER_SORT
 POSTHOOK: Input: default@tst1
 POSTHOOK: Output: default@tst1
@@ -430,13 +429,11 @@ POSTHOOK: query: describe formatted tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -446,6 +443,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	12                  
+	numPartitions       	1                   
+	numRows             	500                 
+	rawDataSize         	5312                
+	totalSize           	5812                
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -458,15 +462,11 @@ Bucket Columns:     	[key]
 Sort Columns:       	[Order(col:value, order:0)]	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Test removing test order
-
-alter table tst1 clustered by (value) into 12 buckets
+PREHOOK: query: alter table tst1 clustered by (value) into 12 buckets
 PREHOOK: type: ALTERTABLE_CLUSTER_SORT
 PREHOOK: Input: default@tst1
 PREHOOK: Output: default@tst1
-POSTHOOK: query: -- Test removing test order
-
-alter table tst1 clustered by (value) into 12 buckets
+POSTHOOK: query: alter table tst1 clustered by (value) into 12 buckets
 POSTHOOK: type: ALTERTABLE_CLUSTER_SORT
 POSTHOOK: Input: default@tst1
 POSTHOOK: Output: default@tst1
@@ -477,13 +477,11 @@ POSTHOOK: query: describe formatted tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -493,6 +491,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	12                  
+	numPartitions       	1                   
+	numRows             	500                 
+	rawDataSize         	5312                
+	totalSize           	5812                
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -505,15 +510,11 @@ Bucket Columns:     	[value]
 Sort Columns:       	[]                  	 
 Storage Desc Params:	 	 
 	serialization.format	1                   
-PREHOOK: query: -- Test removing buckets
-
-alter table tst1 not clustered
+PREHOOK: query: alter table tst1 not clustered
 PREHOOK: type: ALTERTABLE_CLUSTER_SORT
 PREHOOK: Input: default@tst1
 PREHOOK: Output: default@tst1
-POSTHOOK: query: -- Test removing buckets
-
-alter table tst1 not clustered
+POSTHOOK: query: alter table tst1 not clustered
 POSTHOOK: type: ALTERTABLE_CLUSTER_SORT
 POSTHOOK: Input: default@tst1
 POSTHOOK: Output: default@tst1
@@ -524,13 +525,11 @@ POSTHOOK: query: describe formatted tst1
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Input: default@tst1
 # col_name            	data_type           	comment             
-	 	 
 key                 	string              	                    
 value               	string              	                    
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 	 	 
 # Detailed Table Information	 	 
@@ -540,6 +539,13 @@ Retention:          	0
 #### A masked pattern was here ####
 Table Type:         	MANAGED_TABLE       	 
 Table Parameters:	 	 
+	COLUMN_STATS_ACCURATE	{\"BASIC_STATS\":\"true\"}
+#### A masked pattern was here ####
+	numFiles            	12                  
+	numPartitions       	1                   
+	numRows             	500                 
+	rawDataSize         	5312                
+	totalSize           	5812                
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 

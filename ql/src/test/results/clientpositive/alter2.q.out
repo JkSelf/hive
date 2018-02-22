@@ -18,7 +18,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -49,7 +48,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -81,7 +79,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -121,7 +118,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -152,7 +148,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -184,7 +179,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -196,13 +190,11 @@ POSTHOOK: type: SHOWPARTITIONS
 POSTHOOK: Input: default@alter2
 insertdate=2008-01-01
 insertdate=2008-01-02
-PREHOOK: query: -- Cleanup
-DROP TABLE alter2
+PREHOOK: query: DROP TABLE alter2
 PREHOOK: type: DROPTABLE
 PREHOOK: Input: default@alter2
 PREHOOK: Output: default@alter2
-POSTHOOK: query: -- Cleanup
-DROP TABLE alter2
+POSTHOOK: query: DROP TABLE alter2
 POSTHOOK: type: DROPTABLE
 POSTHOOK: Input: default@alter2
 POSTHOOK: Output: default@alter2
@@ -213,6 +205,7 @@ POSTHOOK: query: SHOW TABLES
 POSTHOOK: type: SHOWTABLES
 POSTHOOK: Input: database:default
 alltypesorc
+alltypesparquet
 cbo_t1
 cbo_t2
 cbo_t3
@@ -227,14 +220,10 @@ src_thrift
 srcbucket
 srcbucket2
 srcpart
-PREHOOK: query: -- Using non-default Database
-
-CREATE DATABASE alter2_db
+PREHOOK: query: CREATE DATABASE alter2_db
 PREHOOK: type: CREATEDATABASE
 PREHOOK: Output: database:alter2_db
-POSTHOOK: query: -- Using non-default Database
-
-CREATE DATABASE alter2_db
+POSTHOOK: query: CREATE DATABASE alter2_db
 POSTHOOK: type: CREATEDATABASE
 POSTHOOK: Output: database:alter2_db
 PREHOOK: query: USE alter2_db
@@ -269,7 +258,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -300,7 +288,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -332,7 +319,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -372,7 +358,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -403,7 +388,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####
@@ -435,7 +419,6 @@ insertdate          	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 insertdate          	string              	                    
 	 	 
 #### A masked pattern was here ####

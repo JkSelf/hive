@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,20 +18,20 @@
 
 package org.apache.hadoop.hive.ql.exec.vector.mapjoin.fast;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.common.MemoryEstimate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.serde2.WriteBuffers;
 
 // Optimized for sequential key lookup.
 
-public class VectorMapJoinFastKeyStore {
+public class VectorMapJoinFastKeyStore implements MemoryEstimate {
 
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinFastKeyStore.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(VectorMapJoinFastKeyStore.class.getName());
 
   private WriteBuffers writeBuffers;
 
-  private WriteBuffers.ByteSegmentRef byteSegmentRef;
-  private WriteBuffers.Position readPos;
+  private WriteBuffers.Position unsafeReadPos; // Thread-unsafe position used at write time.
 
   /**
    * A store for arbitrary length keys in memory.
@@ -116,7 +116,13 @@ public class VectorMapJoinFastKeyStore {
     return keyRefWord;
   }
 
-  public boolean equalKey(long keyRefWord, byte[] keyBytes, int keyStart, int keyLength) {
+  /** THIS METHOD IS NOT THREAD-SAFE. Use only at load time (or be mindful of thread safety). */
+  public boolean unsafeEqualKey(long keyRefWord, byte[] keyBytes, int keyStart, int keyLength) {
+    return equalKey(keyRefWord, keyBytes, keyStart, keyLength, unsafeReadPos);
+  }
+
+  public boolean equalKey(long keyRefWord, byte[] keyBytes, int keyStart, int keyLength,
+      WriteBuffers.Position readPos) {
 
     int storedKeyLengthLength =
         (int) ((keyRefWord & SmallKeyLength.bitMask) >> SmallKeyLength.bitShift);
@@ -141,33 +147,31 @@ public class VectorMapJoinFastKeyStore {
     }
 
     // Our reading is positioned to the key.
-    writeBuffers.getByteSegmentRefToCurrent(byteSegmentRef, keyLength, readPos);
-
-    byte[] currentBytes = byteSegmentRef.getBytes();
-    int currentStart = (int) byteSegmentRef.getOffset();
-
-    for (int i = 0; i < keyLength; i++) {
-      if (currentBytes[currentStart + i] != keyBytes[keyStart + i]) {
-        // LOG.debug("VectorMapJoinFastKeyStore equalKey no match on bytes");
-        return false;
-      }
+    if (!writeBuffers.isEqual(keyBytes, keyStart, readPos, keyLength)) {
+      // LOG.debug("VectorMapJoinFastKeyStore equalKey no match on bytes");
+      return false;
     }
+
     // LOG.debug("VectorMapJoinFastKeyStore equalKey match on bytes");
     return true;
   }
 
   public VectorMapJoinFastKeyStore(int writeBuffersSize) {
     writeBuffers = new WriteBuffers(writeBuffersSize, AbsoluteKeyOffset.maxSize);
-
-    byteSegmentRef = new WriteBuffers.ByteSegmentRef();
-    readPos = new WriteBuffers.Position();
+    unsafeReadPos = new WriteBuffers.Position();
   }
 
   public VectorMapJoinFastKeyStore(WriteBuffers writeBuffers) {
     // TODO: Check if maximum size compatible with AbsoluteKeyOffset.maxSize.
     this.writeBuffers = writeBuffers;
+    unsafeReadPos = new WriteBuffers.Position();
+  }
 
-    byteSegmentRef = new WriteBuffers.ByteSegmentRef();
-    readPos = new WriteBuffers.Position();
+  @Override
+  public long getEstimatedMemorySize() {
+    long size = 0;
+    size += writeBuffers == null ? 0 : writeBuffers.getEstimatedMemorySize();
+    size += unsafeReadPos == null ? 0 : unsafeReadPos.getEstimatedMemorySize();
+    return size;
   }
 }

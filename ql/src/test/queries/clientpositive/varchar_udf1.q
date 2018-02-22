@@ -4,7 +4,6 @@ create table varchar_udf_1 (c1 string, c2 string, c3 varchar(10), c4 varchar(20)
 insert overwrite table varchar_udf_1
   select key, value, key, value from src where key = '238' limit 1;
 
--- JAVA_VERSION_SPECIFIC_OUTPUT
 
 -- UDFs with varchar support
 select 
@@ -75,9 +74,9 @@ select
 from varchar_udf_1 limit 1;
 
 select
-  regexp(c2, 'val'),
-  regexp(c4, 'val'),
-  regexp(c2, 'val') = regexp(c4, 'val')
+  c2 regexp 'val',
+  c4 regexp 'val',
+  (c2 regexp 'val') = (c4 regexp 'val')
 from varchar_udf_1 limit 1;
 
 select
@@ -140,8 +139,8 @@ from varchar_udf_1 limit 1;
 
 -- Aggregate Functions
 select
-  compute_stats(c2, 16),
-  compute_stats(c4, 16)
+  compute_stats(c2, 'fm', 16),
+  compute_stats(c4, 'fm', 16)
 from varchar_udf_1;
 
 select

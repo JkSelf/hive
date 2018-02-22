@@ -1,3 +1,5 @@
+set hive.stats.deserialization.factor=1.0;
+set hive.mapred.mode=nonstrict;
 set hive.optimize.skewjoin = true;
 set hive.skewjoin.key = 4;
 set hive.auto.convert.join=true;

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,8 +18,8 @@
 
 package org.apache.hadoop.hive.ql.exec.tez;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hive.common.JavaUtils;
@@ -53,7 +53,7 @@ public class HivePreWarmProcessor extends AbstractLogicalIOProcessor {
 
   private static boolean prewarmed = false;
 
-  private static final Log LOG = LogFactory.getLog(HivePreWarmProcessor.class);
+  private static final Logger LOG = LoggerFactory.getLogger(HivePreWarmProcessor.class);
 
   private Configuration conf;
 
@@ -86,7 +86,7 @@ public class HivePreWarmProcessor extends AbstractLogicalIOProcessor {
     ReadaheadPool rpool = ReadaheadPool.getInstance();
     ShimLoader.getHadoopShims();
 
-    URL hiveurl = new URL("jar:"+DagUtils.getInstance().getExecJarPathLocal()+"!/");
+    URL hiveurl = new URL("jar:" + DagUtils.getInstance().getExecJarPathLocal(conf) + "!/");
     JarURLConnection hiveconn = (JarURLConnection)hiveurl.openConnection();
     JarFile hivejar = hiveconn.getJarFile();
     try {

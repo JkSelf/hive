@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,29 +18,30 @@
 
 package org.apache.hadoop.hive.ql.exec.vector;
 
-import java.util.Collection;
-import java.util.concurrent.Future;
-
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.AppMasterEventOperator;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.AppMasterEventDesc;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
-import org.apache.hadoop.hive.serde2.SerDeException;
+import org.apache.hadoop.hive.ql.plan.VectorAppMasterEventDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
-import org.apache.hadoop.io.ObjectWritable;
-import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.io.Writable;
+
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * App Master Event operator implementation.
  **/
-public class VectorAppMasterEventOperator extends AppMasterEventOperator {
+public class VectorAppMasterEventOperator extends AppMasterEventOperator
+    implements VectorizationOperator {
 
   private static final long serialVersionUID = 1L;
 
   private VectorizationContext vContext;
+  private VectorAppMasterEventDesc vectorDesc;
 
   // The above members are initialized by the constructor and must not be
   // transient.
@@ -48,22 +49,31 @@ public class VectorAppMasterEventOperator extends AppMasterEventOperator {
 
   private transient boolean firstBatch;
 
-  private transient VectorExtractRowDynBatch vectorExtractRowDynBatch;
+  private transient VectorExtractRow vectorExtractRow;
 
   protected transient Object[] singleRow;
 
-  public VectorAppMasterEventOperator(VectorizationContext vContext,
-      OperatorDesc conf) {
-    super();
+  public VectorAppMasterEventOperator(
+      CompilationOpContext ctx, OperatorDesc conf, VectorizationContext vContext,
+      VectorDesc vectorDesc) {
+    super(ctx);
     this.conf = (AppMasterEventDesc) conf;
     this.vContext = vContext;
+    this.vectorDesc = (VectorAppMasterEventDesc) vectorDesc;
   }
 
+  /** Kryo ctor. */
+  @VisibleForTesting
   public VectorAppMasterEventOperator() {
+    super();
+  }
+
+  public VectorAppMasterEventOperator(CompilationOpContext ctx) {
+    super(ctx);
   }
 
   @Override
-  public Collection<Future<?>> initializeOp(Configuration hconf) throws HiveException {
+  public void initializeOp(Configuration hconf) throws HiveException {
 
     // We need a input object inspector that is for the row we will extract out of the
     // vectorized row batch, not for example, an original inspector for an ORC table, etc.
@@ -71,12 +81,8 @@ public class VectorAppMasterEventOperator extends AppMasterEventOperator {
         VectorizedBatchUtil.convertToStandardStructObjectInspector((StructObjectInspector) inputObjInspectors[0]);
 
     // Call AppMasterEventOperator with new input inspector.
-    Collection<Future<?>> result = super.initializeOp(hconf);
-    assert result.isEmpty();
-
+    super.initializeOp(hconf);
     firstBatch = true;
-
-    return result;
   }
 
   @Override
@@ -88,15 +94,13 @@ public class VectorAppMasterEventOperator extends AppMasterEventOperator {
 
     VectorizedRowBatch batch = (VectorizedRowBatch) data;
     if (firstBatch) {
-      vectorExtractRowDynBatch = new VectorExtractRowDynBatch();
-      vectorExtractRowDynBatch.init((StructObjectInspector) inputObjInspectors[0], vContext.getProjectedColumns());
+      vectorExtractRow = new VectorExtractRow();
+      vectorExtractRow.init((StructObjectInspector) inputObjInspectors[0], vContext.getProjectedColumns());
 
-      singleRow = new Object[vectorExtractRowDynBatch.getCount()];
+      singleRow = new Object[vectorExtractRow.getCount()];
 
       firstBatch = false;
     }
-
-    vectorExtractRowDynBatch.setBatchOnEntry(batch);
 
     ObjectInspector rowInspector = inputObjInspectors[0];
     try {
@@ -105,7 +109,7 @@ public class VectorAppMasterEventOperator extends AppMasterEventOperator {
         int selected[] = batch.selected;
         for (int logical = 0 ; logical < batch.size; logical++) {
           int batchIndex = selected[logical];
-          vectorExtractRowDynBatch.extractRow(batchIndex, singleRow);
+          vectorExtractRow.extractRow(batch, batchIndex, singleRow);
           writableRow = serializer.serialize(singleRow, rowInspector);
           writableRow.write(buffer);
           if (buffer.getLength() > MAX_SIZE) {
@@ -117,7 +121,7 @@ public class VectorAppMasterEventOperator extends AppMasterEventOperator {
         }
       } else {
         for (int batchIndex = 0 ; batchIndex < batch.size; batchIndex++) {
-          vectorExtractRowDynBatch.extractRow(batchIndex, singleRow);
+          vectorExtractRow.extractRow(batch, batchIndex, singleRow);
           writableRow = serializer.serialize(singleRow, rowInspector);
           writableRow.write(buffer);
           if (buffer.getLength() > MAX_SIZE) {
@@ -132,8 +136,17 @@ public class VectorAppMasterEventOperator extends AppMasterEventOperator {
       throw new HiveException(e);
     }
 
-    forward(data, rowInspector);
-
-    vectorExtractRowDynBatch.forgetBatchOnExit();
+    forward(data, rowInspector, true);
   }
+
+  @Override
+  public VectorizationContext getInputVectorizationContext() {
+    return vContext;
+  }
+
+  @Override
+  public VectorDesc getVectorDesc() {
+    return vectorDesc;
+  }
+
 }

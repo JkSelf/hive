@@ -1,7 +1,9 @@
+set hive.llap.execution.mode=auto;
+set hive.mapred.mode=nonstrict;
 set hive.explain.user=false;
--- union10.q
+-- SORT_QUERY_RESULTS
 
- 
+-- union10.q
 
 -- union case: all subqueries are a map-reduce jobs, 3 way union, same input for all sub-queries, followed by filesink
 
@@ -25,27 +27,6 @@ insert overwrite table tmptable
 
 
 select * from tmptable x sort by x.key;
-
--- union11.q
-
- 
--- SORT_BEFORE_DIFF
--- union case: all subqueries are a map-reduce jobs, 3 way union, same input for all sub-queries, followed by reducesink
-
-explain 
-  select unionsrc.key, count(1) FROM (select 'tst1' as key, count(1) as value from src s1
-                                        UNION DISTINCT  
-                                            select 'tst2' as key, count(1) as value from src s2
-                                        UNION DISTINCT
-                                            select 'tst3' as key, count(1) as value from src s3) unionsrc group by unionsrc.key;
-
-
-  select unionsrc.key, count(1) FROM (select 'tst1' as key, count(1) as value from src s1
-                                        UNION DISTINCT  
-                                            select 'tst2' as key, count(1) as value from src s2
-                                        UNION DISTINCT
-                                            select 'tst3' as key, count(1) as value from src s3) unionsrc group by unionsrc.key;
-
 
 
 -- union12.q
@@ -84,110 +65,6 @@ explain
 
 select unionsrc.key, unionsrc.value FROM (select s1.key as key, s1.value as value from src s1 UNION DISTINCT  
                                           select s2.key as key, s2.value as value from src s2) unionsrc;
--- union14.q
-
- 
--- SORT_BEFORE_DIFF
--- union case: 1 subquery is a map-reduce job, different inputs for sub-queries, followed by reducesink
-
-explain 
-  select unionsrc.key, count(1) FROM (select s2.key as key, s2.value as value from src1 s2
-                                        UNION DISTINCT  
-                                      select 'tst1' as key, cast(count(1) as string) as value from src s1) 
-  unionsrc group by unionsrc.key;
-
-
-
-  select unionsrc.key, count(1) FROM (select s2.key as key, s2.value as value from src1 s2
-                                        UNION DISTINCT  
-                                      select 'tst1' as key, cast(count(1) as string) as value from src s1) 
-  unionsrc group by unionsrc.key;
--- union15.q
-
- 
--- SORT_BEFORE_DIFF
--- union case: 1 subquery is a map-reduce job, different inputs for sub-queries, followed by reducesink
-
-explain 
-  select unionsrc.key, count(1) FROM (select 'tst1' as key, cast(count(1) as string) as value from src s1
-                                        UNION DISTINCT  
-                                            select s2.key as key, s2.value as value from src1 s2
-                                        UNION DISTINCT  
-                                            select s3.key as key, s3.value as value from src1 s3) unionsrc group by unionsrc.key;
-
-  select unionsrc.key, count(1) FROM (select 'tst1' as key, cast(count(1) as string) as value from src s1
-                                        UNION DISTINCT  
-                                            select s2.key as key, s2.value as value from src1 s2
-                                        UNION DISTINCT  
-                                            select s3.key as key, s3.value as value from src1 s3) unionsrc group by unionsrc.key;
-
-
--- union16.q
-
--- SORT_BEFORE_DIFF
-EXPLAIN
-SELECT count(1) FROM (
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src) src;
-
-
-SELECT count(1) FROM (
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src UNION DISTINCT
-  SELECT key, value FROM src) src;
 -- union17.q
 
 CREATE TABLE DEST1(key STRING, value STRING) STORED AS TEXTFILE;
@@ -260,76 +137,6 @@ SELECT DEST119.* FROM DEST119 SORT BY DEST119.key, DEST119.value;
 SELECT DEST219.* FROM DEST219 SORT BY DEST219.key, DEST219.val1, DEST219.val2;
 
 
-
--- union2.q
-
--- SORT_BEFORE_DIFF
--- union case: both subqueries are map-reduce jobs on same input, followed by reduce sink
-
-explain 
-  select count(1) FROM (select s1.key as key, s1.value as value from src s1 UNION DISTINCT  
-                        select s2.key as key, s2.value as value from src s2) unionsrc;
-
-select count(1) FROM (select s1.key as key, s1.value as value from src s1 UNION DISTINCT  
-                      select s2.key as key, s2.value as value from src s2) unionsrc;
--- union20.q
-
--- SORT_BEFORE_DIFF
--- union :map-reduce sub-queries followed by join
-
-explain 
-SELECT unionsrc1.key, unionsrc1.value, unionsrc2.key, unionsrc2.value
-FROM (select 'tst1' as key, cast(count(1) as string) as value from src s1
-                         UNION DISTINCT  
-      select s2.key as key, s2.value as value from src s2 where s2.key < 10) unionsrc1 
-JOIN 
-     (select 'tst1' as key, cast(count(1) as string) as value from src s3
-                         UNION DISTINCT  
-      select s4.key as key, s4.value as value from src s4 where s4.key < 10) unionsrc2
-ON (unionsrc1.key = unionsrc2.key);
-
-SELECT unionsrc1.key, unionsrc1.value, unionsrc2.key, unionsrc2.value
-FROM (select 'tst1' as key, cast(count(1) as string) as value from src s1
-                         UNION DISTINCT  
-      select s2.key as key, s2.value as value from src s2 where s2.key < 10) unionsrc1 
-JOIN 
-     (select 'tst1' as key, cast(count(1) as string) as value from src s3
-                         UNION DISTINCT  
-      select s4.key as key, s4.value as value from src s4 where s4.key < 10) unionsrc2
-ON (unionsrc1.key = unionsrc2.key);
--- union21.q
-
--- SORT_BEFORE_DIFF
--- union of constants, udf outputs, and columns from text table and thrift table
-
-explain
-SELECT key, count(1)
-FROM (
-  SELECT '1' as key from src
-  UNION DISTINCT
-  SELECT reverse(key) as key from src
-  UNION DISTINCT
-  SELECT key as key from src
-  UNION DISTINCT
-  SELECT astring as key from src_thrift
-  UNION DISTINCT
-  SELECT lstring[0] as key from src_thrift
-) union_output
-GROUP BY key;
-
-SELECT key, count(1)
-FROM (
-  SELECT '1' as key from src
-  UNION DISTINCT
-  SELECT reverse(key) as key from src
-  UNION DISTINCT
-  SELECT key as key from src
-  UNION DISTINCT
-  SELECT astring as key from src_thrift
-  UNION DISTINCT
-  SELECT lstring[0] as key from src_thrift
-) union_output
-GROUP BY key;
 -- union22.q
 
 -- SORT_QUERY_RESULTS
@@ -385,16 +192,14 @@ from (
   select transform(key, value) using 'cat' as (key2, value2)
   from src
   UNION DISTINCT 
-  select key as key2, value as value2 from src) s
-order by s.key2, s.value2;
+  select key as key2, value as value2 from src) s;
 
 select s.key2, s.value2
 from (
   select transform(key, value) using 'cat' as (key2, value2)
   from src
   UNION DISTINCT 
-  select key as key2, value as value2 from src) s
-order by s.key2, s.value2;
+  select key as key2, value as value2 from src) s;
 
 -- union24.q
 
@@ -495,9 +300,12 @@ FROM
   ) master_table
 ) a GROUP BY key, value
 ;
+
+set hive.stats.fetch.column.stats=false;
 -- union26.q
 
 -- SORT_QUERY_RESULTS
+
 
 EXPLAIN
 SELECT 
@@ -544,6 +352,7 @@ WHERE ds='2008-04-08' and hr='11'
 group by key, value
 ;
 
+set hive.stats.fetch.column.stats=true;
 
 SELECT 
 count(1) as counts,
@@ -816,11 +625,8 @@ insert overwrite table t6
 select * from t5;
 select * from t6;
 
-drop table t1;
-drop table t2;
 
-create table t1 as select * from src where key < 10;
-create table t2 as select key, count(1) as cnt from src where key < 10 group by key;
+create table t9 as select key, count(1) as cnt from src where key < 10 group by key;
 
 create table t7(c1 string, cnt int);
 create table t8(c1 string, cnt int);
@@ -830,7 +636,7 @@ from
 (
  select key as c1, count(1) as cnt from t1 group by key
    UNION DISTINCT
- select key as c1, cnt from t2
+ select key as c1, cnt from t9
 ) x
 insert overwrite table t7
   select c1, count(1) group by c1
@@ -841,7 +647,7 @@ from
 (
  select key as c1, count(1) as cnt from t1 group by key
    UNION DISTINCT
- select key as c1, cnt from t2
+ select key as c1, cnt from t9
 ) x
 insert overwrite table t7
   select c1, count(1) group by c1
@@ -857,20 +663,12 @@ select * from t8;
 -- This tests various union queries which have columns on one side of the query
 -- being of double type and those on the other side another
 
-drop table if exists t1;
-
-drop table if exists t2;
-
-CREATE TABLE t1 AS SELECT * FROM src WHERE key < 10;
-CREATE TABLE t2 AS SELECT * FROM src WHERE key < 10;
-
 -- Test simple union with double
 EXPLAIN
 SELECT * FROM 
 (SELECT CAST(key AS DOUBLE) AS key FROM t1
 UNION DISTINCT
-SELECT CAST(key AS BIGINT) AS key FROM t2) a
-ORDER BY key;
+SELECT CAST(key AS BIGINT) AS key FROM t2) a;
 
 SELECT * FROM 
 (SELECT CAST(key AS DOUBLE) AS key FROM t1
@@ -909,13 +707,13 @@ SELECT CAST(a.key AS BIGINT) AS key FROM t1 a JOIN t2 b ON a.key = b.key) a
 -- Test union with join on the left selecting multiple columns
 EXPLAIN
 SELECT * FROM 
-(SELECT CAST(a.key AS BIGINT) AS key, CAST(b.key AS DOUBLE) AS value FROM t1 a JOIN t2 b ON a.key = b.key
+(SELECT CAST(a.key AS BIGINT) AS key, CAST(b.key AS STRING) AS value FROM t1 a JOIN t2 b ON a.key = b.key
 UNION DISTINCT
 SELECT CAST(key AS DOUBLE) AS key, CAST(key AS STRING) AS value FROM t2) a
 ;
 
 SELECT * FROM 
-(SELECT CAST(a.key AS BIGINT) AS key, CAST(b.key AS DOUBLE) AS value FROM t1 a JOIN t2 b ON a.key = b.key
+(SELECT CAST(a.key AS BIGINT) AS key, CAST(b.key AS CHAR(20)) AS value FROM t1 a JOIN t2 b ON a.key = b.key
 UNION DISTINCT
 SELECT CAST(key AS DOUBLE) AS key, CAST(key AS STRING) AS value FROM t2) a
 ;
@@ -925,13 +723,13 @@ EXPLAIN
 SELECT * FROM 
 (SELECT CAST(key AS DOUBLE) AS key, CAST(key AS STRING) AS value FROM t2
 UNION DISTINCT
-SELECT CAST(a.key AS BIGINT) AS key, CAST(b.key AS DOUBLE) AS value FROM t1 a JOIN t2 b ON a.key = b.key) a
+SELECT CAST(a.key AS BIGINT) AS key, CAST(b.key AS VARCHAR(20)) AS value FROM t1 a JOIN t2 b ON a.key = b.key) a
 ;
 
 SELECT * FROM 
 (SELECT CAST(key AS DOUBLE) AS key, CAST(key AS STRING) AS value FROM t2
 UNION DISTINCT
-SELECT CAST(a.key AS BIGINT) AS key, CAST(b.key AS DOUBLE) AS value FROM t1 a JOIN t2 b ON a.key = b.key) a
+SELECT CAST(a.key AS BIGINT) AS key, CAST(b.key AS VARCHAR(20)) AS value FROM t1 a JOIN t2 b ON a.key = b.key) a
 ;
 -- union33.q
 
@@ -948,7 +746,7 @@ SELECT key, value FROM (
 	SELECT key, value FROM src 
 	WHERE key = 0
 UNION DISTINCT
- 	SELECT key, COUNT(*) AS value FROM src
+ 	SELECT key, cast(COUNT(*) as string) AS value FROM src
  	GROUP BY key
 )a;
  
@@ -957,7 +755,7 @@ SELECT key, value FROM (
 	SELECT key, value FROM src 
 	WHERE key = 0
 UNION DISTINCT
- 	SELECT key, COUNT(*) AS value FROM src
+ 	SELECT key, cast(COUNT(*) as string) AS value FROM src
  	GROUP BY key
 )a;
  
@@ -965,7 +763,7 @@ SELECT COUNT(*) FROM test_src;
  
 EXPLAIN INSERT OVERWRITE TABLE test_src 
 SELECT key, value FROM (
-	SELECT key, COUNT(*) AS value FROM src
+	SELECT key, cast(COUNT(*) as string) AS value FROM src
  	GROUP BY key
 UNION DISTINCT
  	SELECT key, value FROM src 
@@ -974,7 +772,7 @@ UNION DISTINCT
  
 INSERT OVERWRITE TABLE test_src 
 SELECT key, value FROM (
-	SELECT key, COUNT(*) AS value FROM src
+	SELECT key, cast(COUNT(*) as string) AS value FROM src
  	GROUP BY key
 UNION DISTINCT
  	SELECT key, value FROM src 
@@ -995,6 +793,11 @@ insert overwrite table src10_2 select *
 insert overwrite table src10_3 select *
 insert overwrite table src10_4 select *;
 
+analyze table src10_1 compute statistics;
+analyze table src10_2 compute statistics;
+analyze table src10_3 compute statistics;
+analyze table src10_4 compute statistics;
+
 set hive.auto.convert.join=true;
 -- When we convert the Join of sub1 and sub0 into a MapJoin,
 -- we can use a single MR job to evaluate this entire query.
@@ -1003,13 +806,13 @@ SELECT * FROM (
   SELECT sub1.key,sub1.value FROM (SELECT * FROM src10_1) sub1 JOIN (SELECT * FROM src10_2) sub0 ON (sub0.key = sub1.key)
   UNION DISTINCT
   SELECT key,value FROM (SELECT * FROM (SELECT * FROM src10_3) sub2 UNION DISTINCT SELECT * FROM src10_4 ) alias0
-) alias1 order by key;
+) alias1;
 
 SELECT * FROM (
   SELECT sub1.key,sub1.value FROM (SELECT * FROM src10_1) sub1 JOIN (SELECT * FROM src10_2) sub0 ON (sub0.key = sub1.key)
   UNION DISTINCT
   SELECT key,value FROM (SELECT * FROM (SELECT * FROM src10_3) sub2 UNION DISTINCT SELECT * FROM src10_4 ) alias0
-) alias1 order by key;
+) alias1;
 
 set hive.auto.convert.join=false;
 -- When we do not convert the Join of sub1 and sub0 into a MapJoin,
@@ -1021,115 +824,12 @@ SELECT * FROM (
   SELECT sub1.key,sub1.value FROM (SELECT * FROM src10_1) sub1 JOIN (SELECT * FROM src10_2) sub0 ON (sub0.key = sub1.key)
   UNION DISTINCT
   SELECT key,value FROM (SELECT * FROM (SELECT * FROM src10_3) sub2 UNION DISTINCT SELECT * FROM src10_4 ) alias0
-) alias1 order by key;
+) alias1;
 
 SELECT * FROM (
   SELECT sub1.key,sub1.value FROM (SELECT * FROM src10_1) sub1 JOIN (SELECT * FROM src10_2) sub0 ON (sub0.key = sub1.key)
   UNION DISTINCT
   SELECT key,value FROM (SELECT * FROM (SELECT * FROM src10_3) sub2 UNION DISTINCT SELECT * FROM src10_4 ) alias0
-) alias1 order by key;
--- union4.q
-
- 
-
--- union case: both subqueries are map-reduce jobs on same input, followed by filesink
-
-drop table if exists tmptable;
-
-create table tmptable(key string, value int);
-
-explain 
-insert overwrite table tmptable
-  select unionsrc.key, unionsrc.value FROM (select 'tst1' as key, count(1) as value from src s1
-                                        UNION DISTINCT  
-                                            select 'tst2' as key, count(1) as value from src s2) unionsrc;
-
-insert overwrite table tmptable
-select unionsrc.key, unionsrc.value FROM (select 'tst1' as key, count(1) as value from src s1
-                                        UNION DISTINCT  
-                                          select 'tst2' as key, count(1) as value from src s2) unionsrc;
-
-select * from tmptable x sort by x.key;
+) alias1;
 
 
--- union5.q
-
- 
--- SORT_BEFORE_DIFF
--- union case: both subqueries are map-reduce jobs on same input, followed by reduce sink
-
-explain 
-  select unionsrc.key, count(1) FROM (select 'tst1' as key, count(1) as value from src s1
-                                    UNION DISTINCT  
-                                      select 'tst2' as key, count(1) as value from src s2) unionsrc group by unionsrc.key;
-
-select unionsrc.key, count(1) FROM (select 'tst1' as key, count(1) as value from src s1
-                                  UNION DISTINCT  
-                                    select 'tst2' as key, count(1) as value from src s2) unionsrc group by unionsrc.key;
--- union6.q
-
- 
-
--- union case: 1 subquery is a map-reduce job, different inputs for sub-queries, followed by filesink
-
-drop table if exists tmptable;
-
-create table tmptable(key string, value string);
-
-explain 
-insert overwrite table tmptable
-  select unionsrc.key, unionsrc.value FROM (select 'tst1' as key, cast(count(1) as string) as value from src s1
-                                        UNION DISTINCT  
-                                            select s2.key as key, s2.value as value from src1 s2) unionsrc;
-
-insert overwrite table tmptable
-select unionsrc.key, unionsrc.value FROM (select 'tst1' as key, cast(count(1) as string) as value from src s1
-                                      UNION DISTINCT  
-                                          select s2.key as key, s2.value as value from src1 s2) unionsrc;
-
-select * from tmptable x sort by x.key, x.value;
-
-
--- union7.q
-
- 
-
--- SORT_BEFORE_DIFF
--- union case: 1 subquery is a map-reduce job, different inputs for sub-queries, followed by reducesink
-
-explain 
-  select unionsrc.key, count(1) FROM (select 'tst1' as key, cast(count(1) as string) as value from src s1
-                                        UNION DISTINCT  
-                                            select s2.key as key, s2.value as value from src1 s2) unionsrc group by unionsrc.key;
-
-select unionsrc.key, count(1) FROM (select 'tst1' as key, cast(count(1) as string) as value from src s1
-                                      UNION DISTINCT  
-                                    select s2.key as key, s2.value as value from src1 s2) unionsrc group by unionsrc.key;
-
-
--- union8.q
-
--- SORT_BEFORE_DIFF
--- union case: all subqueries are a map-only jobs, 3 way union, same input for all sub-queries, followed by filesink
-
-explain 
-  select unionsrc.key, unionsrc.value FROM (select s1.key as key, s1.value as value from src s1 UNION DISTINCT  
-                                            select s2.key as key, s2.value as value from src s2 UNION DISTINCT  
-                                            select s3.key as key, s3.value as value from src s3) unionsrc;
-
-select unionsrc.key, unionsrc.value FROM (select s1.key as key, s1.value as value from src s1 UNION DISTINCT  
-                                          select s2.key as key, s2.value as value from src s2 UNION DISTINCT  
-                                          select s3.key as key, s3.value as value from src s3) unionsrc;
--- union9.q
-
--- SORT_BEFORE_DIFF
--- union case: all subqueries are a map-only jobs, 3 way union, same input for all sub-queries, followed by reducesink
-
-explain 
-  select count(1) FROM (select s1.key as key, s1.value as value from src s1 UNION DISTINCT  
-                        select s2.key as key, s2.value as value from src s2 UNION DISTINCT
-                        select s3.key as key, s3.value as value from src s3) unionsrc;
-
-  select count(1) FROM (select s1.key as key, s1.value as value from src s1 UNION DISTINCT  
-                        select s2.key as key, s2.value as value from src s2 UNION DISTINCT
-                        select s3.key as key, s3.value as value from src s3) unionsrc;

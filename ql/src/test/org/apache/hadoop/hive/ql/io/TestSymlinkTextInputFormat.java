@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -26,8 +26,8 @@ import java.util.List;
 
 import junit.framework.TestCase;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.FileSystem;
@@ -37,7 +37,6 @@ import org.apache.hadoop.hive.ql.Context;
 import org.apache.hadoop.hive.ql.Driver;
 import org.apache.hadoop.hive.ql.QueryPlan;
 import org.apache.hadoop.hive.ql.exec.Utilities;
-import org.apache.hadoop.hive.ql.exec.mr.ExecDriver;
 import org.apache.hadoop.hive.ql.exec.mr.MapRedTask;
 import org.apache.hadoop.hive.ql.plan.MapredWork;
 import org.apache.hadoop.hive.ql.plan.PartitionDesc;
@@ -57,8 +56,8 @@ import org.apache.hadoop.util.ReflectionUtils;
  */
 @SuppressWarnings("deprecation")
 public class TestSymlinkTextInputFormat extends TestCase {
-  private static Log log =
-      LogFactory.getLog(TestSymlinkTextInputFormat.class);
+  private static final Logger log =
+      LoggerFactory.getLogger(TestSymlinkTextInputFormat.class);
 
   private Configuration conf;
   private JobConf job;
@@ -77,8 +76,8 @@ public class TestSymlinkTextInputFormat extends TestCase {
 
     TableDesc tblDesc = Utilities.defaultTd;
     PartitionDesc partDesc = new PartitionDesc(tblDesc, null);
-    LinkedHashMap<String, PartitionDesc> pt = new LinkedHashMap<String, PartitionDesc>();
-    pt.put("/tmp/testfolder", partDesc);
+    LinkedHashMap<Path, PartitionDesc> pt = new LinkedHashMap<>();
+    pt.put(new Path("/tmp/testfolder"), partDesc);
     MapredWork mrwork = new MapredWork();
     mrwork.getMapWork().setPathToPartitionInfo(pt);
     Utilities.setMapRedWork(job, mrwork,new Path("/tmp/" + System.getProperty("user.name"), "hive"));
@@ -133,11 +132,12 @@ public class TestSymlinkTextInputFormat extends TestCase {
 
 
     HiveConf hiveConf = new HiveConf(TestSymlinkTextInputFormat.class);
-
+    hiveConf
+    .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
     HiveConf.setBoolVar(hiveConf, HiveConf.ConfVars.HIVE_REWORK_MAPREDWORK, true);
     HiveConf.setBoolVar(hiveConf, HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY, false);
     Driver drv = new Driver(hiveConf);
-    drv.init();
     String tblName = "text_symlink_text";
 
     String createSymlinkTableCmd = "create table " + tblName + " (key int) stored as " +

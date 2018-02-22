@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,11 +21,11 @@ package org.apache.hive.hcatalog.mapreduce;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -105,6 +105,9 @@ public abstract class HCatBaseInputFormat
   public List<InputSplit> getSplits(JobContext jobContext)
     throws IOException, InterruptedException {
     Configuration conf = jobContext.getConfiguration();
+    // Set up recursive reads for sub-directories.
+    // (Otherwise, sub-directories produced by Hive UNION operations won't be readable.)
+    conf.setBoolean("mapred.input.dir.recursive", true);
 
     //Get the job info from the configuration,
     //throws exception if not initialized
@@ -123,13 +126,20 @@ public abstract class HCatBaseInputFormat
     }
 
     HiveStorageHandler storageHandler;
-    JobConf jobConf;
+    Map<String,String> hiveProps = null;
     //For each matching partition, call getSplits on the underlying InputFormat
     for (PartInfo partitionInfo : partitionInfoList) {
-      jobConf = HCatUtil.getJobConfFromContext(jobContext);
-      setInputPath(jobConf, partitionInfo.getLocation());
+      JobConf jobConf = HCatUtil.getJobConfFromContext(jobContext);
+      if (hiveProps == null) {
+        hiveProps = HCatUtil.getHCatKeyHiveConf(jobConf);
+      }
+      List<String> setInputPath = setInputPath(jobConf, partitionInfo.getLocation());
+      if (setInputPath.isEmpty()) {
+        continue;
+      }
       Map<String, String> jobProperties = partitionInfo.getJobProperties();
 
+      HCatUtil.copyJobPropertiesToJobConf(hiveProps, jobConf);
       HCatUtil.copyJobPropertiesToJobConf(jobProperties, jobConf);
 
       storageHandler = HCatUtil.getStorageHandler(
@@ -281,7 +291,7 @@ public abstract class HCatBaseInputFormat
     return (InputJobInfo) HCatUtil.deserialize(jobString);
   }
 
-  private void setInputPath(JobConf jobConf, String location)
+  private List<String> setInputPath(JobConf jobConf, String location)
     throws IOException {
 
     // ideally we should just call FileInputFormat.setInputPaths() here - but
@@ -322,19 +332,33 @@ public abstract class HCatBaseInputFormat
     }
     pathStrings.add(location.substring(pathStart, length));
 
-    Path[] paths = StringUtils.stringToPath(pathStrings.toArray(new String[0]));
     String separator = "";
     StringBuilder str = new StringBuilder();
 
-    for (Path path : paths) {
+    boolean ignoreInvalidPath =jobConf.getBoolean(HCatConstants.HCAT_INPUT_IGNORE_INVALID_PATH_KEY,
+        HCatConstants.HCAT_INPUT_IGNORE_INVALID_PATH_DEFAULT);
+    Iterator<String> pathIterator = pathStrings.iterator();
+    while (pathIterator.hasNext()) {
+      String pathString = pathIterator.next();
+      if (ignoreInvalidPath && org.apache.commons.lang.StringUtils.isBlank(pathString)) {
+        continue;
+      }
+      Path path = new Path(pathString);
       FileSystem fs = path.getFileSystem(jobConf);
+      if (ignoreInvalidPath && !fs.exists(path)) {
+        pathIterator.remove();
+        continue;
+      }
       final String qualifiedPath = fs.makeQualified(path).toString();
       str.append(separator)
         .append(StringUtils.escapeString(qualifiedPath));
       separator = StringUtils.COMMA_STR;
     }
 
-    jobConf.set("mapred.input.dir", str.toString());
+    if (!ignoreInvalidPath || !pathStrings.isEmpty()) {
+      jobConf.set("mapred.input.dir", str.toString());
+    }
+    return pathStrings;
   }
 
 }

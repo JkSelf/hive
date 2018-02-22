@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,10 +23,11 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
@@ -85,7 +86,7 @@ public class SQLStdHiveAccessController implements HiveAccessController {
   private final String HAS_ADMIN_PRIV_MSG = "grantor need to have ADMIN OPTION on role being"
       + " granted and have it as a current role for this action.";
   private final HiveAuthzSessionContext sessionCtx;
-  public static final Log LOG = LogFactory.getLog(SQLStdHiveAccessController.class);
+  public static final Logger LOG = LoggerFactory.getLogger(SQLStdHiveAccessController.class);
 
   public SQLStdHiveAccessController(HiveMetastoreClientFactory metastoreClientFactory, HiveConf conf,
       HiveAuthenticationProvider authenticator, HiveAuthzSessionContext ctx) throws HiveAuthzPluginException {
@@ -104,7 +105,7 @@ public class SQLStdHiveAccessController implements HiveAccessController {
     // the interface. this helps in being able to switch the user within a session.
     // so we need to check if the user has changed
     String newUserName = authenticator.getUserName();
-    if(currentUserName == newUserName){
+    if (Objects.equals(currentUserName, newUserName)) {
       //no need to (re-)initialize the currentUserName, currentRoles fields
       return;
     }
@@ -520,6 +521,11 @@ public class SQLStdHiveAccessController implements HiveAccessController {
     HiveAuthzPluginException {
 
     initUserRoles();
+    if (NONE.equalsIgnoreCase(roleName)) {
+      // for set role NONE, clear all roles for current session.
+      currentRoles.clear();
+      return;
+    }
     if (ALL.equalsIgnoreCase(roleName)) {
       // for set role ALL, reset roles to default roles.
       currentRoles.clear();

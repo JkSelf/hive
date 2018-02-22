@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,46 +18,75 @@
 
 package org.apache.hadoop.hive.ql.plan;
 
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.ql.exec.Utilities;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.apache.hadoop.hive.ql.plan.Explain.Level;
+
 import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.Map;
-
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.ql.io.AcidUtils;
-import org.apache.hadoop.hive.ql.plan.Explain.Level;
 
 /**
  * LoadTableDesc.
  *
  */
-public class LoadTableDesc extends org.apache.hadoop.hive.ql.plan.LoadDesc
-    implements Serializable {
+public class LoadTableDesc extends LoadDesc implements Serializable {
   private static final long serialVersionUID = 1L;
-  private boolean replace;
+  private LoadFileType loadFileType;
   private DynamicPartitionCtx dpCtx;
   private ListBucketingCtx lbCtx;
-  private boolean holdDDLTime;
   private boolean inheritTableSpecs = true; //For partitions, flag controlling whether the current
                                             //table specs are to be used
-  // Need to remember whether this is an acid compliant operation, and if so whether it is an
-  // insert, update, or delete.
-  private AcidUtils.Operation writeType;
+  private int stmtId;
+  private Long currentTransactionId;
+  private boolean isInsertOverwrite;
 
-  // TODO: the below seems like they should just be combined into partitionDesc
+  // TODO: the below seem like they should just be combined into partitionDesc
   private org.apache.hadoop.hive.ql.plan.TableDesc table;
   private Map<String, String> partitionSpec; // NOTE: this partitionSpec has to be ordered map
 
-  public LoadTableDesc() {
-    this.holdDDLTime = false;
+  public enum LoadFileType {
+    /**
+     * This corresponds to INSERT OVERWRITE and REPL LOAD for INSERT OVERWRITE event.
+     * Remove all existing data before copy/move
+     */
+    REPLACE_ALL,
+    /**
+     * This corresponds to INSERT INTO and LOAD DATA.
+     * If any file exist while copy, then just duplicate the file
+     */
+    KEEP_EXISTING,
+    /**
+     * This corresponds to REPL LOAD where if we re-apply the same event then need to overwrite
+     * the file instead of making a duplicate copy.
+     * If any file exist while copy, then just overwrite the file
+     */
+    OVERWRITE_EXISTING
+  }
+  public LoadTableDesc(final LoadTableDesc o) {
+    super(o.getSourcePath(), o.getWriteType());
+
+    this.loadFileType = o.loadFileType;
+    this.dpCtx = o.dpCtx;
+    this.lbCtx = o.lbCtx;
+    this.inheritTableSpecs = o.inheritTableSpecs;
+    this.currentTransactionId = o.currentTransactionId;
+    this.table = o.table;
+    this.partitionSpec = o.partitionSpec;
   }
 
   public LoadTableDesc(final Path sourcePath,
-      final org.apache.hadoop.hive.ql.plan.TableDesc table,
+      final TableDesc table,
       final Map<String, String> partitionSpec,
-      final boolean replace,
-      final AcidUtils.Operation writeType) {
-    super(sourcePath);
-    init(table, partitionSpec, replace, writeType);
+      final LoadFileType loadFileType,
+      final AcidUtils.Operation writeType, Long currentTransactionId) {
+    super(sourcePath, writeType);
+    if (Utilities.FILE_OP_LOGGER.isTraceEnabled()) {
+      Utilities.FILE_OP_LOGGER.trace("creating part LTD from " + sourcePath + " to "
+        + ((table.getProperties() == null) ? "null" : table.getTableName()));
+    }
+    init(table, partitionSpec, loadFileType, currentTransactionId);
   }
 
   /**
@@ -65,20 +94,22 @@ public class LoadTableDesc extends org.apache.hadoop.hive.ql.plan.LoadDesc
    * @param sourcePath
    * @param table
    * @param partitionSpec
-   * @param replace
+   * @param loadFileType
    */
   public LoadTableDesc(final Path sourcePath,
                        final TableDesc table,
                        final Map<String, String> partitionSpec,
-                       final boolean replace) {
-    this(sourcePath, table, partitionSpec, replace, AcidUtils.Operation.NOT_ACID);
+                       final LoadFileType loadFileType,
+                       final Long txnId) {
+    this(sourcePath, table, partitionSpec, loadFileType, AcidUtils.Operation.NOT_ACID, txnId);
   }
 
   public LoadTableDesc(final Path sourcePath,
-      final org.apache.hadoop.hive.ql.plan.TableDesc table,
+      final TableDesc table,
       final Map<String, String> partitionSpec,
-      final AcidUtils.Operation writeType) {
-    this(sourcePath, table, partitionSpec, true, writeType);
+      final AcidUtils.Operation writeType, Long currentTransactionId) {
+    this(sourcePath, table, partitionSpec, LoadFileType.REPLACE_ALL,
+            writeType, currentTransactionId);
   }
 
   /**
@@ -89,41 +120,38 @@ public class LoadTableDesc extends org.apache.hadoop.hive.ql.plan.LoadDesc
    */
   public LoadTableDesc(final Path sourcePath,
                        final org.apache.hadoop.hive.ql.plan.TableDesc table,
-                       final Map<String, String> partitionSpec) {
-    this(sourcePath, table, partitionSpec, true, AcidUtils.Operation.NOT_ACID);
+                       final Map<String, String> partitionSpec, Long txnId) {
+    this(sourcePath, table, partitionSpec, LoadFileType.REPLACE_ALL,
+      AcidUtils.Operation.NOT_ACID, txnId);
   }
 
   public LoadTableDesc(final Path sourcePath,
-      final org.apache.hadoop.hive.ql.plan.TableDesc table,
+      final TableDesc table,
       final DynamicPartitionCtx dpCtx,
-      final AcidUtils.Operation writeType) {
-    super(sourcePath);
+      final AcidUtils.Operation writeType,
+      boolean isReplace, Long txnId) {
+    super(sourcePath, writeType);
+    if (Utilities.FILE_OP_LOGGER.isTraceEnabled()) {
+      Utilities.FILE_OP_LOGGER.trace("creating LTD from " + sourcePath + " to " + table.getTableName());
+    }
     this.dpCtx = dpCtx;
+    LoadFileType lft = isReplace ?  LoadFileType.REPLACE_ALL :  LoadFileType.OVERWRITE_EXISTING;
     if (dpCtx != null && dpCtx.getPartSpec() != null && partitionSpec == null) {
-      init(table, dpCtx.getPartSpec(), true, writeType);
+      init(table, dpCtx.getPartSpec(), lft, txnId);
     } else {
-      init(table, new LinkedHashMap<String, String>(), true, writeType);
+      init(table, new LinkedHashMap<String, String>(), lft, txnId);
     }
   }
 
   private void init(
       final org.apache.hadoop.hive.ql.plan.TableDesc table,
       final Map<String, String> partitionSpec,
-      final boolean replace,
-      AcidUtils.Operation writeType) {
+      final LoadFileType loadFileType,
+      Long txnId) {
     this.table = table;
     this.partitionSpec = partitionSpec;
-    this.replace = replace;
-    this.holdDDLTime = false;
-    this.writeType = writeType;
-  }
-
-  public void setHoldDDLTime(boolean ddlTime) {
-    holdDDLTime = ddlTime;
-  }
-
-  public boolean getHoldDDLTime() {
-    return holdDDLTime;
+    this.loadFileType = loadFileType;
+    this.currentTransactionId = txnId;
   }
 
   @Explain(displayName = "table", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
@@ -135,7 +163,7 @@ public class LoadTableDesc extends org.apache.hadoop.hive.ql.plan.LoadDesc
     this.table = table;
   }
 
-  @Explain(displayName = "partition", explainLevels = { Level.USER, Level.DEFAULT, Level.EXTENDED })
+  @Explain(displayName = "partition")
   public Map<String, String> getPartitionSpec() {
     return partitionSpec;
   }
@@ -146,11 +174,24 @@ public class LoadTableDesc extends org.apache.hadoop.hive.ql.plan.LoadDesc
 
   @Explain(displayName = "replace")
   public boolean getReplace() {
-    return replace;
+    return (loadFileType == LoadFileType.REPLACE_ALL);
   }
 
-  public void setReplace(boolean replace) {
-    this.replace = replace;
+  public LoadFileType getLoadFileType() {
+    return loadFileType;
+  }
+
+  @Explain(displayName = "micromanaged table")
+  public Boolean isMmTableExplain() {
+    return isMmTable() ? true : null;
+  }
+
+  public boolean isMmTable() {
+    return AcidUtils.isInsertOnlyTable(table.getProperties());
+  }
+
+  public void setLoadFileType(LoadFileType loadFileType) {
+    this.loadFileType = loadFileType;
   }
 
   public DynamicPartitionCtx getDPCtx() {
@@ -169,6 +210,14 @@ public class LoadTableDesc extends org.apache.hadoop.hive.ql.plan.LoadDesc
     this.inheritTableSpecs = inheritTableSpecs;
   }
 
+  public boolean isInsertOverwrite() {
+    return this.isInsertOverwrite;
+  }
+
+  public void setInsertOverwrite(boolean v) {
+   this.isInsertOverwrite = v;
+  }
+
   /**
    * @return the lbCtx
    */
@@ -183,7 +232,15 @@ public class LoadTableDesc extends org.apache.hadoop.hive.ql.plan.LoadDesc
     this.lbCtx = lbCtx;
   }
 
-  public AcidUtils.Operation getWriteType() {
-    return writeType;
+  public long getTxnId() {
+    return currentTransactionId == null ? 0 : currentTransactionId;
+  }
+
+  public int getStmtId() {
+    return stmtId;
+  }
+  //todo: should this not be passed in the c'tor?
+  public void setStmtId(int stmtId) {
+    this.stmtId = stmtId;
   }
 }

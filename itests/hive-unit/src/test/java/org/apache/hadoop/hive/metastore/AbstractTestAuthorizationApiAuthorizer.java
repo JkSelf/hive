@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -31,9 +31,10 @@ import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.PrivilegeBag;
 import org.apache.hadoop.hive.metastore.api.Role;
+import org.apache.hadoop.hive.metastore.security.HadoopThriftAuthBridge;
+import org.apache.hadoop.hive.metastore.utils.MetaStoreUtils;
 import org.apache.hadoop.hive.ql.security.authorization.MetaStoreAuthzAPIAuthorizerEmbedOnly;
 import org.apache.hadoop.hive.ql.security.authorization.AuthorizationPreEventListener;
-import org.apache.hadoop.hive.shims.ShimLoader;
 import org.junit.Test;
 
 /**
@@ -57,8 +58,7 @@ public abstract class AbstractTestAuthorizationApiAuthorizer {
 
     hiveConf = new HiveConf();
     if (isRemoteMetastoreMode) {
-      int port = MetaStoreUtils.findFreePort();
-      MetaStoreUtils.startMetaStore(port, ShimLoader.getHadoopThriftAuthBridge());
+      int port = MetaStoreTestUtils.startMetaStoreWithRetry();
       hiveConf.setVar(HiveConf.ConfVars.METASTOREURIS, "thrift://localhost:" + port);
     }
     hiveConf.setIntVar(HiveConf.ConfVars.METASTORETHRIFTCONNECTIONRETRIES, 3);
@@ -66,7 +66,7 @@ public abstract class AbstractTestAuthorizationApiAuthorizer {
     hiveConf.set(HiveConf.ConfVars.POSTEXECHOOKS.varname, "");
     hiveConf.set(HiveConf.ConfVars.HIVE_SUPPORT_CONCURRENCY.varname, "false");
 
-    msc = new HiveMetaStoreClient(hiveConf, null);
+    msc = new HiveMetaStoreClient(hiveConf);
 
   }
 

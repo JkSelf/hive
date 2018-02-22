@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -29,8 +29,8 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.ColumnInfo;
+import org.apache.hadoop.hive.ql.exec.CommonJoinOperator;
 import org.apache.hadoop.hive.ql.exec.FilterOperator;
 import org.apache.hadoop.hive.ql.exec.ForwardOperator;
 import org.apache.hadoop.hive.ql.exec.GroupByOperator;
@@ -43,16 +43,15 @@ import org.apache.hadoop.hive.ql.exec.ScriptOperator;
 import org.apache.hadoop.hive.ql.exec.SelectOperator;
 import org.apache.hadoop.hive.ql.exec.TableScanOperator;
 import org.apache.hadoop.hive.ql.exec.Utilities;
-import org.apache.hadoop.hive.ql.exec.Utilities.ReduceField;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.optimizer.correlation.ReduceSinkDeDuplication.ReduceSinkDeduplicateProcCtx;
 import org.apache.hadoop.hive.ql.parse.ParseContext;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.AggregationDesc;
-import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDescUtils;
 import org.apache.hadoop.hive.ql.plan.GroupByDesc;
+import org.apache.hadoop.hive.ql.plan.GroupByDesc.Mode;
 import org.apache.hadoop.hive.ql.plan.JoinCondDesc;
 import org.apache.hadoop.hive.ql.plan.JoinDesc;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
@@ -271,6 +270,52 @@ public final class CorrelationUtilities {
     return result;
   }
 
+  protected static <T extends Operator<?>> T findFirstPossibleParent(
+      Operator<?> start, Class<T> target, boolean trustScript) throws SemanticException {
+    // Preserve only partitioning
+    return findFirstPossibleParent(start, target, trustScript, false);
+  }
+
+  protected static <T extends Operator<?>> T findFirstPossibleParentPreserveSortOrder(
+      Operator<?> start, Class<T> target, boolean trustScript) throws SemanticException {
+    // Preserve partitioning and ordering
+    return findFirstPossibleParent(start, target, trustScript, true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T extends Operator<?>> T findFirstPossibleParent(
+      Operator<?> start, Class<T> target, boolean trustScript, boolean preserveSortOrder)
+          throws SemanticException {
+    Operator<?> cursor = CorrelationUtilities.getSingleParent(start);
+    for (; cursor != null; cursor = CorrelationUtilities.getSingleParent(cursor)) {
+      if (target.isAssignableFrom(cursor.getClass())) {
+        return (T) cursor;
+      }
+      if (cursor instanceof CommonJoinOperator) {
+        for (Operator<?> op : ((CommonJoinOperator<?>) cursor).getParentOperators()) {
+          if (target.isAssignableFrom(op.getClass())) {
+            return (T) op;
+          }
+        }
+        return null;
+      }
+      if (cursor instanceof ScriptOperator && !trustScript) {
+        return null;
+      }
+      if (!(cursor instanceof SelectOperator
+          || cursor instanceof FilterOperator
+          || cursor instanceof ForwardOperator
+          || cursor instanceof ScriptOperator
+          || (cursor instanceof GroupByOperator
+              && (!preserveSortOrder
+                  || ((GroupByOperator) cursor).getConf().getMode() != Mode.HASH)) // Not order preserving
+          || cursor instanceof ReduceSinkOperator)) {
+        return null;
+      }
+    }
+    return null;
+  }
+
   /**
    * Search the query plan tree from startPoint to the bottom. If there is no ReduceSinkOperator
    * between startPoint and the corresponding TableScanOperator, return the corresponding
@@ -354,43 +399,10 @@ public final class CorrelationUtilities {
       ch.replaceParent(childRS, sel);
     }
 
-    removeChildSelIfApplicable(getSingleChild(childRS), sel, context, procCtx);
     childRS.setChildOperators(null);
     childRS.setParentOperators(null);
     procCtx.addRemovedOperator(childRS);
     return sel;
-  }
-
-  //TODO: ideally this method should be removed in future, as in we need not to rely on removing
-  // this select operator which likely is introduced by SortedDynPartitionOptimizer.
-  // NonblockingdedupOptimizer should be able to merge this select Operator with its
-  // parent. But, that is not working at the moment. See: dynpart_sort_optimization2.q
-
-  private static void removeChildSelIfApplicable(Operator<?> child, SelectOperator sel,
-      ParseContext context, AbstractCorrelationProcCtx procCtx) throws SemanticException {
-
-    if (!(child instanceof SelectOperator)) {
-     return;
-   }
-   if (child.getColumnExprMap() != null) {
-     return;
-   }
-
-   SelectOperator selOp = (SelectOperator) child;
-
-   for (ExprNodeDesc desc : selOp.getConf().getColList()) {
-     if (!(desc instanceof ExprNodeColumnDesc)) {
-       return;
-     }
-     ExprNodeColumnDesc col = (ExprNodeColumnDesc) desc;
-     if(!col.getColumn().startsWith(ReduceField.VALUE.toString()+".") ||
-         col.getTabAlias() != null || col.getIsPartitionColOrVirtualCol()){
-       return;
-     }
-   }
-
-   removeOperator(child, getSingleChild(child), sel, context);
-   procCtx.addRemovedOperator(child);
   }
 
   protected static void removeReduceSinkForGroupBy(ReduceSinkOperator cRS, GroupByOperator cGBYr,

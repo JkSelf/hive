@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,6 +20,7 @@ package org.apache.hadoop.hive.accumulo.serde;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.util.Collections;
 import java.util.Properties;
 
 import org.apache.hadoop.conf.Configuration;
@@ -27,7 +28,8 @@ import org.apache.hadoop.hive.accumulo.Utils;
 import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.lazy.objectinspector.LazySimpleStructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * {@link AccumuloRowIdFactory} designed for injection of the {@link AccumuloCompositeRowId} to be
@@ -39,7 +41,7 @@ import org.apache.log4j.Logger;
 public class CompositeAccumuloRowIdFactory<T extends AccumuloCompositeRowId> extends
     DefaultAccumuloRowIdFactory {
 
-  public static final Logger log = Logger.getLogger(CompositeAccumuloRowIdFactory.class);
+  public static final Logger log = LoggerFactory.getLogger(CompositeAccumuloRowIdFactory.class);
 
   private final Class<T> keyClass;
   private final Constructor<T> constructor;
@@ -56,7 +58,7 @@ public class CompositeAccumuloRowIdFactory<T extends AccumuloCompositeRowId> ext
   public void addDependencyJars(Configuration jobConf) throws IOException {
     // Make sure the jar containing the custom CompositeRowId is included
     // in the mapreduce job's classpath (libjars)
-    Utils.addDependencyJars(jobConf, keyClass);
+    Utils.addDependencyJars(jobConf, Collections.<Class<?>> singletonList(keyClass));
   }
 
   @Override

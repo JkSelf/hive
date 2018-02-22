@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -26,10 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.BinaryColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.BooleanColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatistics;
@@ -37,22 +33,26 @@ import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsDesc;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.Date;
-import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Decimal;
-import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
-import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
-import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.MetaException;
-import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.SetPartitionsStatsRequest;
+import org.apache.hadoop.hive.metastore.columnstats.cache.DateColumnStatsDataInspector;
+import org.apache.hadoop.hive.metastore.columnstats.cache.DecimalColumnStatsDataInspector;
+import org.apache.hadoop.hive.metastore.columnstats.cache.DoubleColumnStatsDataInspector;
+import org.apache.hadoop.hive.metastore.columnstats.cache.LongColumnStatsDataInspector;
+import org.apache.hadoop.hive.metastore.columnstats.cache.StringColumnStatsDataInspector;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.DriverContext;
 import org.apache.hadoop.hive.ql.QueryPlan;
+import org.apache.hadoop.hive.ql.QueryState;
+import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
-import org.apache.hadoop.hive.ql.plan.ColumnStatsDesc;
 import org.apache.hadoop.hive.ql.plan.ColumnStatsUpdateWork;
 import org.apache.hadoop.hive.ql.plan.api.StageType;
-import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * ColumnStatsUpdateTask implementation. For example, ALTER TABLE src_stat
@@ -64,39 +64,39 @@ import org.apache.hadoop.hive.serde2.io.DateWritable;
 
 public class ColumnStatsUpdateTask extends Task<ColumnStatsUpdateWork> {
   private static final long serialVersionUID = 1L;
-  private static transient final Log LOG = LogFactory
-      .getLog(ColumnStatsUpdateTask.class);
+  private static transient final Logger LOG = LoggerFactory
+      .getLogger(ColumnStatsUpdateTask.class);
 
   @Override
-  public void initialize(HiveConf conf, QueryPlan queryPlan, DriverContext ctx) {
-    super.initialize(conf, queryPlan, ctx);
+  public void initialize(QueryState queryState, QueryPlan queryPlan, DriverContext ctx,
+      CompilationOpContext opContext) {
+    super.initialize(queryState, queryPlan, ctx, opContext);
   }
 
   private ColumnStatistics constructColumnStatsFromInput()
       throws SemanticException, MetaException {
 
-    String dbName = SessionState.get().getCurrentDatabase();
-    ColumnStatsDesc desc = work.getColStats();
-    String tableName = desc.getTableName();
+    String dbName = work.dbName();
+    String tableName = work.getTableName();
     String partName = work.getPartName();
-    List<String> colName = desc.getColName();
-    List<String> colType = desc.getColType();
+    String colName = work.getColName();
+    String columnType = work.getColType();
 
     ColumnStatisticsObj statsObj = new ColumnStatisticsObj();
 
     // grammar prohibits more than 1 column so we are guaranteed to have only 1
     // element in this lists.
 
-    statsObj.setColName(colName.get(0));
+    statsObj.setColName(colName);
 
-    statsObj.setColType(colType.get(0));
+    statsObj.setColType(columnType);
 
     ColumnStatisticsData statsData = new ColumnStatisticsData();
 
-    String columnType = colType.get(0);
-
-    if (columnType.equalsIgnoreCase("long")) {
-      LongColumnStatsData longStats = new LongColumnStatsData();
+    if (columnType.equalsIgnoreCase("long") || columnType.equalsIgnoreCase("tinyint")
+        || columnType.equalsIgnoreCase("smallint") || columnType.equalsIgnoreCase("int")
+        || columnType.equalsIgnoreCase("bigint") || columnType.equalsIgnoreCase("timestamp")) {
+      LongColumnStatsDataInspector longStats = new LongColumnStatsDataInspector();
       longStats.setNumNullsIsSet(false);
       longStats.setNumDVsIsSet(false);
       longStats.setLowValueIsSet(false);
@@ -116,12 +116,11 @@ public class ColumnStatsUpdateTask extends Task<ColumnStatsUpdateWork> {
         } else {
           throw new SemanticException("Unknown stat");
         }
-
       }
       statsData.setLongStats(longStats);
       statsObj.setStatsData(statsData);
-    } else if (columnType.equalsIgnoreCase("double")) {
-      DoubleColumnStatsData doubleStats = new DoubleColumnStatsData();
+    } else if (columnType.equalsIgnoreCase("double") || columnType.equalsIgnoreCase("float")) {
+      DoubleColumnStatsDataInspector doubleStats = new DoubleColumnStatsDataInspector();
       doubleStats.setNumNullsIsSet(false);
       doubleStats.setNumDVsIsSet(false);
       doubleStats.setLowValueIsSet(false);
@@ -144,8 +143,9 @@ public class ColumnStatsUpdateTask extends Task<ColumnStatsUpdateWork> {
       }
       statsData.setDoubleStats(doubleStats);
       statsObj.setStatsData(statsData);
-    } else if (columnType.equalsIgnoreCase("string")) {
-      StringColumnStatsData stringStats = new StringColumnStatsData();
+    } else if (columnType.equalsIgnoreCase("string") || columnType.toLowerCase().startsWith("char")
+              || columnType.toLowerCase().startsWith("varchar")) { //char(x),varchar(x) types
+      StringColumnStatsDataInspector stringStats = new StringColumnStatsDataInspector();
       stringStats.setMaxColLenIsSet(false);
       stringStats.setAvgColLenIsSet(false);
       stringStats.setNumNullsIsSet(false);
@@ -210,8 +210,8 @@ public class ColumnStatsUpdateTask extends Task<ColumnStatsUpdateWork> {
       }
       statsData.setBinaryStats(binaryStats);
       statsObj.setStatsData(statsData);
-    } else if (columnType.equalsIgnoreCase("decimal")) {
-      DecimalColumnStatsData decimalStats = new DecimalColumnStatsData();
+    } else if (columnType.toLowerCase().startsWith("decimal")) { //decimal(a,b) type
+      DecimalColumnStatsDataInspector decimalStats = new DecimalColumnStatsDataInspector();
       decimalStats.setNumNullsIsSet(false);
       decimalStats.setNumDVsIsSet(false);
       decimalStats.setLowValueIsSet(false);
@@ -239,7 +239,7 @@ public class ColumnStatsUpdateTask extends Task<ColumnStatsUpdateWork> {
       statsData.setDecimalStats(decimalStats);
       statsObj.setStatsData(statsData);
     } else if (columnType.equalsIgnoreCase("date")) {
-      DateColumnStatsData dateStats = new DateColumnStatsData();
+      DateColumnStatsDataInspector dateStats = new DateColumnStatsDataInspector();
       Map<String, String> mapProp = work.getMapProp();
       for (Entry<String, String> entry : mapProp.entrySet()) {
         String fName = entry.getKey();
@@ -263,8 +263,7 @@ public class ColumnStatsUpdateTask extends Task<ColumnStatsUpdateWork> {
     } else {
       throw new SemanticException("Unsupported type");
     }
-    String [] names = Utilities.getDbTableName(dbName, tableName);
-    ColumnStatisticsDesc statsDesc = getColumnStatsDesc(names[0], names[1],
+    ColumnStatisticsDesc statsDesc = getColumnStatsDesc(dbName, tableName,
         partName, partName == null);
     ColumnStatistics colStat = new ColumnStatistics();
     colStat.setStatsDesc(statsDesc);
@@ -286,34 +285,21 @@ public class ColumnStatsUpdateTask extends Task<ColumnStatsUpdateWork> {
     return statsDesc;
   }
 
-  private int persistTableStats() throws HiveException, MetaException,
-      IOException {
-    // Construct a column statistics object from user input
-    ColumnStatistics colStats = constructColumnStatsFromInput();
-    // Persist the column statistics object to the metastore
-    db.updateTableColumnStatistics(colStats);
-    return 0;
-  }
-
-  private int persistPartitionStats() throws HiveException, MetaException,
-      IOException {
-    // Construct a column statistics object from user input
-    ColumnStatistics colStats = constructColumnStatsFromInput();
-    // Persist the column statistics object to the metastore
-    db.updatePartitionColumnStatistics(colStats);
+  private int persistColumnStats(Hive db) throws HiveException, MetaException, IOException {
+    List<ColumnStatistics> colStats = new ArrayList<>();
+    colStats.add(constructColumnStatsFromInput());
+    SetPartitionsStatsRequest request = new SetPartitionsStatsRequest(colStats);
+    db.setPartitionColumnStatistics(request);
     return 0;
   }
 
   @Override
   public int execute(DriverContext driverContext) {
     try {
-      if (work.getColStats().isTblLevel()) {
-        return persistTableStats();
-      } else {
-        return persistPartitionStats();
-      }
+      Hive db = getHive();
+      return persistColumnStats(db);
     } catch (Exception e) {
-      LOG.info(e);
+      LOG.info("Failed to persist stats in metastore", e);
     }
     return 1;
   }
@@ -335,7 +321,7 @@ public class ColumnStatsUpdateTask extends Task<ColumnStatsUpdateWork> {
       return new Date(writableVal.getDays());
     } catch (IllegalArgumentException err) {
       // Fallback to integer parsing
-      LOG.debug("Reading date value as days since epoch: " + dateStr);
+      LOG.debug("Reading date value as days since epoch: {}", dateStr);
       return new Date(Long.parseLong(dateStr));
     }
   }

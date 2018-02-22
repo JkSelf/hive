@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -28,19 +28,16 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.metastore.MetaStoreUtils;
 import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
+import org.apache.hadoop.hive.metastore.utils.MetaStoreUtils;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.Partition;
 import org.apache.hadoop.hive.ql.metadata.Table;
-import org.apache.hadoop.hive.shims.HadoopShims;
 
 /**
  * ArchiveUtils.
@@ -48,9 +45,7 @@ import org.apache.hadoop.hive.shims.HadoopShims;
  */
 @SuppressWarnings("nls")
 public final class ArchiveUtils {
-  private static final Log LOG = LogFactory.getLog(ArchiveUtils.class.getName());
-
-  public static String ARCHIVING_LEVEL = "archiving_level";
+  public static final String ARCHIVING_LEVEL = "archiving_level";
 
   /**
    * PartSpecInfo keeps fields and values extracted from partial partition info
@@ -87,7 +82,7 @@ public final class ArchiveUtils {
         }
         if (!itrPsKeys.next().toLowerCase().equals(
             fs.getName().toLowerCase())) {
-          throw new HiveException("Invalid partition specifiation: "
+          throw new HiveException("Invalid partition specification: "
               + partSpec);
         }
         prefixFields.add(fs);

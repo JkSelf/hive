@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,6 +25,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.hadoop.hive.ql.CompilationOpContext;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpression;
 import org.apache.hadoop.hive.ql.exec.vector.util.VectorizedRowGroupGenUtil;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
@@ -32,6 +34,8 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
 import org.apache.hadoop.hive.ql.plan.SelectDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorSelectDesc;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDFOPPlus;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
@@ -47,9 +51,10 @@ public class TestVectorSelectOperator {
 
     private static final long serialVersionUID = 1L;
 
-    public ValidatorVectorSelectOperator(VectorizationContext ctxt, OperatorDesc conf)
-        throws HiveException {
-      super(ctxt, conf);
+    public ValidatorVectorSelectOperator(CompilationOpContext ctx, OperatorDesc conf,
+        VectorizationContext ctxt, VectorDesc vectorDesc) throws HiveException {
+      super(ctx, conf, ctxt, vectorDesc);
+
       initializeOp(null);
     }
 
@@ -57,7 +62,8 @@ public class TestVectorSelectOperator {
      * Override forward to do validation
      */
     @Override
-    public void forward(Object row, ObjectInspector rowInspector) throws HiveException {
+    public void forward(Object row, ObjectInspector rowInspector, boolean isVectorized)
+            throws HiveException {
       VectorizedRowBatch vrg = (VectorizedRowBatch) row;
 
       int[] projections = vrg.projectedColumns;
@@ -114,7 +120,21 @@ public class TestVectorSelectOperator {
     outputColNames.add("_col1");
     selDesc.setOutputColumnNames(outputColNames);
 
-    ValidatorVectorSelectOperator vso = new ValidatorVectorSelectOperator(vc, selDesc);
+    // CONSIDER unwinding ValidatorVectorSelectOperator as a subclass of VectorSelectOperator.
+    VectorSelectDesc vectorSelectDesc = new VectorSelectDesc();
+
+    List<ExprNodeDesc> selectColList = selDesc.getColList();
+    VectorExpression[] vectorSelectExprs = new VectorExpression[selectColList.size()];
+    for (int i = 0; i < selectColList.size(); i++) {
+      ExprNodeDesc expr = selectColList.get(i);
+      VectorExpression ve = vc.getVectorExpression(expr);
+      vectorSelectExprs[i] = ve;
+    }
+    vectorSelectDesc.setSelectExpressions(vectorSelectExprs);
+    vectorSelectDesc.setProjectedOutputColumns(new int[] {3, 2});
+
+    ValidatorVectorSelectOperator vso = new ValidatorVectorSelectOperator(
+        new CompilationOpContext(), selDesc, vc, vectorSelectDesc);
 
     VectorizedRowBatch vrg = VectorizedRowGroupGenUtil.getVectorizedRowBatch(
         VectorizedRowBatch.DEFAULT_SIZE, 4, 17);

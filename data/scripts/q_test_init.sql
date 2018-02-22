@@ -70,15 +70,19 @@ ANALYZE TABLE src_thrift COMPUTE STATISTICS;
 --
 -- Table srcbucket
 --
+DROP TABLE IF EXISTS srcbucket_tmp;
 DROP TABLE IF EXISTS srcbucket;
 
+CREATE TABLE srcbucket_tmp (key INT, value STRING) STORED AS TEXTFILE;
 CREATE TABLE srcbucket (key INT, value STRING)
 CLUSTERED BY (key) INTO 2 BUCKETS
 STORED AS TEXTFILE;
 
-LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/srcbucket0.txt" INTO TABLE srcbucket;
-LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/srcbucket1.txt" INTO TABLE srcbucket;
- 
+LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/bucketed_files/000000_0" INTO TABLE srcbucket_tmp;
+LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/bucketed_files/000001_0" INTO TABLE srcbucket_tmp;
+INSERT INTO srcbucket SELECT * FROM srcbucket_tmp;
+DROP TABLE srcbucket_tmp;
+
 ANALYZE TABLE srcbucket COMPUTE STATISTICS;
 
 ANALYZE TABLE srcbucket COMPUTE STATISTICS FOR COLUMNS key,value;
@@ -86,16 +90,20 @@ ANALYZE TABLE srcbucket COMPUTE STATISTICS FOR COLUMNS key,value;
 --
 -- Table srcbucket2
 --
+DROP TABLE IF EXISTS srcbucket_tmp;
 DROP TABLE IF EXISTS srcbucket2;
 
+CREATE TABLE srcbucket_tmp (key INT, value STRING);
 CREATE TABLE srcbucket2 (key INT, value STRING)
 CLUSTERED BY (key) INTO 4 BUCKETS
 STORED AS TEXTFILE;
 
-LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/srcbucket20.txt" INTO TABLE srcbucket2;
-LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/srcbucket21.txt" INTO TABLE srcbucket2;
-LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/srcbucket22.txt" INTO TABLE srcbucket2;
-LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/srcbucket23.txt" INTO TABLE srcbucket2;
+LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/bmj/000000_0" INTO TABLE srcbucket_tmp;
+LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/bmj/000001_0" INTO TABLE srcbucket_tmp;
+LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/bmj/000002_0" INTO TABLE srcbucket_tmp;
+LOAD DATA LOCAL INPATH "${hiveconf:test.data.dir}/bmj/000003_0" INTO TABLE srcbucket_tmp;
+INSERT INTO srcbucket2 SELECT * FROM srcbucket_tmp;
+DROP TABLE srcbucket_tmp;
 
 ANALYZE TABLE srcbucket2 COMPUTE STATISTICS;
 
@@ -151,6 +159,32 @@ OVERWRITE INTO  TABLE alltypesorc;
 ANALYZE TABLE alltypesorc COMPUTE STATISTICS;
 
 ANALYZE TABLE alltypesorc COMPUTE STATISTICS FOR COLUMNS ctinyint,csmallint,cint,cbigint,cfloat,cdouble,cstring1,cstring2,ctimestamp1,ctimestamp2,cboolean1,cboolean2;
+
+--
+-- Table alltypesparquet
+--
+DROP TABLE IF EXISTS alltypesparquet;
+CREATE TABLE alltypesparquet(
+    ctinyint TINYINT,
+    csmallint SMALLINT,
+    cint INT,
+    cbigint BIGINT,
+    cfloat FLOAT,
+    cdouble DOUBLE,
+    cstring1 STRING,
+    cstring2 STRING,
+    ctimestamp1 TIMESTAMP,
+    ctimestamp2 TIMESTAMP,
+    cboolean1 BOOLEAN,
+    cboolean2 BOOLEAN)
+    STORED AS PARQUET;
+
+INSERT OVERWRITE TABLE alltypesparquet SELECT * FROM alltypesorc;
+
+ANALYZE TABLE alltypesparquet COMPUTE STATISTICS;
+
+ANALYZE TABLE alltypesparquet COMPUTE STATISTICS FOR COLUMNS ctinyint,csmallint,cint,cbigint,cfloat,cdouble,cstring1,cstring2,ctimestamp1,ctimestamp2,cboolean1,cboolean2;
+
 
 --
 -- Table primitives
@@ -262,9 +296,9 @@ create table cbo_t1(key string, value string, c_int int, c_float float, c_boolea
 create table cbo_t2(key string, value string, c_int int, c_float float, c_boolean boolean)  partitioned by (dt string) row format delimited fields terminated by ',' STORED AS TEXTFILE;
 create table cbo_t3(key string, value string, c_int int, c_float float, c_boolean boolean)  row format delimited fields terminated by ',' STORED AS TEXTFILE;
 
-load data local inpath '../../data/files/cbo_t1.txt' into table cbo_t1 partition (dt='2014');
-load data local inpath '../../data/files/cbo_t2.txt' into table cbo_t2 partition (dt='2014');
-load data local inpath '../../data/files/cbo_t3.txt' into table cbo_t3;
+load data local inpath '${hiveconf:test.data.dir}/cbo_t1.txt' into table cbo_t1 partition (dt='2014');
+load data local inpath '${hiveconf:test.data.dir}/cbo_t2.txt' into table cbo_t2 partition (dt='2014');
+load data local inpath '${hiveconf:test.data.dir}/cbo_t3.txt' into table cbo_t3;
 
 CREATE TABLE part(
     p_partkey INT,
@@ -278,7 +312,7 @@ CREATE TABLE part(
     p_comment STRING
 );
 
-LOAD DATA LOCAL INPATH '../../data/files/part_tiny.txt' overwrite into table part;
+LOAD DATA LOCAL INPATH '${hiveconf:test.data.dir}/part_tiny.txt' overwrite into table part;
 
 CREATE TABLE lineitem (L_ORDERKEY      INT,
                                 L_PARTKEY       INT,
@@ -299,7 +333,7 @@ CREATE TABLE lineitem (L_ORDERKEY      INT,
 ROW FORMAT DELIMITED
 FIELDS TERMINATED BY '|';
 
-LOAD DATA LOCAL INPATH '../../data/files/lineitem.txt' OVERWRITE INTO TABLE lineitem;
+LOAD DATA LOCAL INPATH '${hiveconf:test.data.dir}/lineitem.txt' OVERWRITE INTO TABLE lineitem;
 
 create table src_cbo as select * from src;
 

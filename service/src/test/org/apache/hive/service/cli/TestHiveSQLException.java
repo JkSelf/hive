@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,8 +23,8 @@ import java.util.List;
 import junit.framework.Assert;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.hive.service.cli.thrift.TStatus;
-import org.apache.hive.service.cli.thrift.TStatusCode;
+import org.apache.hive.service.rpc.thrift.TStatus;
+import org.apache.hive.service.rpc.thrift.TStatusCode;
 import org.junit.Test;
 
 public class TestHiveSQLException {

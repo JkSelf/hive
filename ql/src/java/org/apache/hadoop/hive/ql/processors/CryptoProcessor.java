@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -24,11 +24,10 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.ql.CommandNeedRetryException;
 import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.hive.shims.HadoopShims;
 
@@ -40,7 +39,7 @@ import java.util.Arrays;
  * only by Hive unit & queries tests.
  */
 public class CryptoProcessor implements CommandProcessor {
-  public static final Log LOG = LogFactory.getLog(CryptoProcessor.class.getName());
+  public static final Logger LOG = LoggerFactory.getLogger(CryptoProcessor.class.getName());
 
   private HadoopShims.HdfsEncryptionShim encryptionShim;
 
@@ -82,11 +81,7 @@ public class CryptoProcessor implements CommandProcessor {
   }
 
   @Override
-  public void init() {
-  }
-
-  @Override
-  public CommandProcessorResponse run(String command) throws CommandNeedRetryException {
+  public CommandProcessorResponse run(String command) {
     String[] args = command.split("\\s+");
 
     if (args.length < 1) {
@@ -180,5 +175,9 @@ public class CryptoProcessor implements CommandProcessor {
     }
 
     writeTestOutput("Encryption key deleted: '" + keyName + "'");
+  }
+
+  @Override
+  public void close() throws Exception {
   }
 }

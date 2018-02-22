@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,86 +20,128 @@ package org.apache.hadoop.hive.serde2.lazybinary.fast;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Deque;
+import java.util.List;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.serde2.fast.DeserializeRead;
-import org.apache.hadoop.hive.serde2.io.DateWritable;
-import org.apache.hadoop.hive.serde2.io.HiveCharWritable;
-import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
-import org.apache.hadoop.hive.serde2.io.HiveIntervalDayTimeWritable;
-import org.apache.hadoop.hive.serde2.io.HiveIntervalYearMonthWritable;
-import org.apache.hadoop.hive.serde2.io.HiveVarcharWritable;
 import org.apache.hadoop.hive.serde2.io.TimestampWritable;
-import org.apache.hadoop.hive.serde2.lazybinary.LazyBinarySerDe;
 import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryUtils;
 import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryUtils.VInt;
 import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryUtils.VLong;
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector.PrimitiveCategory;
-import org.apache.hadoop.hive.serde2.typeinfo.CharTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.DecimalTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.ListTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.MapTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
-import org.apache.hadoop.hive.serde2.typeinfo.VarcharTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.StructTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.UnionTypeInfo;
+import org.apache.hadoop.io.WritableUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Directly deserialize with the caller reading field-by-field the LazyBinary serialization format.
  *
  * The caller is responsible for calling the read method for the right type of each field
- * (after calling readCheckNull).
+ * (after calling readNextField).
  *
  * Reading some fields require a results object to receive value information.  A separate
  * results object is created by the caller at initialization per different field even for the same
- * type. 
+ * type.
  *
  * Some type values are by reference to either bytes in the deserialization buffer or to
  * other type specific buffers.  So, those references are only valid until the next time set is
  * called.
  */
-public class LazyBinaryDeserializeRead implements DeserializeRead {
-  public static final Log LOG = LogFactory.getLog(LazyBinaryDeserializeRead.class.getName());
-
-  private PrimitiveTypeInfo[] primitiveTypeInfos;
+public final class LazyBinaryDeserializeRead extends DeserializeRead {
+  public static final Logger LOG = LoggerFactory.getLogger(LazyBinaryDeserializeRead.class.getName());
 
   private byte[] bytes;
   private int start;
   private int offset;
   private int end;
-  private int fieldCount;
-  private int fieldIndex;
-  private byte nullByte;
 
-  private DecimalTypeInfo saveDecimalTypeInfo;
-  private HiveDecimal saveDecimal;
+  private boolean skipLengthPrefix = false;
 
   // Object to receive results of reading a decoded variable length int or long.
   private VInt tempVInt;
   private VLong tempVLong;
-  private HiveDecimalWritable tempHiveDecimalWritable;
 
-  private boolean readBeyondConfiguredFieldsWarned;
-  private boolean readBeyondBufferRangeWarned;
-  private boolean bufferRangeHasExtraDataWarned;
+  private Deque<Field> stack = new ArrayDeque<>();
+  private Field root;
 
-  public LazyBinaryDeserializeRead(PrimitiveTypeInfo[] primitiveTypeInfos) {
-    this.primitiveTypeInfos = primitiveTypeInfos;
-    fieldCount = primitiveTypeInfos.length;
+  private class Field {
+    Field[] children;
+
+    Category category;
+    PrimitiveCategory primitiveCategory;
+    TypeInfo typeInfo;
+
+    int index;
+    int count;
+    int start;
+    int end;
+    int nullByteStart;
+    byte nullByte;
+    byte tag;
+  }
+
+  public LazyBinaryDeserializeRead(TypeInfo[] typeInfos, boolean useExternalBuffer) {
+    super(typeInfos, useExternalBuffer);
     tempVInt = new VInt();
     tempVLong = new VLong();
-    readBeyondConfiguredFieldsWarned = false;
-    readBeyondBufferRangeWarned = false;
-    bufferRangeHasExtraDataWarned = false;
+    currentExternalBufferNeeded = false;
+
+    root = new Field();
+    root.category = Category.STRUCT;
+    root.children = createFields(typeInfos);
+    root.count = typeInfos.length;
   }
 
-  // Not public since we must have the field count so every 8 fields NULL bytes can be navigated.
-  private LazyBinaryDeserializeRead() {
+  private Field[] createFields(TypeInfo[] typeInfos) {
+    final Field[] children = new Field[typeInfos.length];
+    for (int i = 0; i < typeInfos.length; i++) {
+      children[i] = createField(typeInfos[i]);
+    }
+    return children;
   }
 
-  /*
-   * The primitive type information for all fields.
-   */
-  public PrimitiveTypeInfo[] primitiveTypeInfos() {
-    return primitiveTypeInfos;
+  private Field createField(TypeInfo typeInfo) {
+    final Field field = new Field();
+    final Category category = typeInfo.getCategory();
+    field.category = category;
+    field.typeInfo = typeInfo;
+    switch (category) {
+    case PRIMITIVE:
+      field.primitiveCategory = ((PrimitiveTypeInfo) typeInfo).getPrimitiveCategory();
+      break;
+    case LIST:
+      field.children = new Field[1];
+      field.children[0] = createField(((ListTypeInfo) typeInfo).getListElementTypeInfo());
+      break;
+    case MAP:
+      field.children = new Field[2];
+      field.children[0] = createField(((MapTypeInfo) typeInfo).getMapKeyTypeInfo());
+      field.children[1] = createField(((MapTypeInfo) typeInfo).getMapValueTypeInfo());
+      break;
+    case STRUCT:
+      final StructTypeInfo structTypeInfo = (StructTypeInfo) typeInfo;
+      final List<TypeInfo> fieldTypeInfos = structTypeInfo.getAllStructFieldTypeInfos();
+      field.children = createFields(fieldTypeInfos.toArray(new TypeInfo[fieldTypeInfos.size()]));
+      break;
+    case UNION:
+      final UnionTypeInfo unionTypeInfo = (UnionTypeInfo) typeInfo;
+      final List<TypeInfo> objectTypeInfos = unionTypeInfo.getAllUnionObjectTypeInfos();
+      field.children = createFields(objectTypeInfos.toArray(new TypeInfo[objectTypeInfos.size()]));
+      break;
+    default:
+      throw new RuntimeException();
+    }
+    return field;
   }
 
   /*
@@ -111,834 +153,442 @@ public class LazyBinaryDeserializeRead implements DeserializeRead {
     this.offset = offset;
     start = offset;
     end = offset + length;
-    fieldIndex = 0;
+
+    stack.clear();
+    stack.push(root);
+    clearIndex(root);
+  }
+
+  private void clearIndex(Field field) {
+    field.index = 0;
+    if (field.children == null) {
+      return;
+    }
+    for (Field child : field.children) {
+      clearIndex(child);
+    }
   }
 
   /*
-   * Reads the NULL information for a field.
+   * Get detailed read position information to help diagnose exceptions.
+   */
+  public String getDetailedReadPositionString() {
+    StringBuilder sb = new StringBuilder(64);
+
+    sb.append("Reading byte[] of length ");
+    sb.append(bytes.length);
+    sb.append(" at start offset ");
+    sb.append(start);
+    sb.append(" for length ");
+    sb.append(end - start);
+    sb.append(" to read ");
+    sb.append(root.children.length);
+    sb.append(" fields with types ");
+    sb.append(Arrays.toString(typeInfos));
+    sb.append(".  Read field #");
+    sb.append(root.index);
+    sb.append(" at field start position ");
+    sb.append(root.start);
+    sb.append(" current read offset ");
+    sb.append(offset);
+
+    return sb.toString();
+  }
+
+  /*
+   * Reads the the next field.
    *
-   * @return Returns true when the field is NULL; reading is positioned to the next field.
-   *         Otherwise, false when the field is NOT NULL; reading is positioned to the field data.
+   * Afterwards, reading is positioned to the next field.
+   *
+   * @return  Return true when the field was not null and data is put in the appropriate
+   *          current* member.
+   *          Otherwise, false when the field is null.
+   *
    */
   @Override
-  public boolean readCheckNull() throws IOException {
-    if (fieldIndex >= fieldCount) {
-      // Reading beyond the specified field count produces NULL.
-      if (!readBeyondConfiguredFieldsWarned) {
-        // Warn only once.
-        LOG.info("Reading beyond configured fields! Configured " + fieldCount + " fields but "
-            + " reading more (NULLs returned).  Ignoring similar problems.");
-        readBeyondConfiguredFieldsWarned = true;
+  public boolean readNextField() throws IOException {
+    return readComplexField();
+  }
+
+  private boolean readPrimitive(Field field) throws IOException {
+    final PrimitiveCategory primitiveCategory = field.primitiveCategory;
+    final TypeInfo typeInfo = field.typeInfo;
+    switch (primitiveCategory) {
+    case BOOLEAN:
+      // No check needed for single byte read.
+      currentBoolean = (bytes[offset++] != 0);
+      break;
+    case BYTE:
+      // No check needed for single byte read.
+      currentByte = bytes[offset++];
+      break;
+    case SHORT:
+      // Last item -- ok to be at end.
+      if (offset + 2 > end) {
+        throw new EOFException();
       }
-      return true;
-    }
-
-    if (fieldIndex == 0) {
-      // The rest of the range check for fields after the first is below after checking
-      // the NULL byte.
-      if (offset >= end) {
-        warnBeyondEof();
+      currentShort = LazyBinaryUtils.byteArrayToShort(bytes, offset);
+      offset += 2;
+      break;
+    case INT:
+      // Parse the first byte of a vint/vlong to determine the number of bytes.
+      if (offset + WritableUtils.decodeVIntSize(bytes[offset]) > end) {
+        throw new EOFException();
       }
-      nullByte = bytes[offset++];
-    }
-
-    // NOTE: The bit is set to 1 if a field is NOT NULL.
-    if ((nullByte & (1 << (fieldIndex % 8))) != 0) {
-
-      // Make sure there is at least one byte that can be read for a value.
-      if (offset >= end) {
-        // Careful: since we may be dealing with NULLs in the final NULL byte, we check after
-        // the NULL byte check..
-        warnBeyondEof();
+      LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
+      offset += tempVInt.length;
+      currentInt = tempVInt.value;
+      break;
+    case LONG:
+      // Parse the first byte of a vint/vlong to determine the number of bytes.
+      if (offset + WritableUtils.decodeVIntSize(bytes[offset]) > end) {
+        throw new EOFException();
       }
-
-      // We have a field and are positioned to it.
-
-      if (primitiveTypeInfos[fieldIndex].getPrimitiveCategory() != PrimitiveCategory.DECIMAL) {
-        return false;
+      LazyBinaryUtils.readVLong(bytes, offset, tempVLong);
+      offset += tempVLong.length;
+      currentLong = tempVLong.value;
+      break;
+    case FLOAT:
+      // Last item -- ok to be at end.
+      if (offset + 4 > end) {
+        throw new EOFException();
       }
+      currentFloat = Float.intBitsToFloat(LazyBinaryUtils.byteArrayToInt(bytes, offset));
+      offset += 4;
+      break;
+    case DOUBLE:
+      // Last item -- ok to be at end.
+      if (offset + 8 > end) {
+        throw new EOFException();
+      }
+      currentDouble = Double.longBitsToDouble(LazyBinaryUtils.byteArrayToLong(bytes, offset));
+      offset += 8;
+      break;
 
-      // Since enforcing precision and scale may turn a HiveDecimal into a NULL, we must read
-      // it here.
-      return earlyReadHiveDecimal();
-    }
-
-    // When NULL, we need to move past this field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
+    case BINARY:
+    case STRING:
+    case CHAR:
+    case VARCHAR:
+      {
+        // using vint instead of 4 bytes
+        // Parse the first byte of a vint/vlong to determine the number of bytes.
+        if (offset + WritableUtils.decodeVIntSize(bytes[offset]) > end) {
+          throw new EOFException();
         }
-        nullByte = bytes[offset++];
-      }
-    }
+        LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
+        offset += tempVInt.length;
 
+        int saveStart = offset;
+        int length = tempVInt.value;
+        offset += length;
+        // Last item -- ok to be at end.
+        if (offset > end) {
+          throw new EOFException();
+        }
+
+        currentBytes = bytes;
+        currentBytesStart = saveStart;
+        currentBytesLength = length;
+      }
+      break;
+    case DATE:
+      // Parse the first byte of a vint/vlong to determine the number of bytes.
+      if (offset + WritableUtils.decodeVIntSize(bytes[offset]) > end) {
+        throw new EOFException();
+      }
+      LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
+      offset += tempVInt.length;
+
+      currentDateWritable.set(tempVInt.value);
+      break;
+    case TIMESTAMP:
+      {
+        int length = TimestampWritable.getTotalLength(bytes, offset);
+        int saveStart = offset;
+        offset += length;
+        // Last item -- ok to be at end.
+        if (offset > end) {
+          throw new EOFException();
+        }
+
+        currentTimestampWritable.set(bytes, saveStart);
+      }
+      break;
+    case INTERVAL_YEAR_MONTH:
+      // Parse the first byte of a vint/vlong to determine the number of bytes.
+      if (offset + WritableUtils.decodeVIntSize(bytes[offset]) > end) {
+        throw new EOFException();
+      }
+      LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
+      offset += tempVInt.length;
+
+      currentHiveIntervalYearMonthWritable.set(tempVInt.value);
+      break;
+    case INTERVAL_DAY_TIME:
+      // The first bounds check requires at least one more byte beyond for 2nd int (hence >=).
+      // Parse the first byte of a vint/vlong to determine the number of bytes.
+      if (offset + WritableUtils.decodeVIntSize(bytes[offset]) >= end) {
+        throw new EOFException();
+      }
+      LazyBinaryUtils.readVLong(bytes, offset, tempVLong);
+      offset += tempVLong.length;
+
+      // Parse the first byte of a vint/vlong to determine the number of bytes.
+      if (offset + WritableUtils.decodeVIntSize(bytes[offset]) > end) {
+        throw new EOFException();
+      }
+      LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
+      offset += tempVInt.length;
+
+      currentHiveIntervalDayTimeWritable.set(tempVLong.value, tempVInt.value);
+      break;
+    case DECIMAL:
+      {
+        // Since enforcing precision and scale can cause a HiveDecimal to become NULL,
+        // we must read it, enforce it here, and either return NULL or buffer the result.
+
+        // These calls are to see how much data there is. The setFromBytes call below will do the same
+        // readVInt reads but actually unpack the decimal.
+
+        // The first bounds check requires at least one more byte beyond for 2nd int (hence >=).
+        // Parse the first byte of a vint/vlong to determine the number of bytes.
+        if (offset + WritableUtils.decodeVIntSize(bytes[offset]) >= end) {
+          throw new EOFException();
+        }
+        LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
+        offset += tempVInt.length;
+        int readScale = tempVInt.value;
+
+        // Parse the first byte of a vint/vlong to determine the number of bytes.
+        if (offset + WritableUtils.decodeVIntSize(bytes[offset]) > end) {
+          throw new EOFException();
+        }
+        LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
+        offset += tempVInt.length;
+        int saveStart = offset;
+        offset += tempVInt.value;
+        // Last item -- ok to be at end.
+        if (offset > end) {
+          throw new EOFException();
+        }
+        int length = offset - saveStart;
+
+        //   scale = 2, length = 6, value = -6065716379.11
+        //   \002\006\255\114\197\131\083\105
+        //           \255\114\197\131\083\105
+
+        currentHiveDecimalWritable.setFromBigIntegerBytesAndScale(
+            bytes, saveStart, length, readScale);
+        boolean decimalIsNull = !currentHiveDecimalWritable.isSet();
+        if (!decimalIsNull) {
+
+          final DecimalTypeInfo decimalTypeInfo = (DecimalTypeInfo) typeInfo;
+
+          final int precision = decimalTypeInfo.getPrecision();
+          final int scale = decimalTypeInfo.getScale();
+
+          decimalIsNull = !currentHiveDecimalWritable.mutateEnforcePrecisionScale(precision, scale);
+        }
+        if (decimalIsNull) {
+          return false;
+        }
+      }
+      break;
+    default:
+      throw new Error("Unexpected primitive category " + primitiveCategory.name());
+    }
     return true;
   }
 
   /*
-   * Call this method after all fields have been read to check for extra fields.
-   */
-  public void extraFieldsCheck() {
-    if (offset < end) {
-      // We did not consume all of the byte range.
-      if (!bufferRangeHasExtraDataWarned) {
-        // Warn only once.
-        int length = end - start;
-        int remaining = end - offset;
-        LOG.info("Not all fields were read in the buffer range! Buffer range " +  start 
-            + " for length " + length + " but " + remaining + " bytes remain. "
-            + "(total buffer length " + bytes.length + ")"
-            + "  Ignoring similar problems.");
-        bufferRangeHasExtraDataWarned = true;
-      }
-    }
-  }
-
-  /*
-   * Read integrity warning flags.
-   */
-  @Override
-  public boolean readBeyondConfiguredFieldsWarned() {
-    return readBeyondConfiguredFieldsWarned;
-  }
-  @Override
-  public boolean readBeyondBufferRangeWarned() {
-    return readBeyondBufferRangeWarned;
-  }
-  @Override
-  public boolean bufferRangeHasExtraDataWarned() {
-    return bufferRangeHasExtraDataWarned;
-  }
-
-  private void warnBeyondEof() throws EOFException {
-    if (!readBeyondBufferRangeWarned) {
-      // Warn only once.
-      int length = end - start;
-      LOG.info("Reading beyond buffer range! Buffer range " +  start 
-          + " for length " + length + " but reading more... "
-          + "(total buffer length " + bytes.length + ")"
-          + "  Ignoring similar problems.");
-      readBeyondBufferRangeWarned = true;
-    }
-  }
-
-  /*
-   * BOOLEAN.
-   */
-  @Override
-  public boolean readBoolean() throws IOException {
-    // No check needed for single byte read.
-    byte result = bytes[offset++];
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    return (result != 0);
-  }
-
-  /*
-   * BYTE.
-   */
-  @Override
-  public byte readByte() throws IOException {
-    // No check needed for single byte read.
-    byte result = bytes[offset++];
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      // Get next null byte.
-      if (offset >= end) {
-        warnBeyondEof();
-      }
-      if ((fieldIndex % 8) == 0) {
-        nullByte = bytes[offset++];
-      }
-    }
-
-    return result;
-  }
-
-  /*
-   * SHORT.
-   */
-  @Override
-  public short readShort() throws IOException {
-    // Last item -- ok to be at end.
-    if (offset + 2 > end) {
-      warnBeyondEof();
-    }
-    short result = LazyBinaryUtils.byteArrayToShort(bytes, offset);
-    offset += 2;
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    return result;
-  }
-
-  /*
-   * INT.
-   */
-  @Override
-  public int readInt() throws IOException {
-    LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
-    offset += tempVInt.length;
-    // Last item -- ok to be at end.
-    if (offset > end) {
-      warnBeyondEof();
-    }
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    return tempVInt.value;
-  }
-
-  /*
-   * LONG.
-   */
-  @Override
-  public long readLong() throws IOException {
-    LazyBinaryUtils.readVLong(bytes, offset, tempVLong);
-    offset += tempVLong.length;
-    // Last item -- ok to be at end.
-    if (offset > end) {
-      warnBeyondEof();
-    }
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    return tempVLong.value;
-  }
-
-  /*
-   * FLOAT.
-   */
-  @Override
-  public float readFloat() throws IOException {
-    // Last item -- ok to be at end.
-    if (offset + 4 > end) {
-      warnBeyondEof();
-    }
-    float result = Float.intBitsToFloat(LazyBinaryUtils.byteArrayToInt(bytes, offset));
-    offset += 4;
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    return result;
-  }
-
-  /*
-   * DOUBLE.
-   */
-  @Override
-  public double readDouble() throws IOException {
-    // Last item -- ok to be at end.
-    if (offset + 8 > end) {
-      warnBeyondEof();
-    }
-    double result = Double.longBitsToDouble(LazyBinaryUtils.byteArrayToLong(bytes, offset));
-    offset += 8;
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    return result;
-  }
-
-  /*
-   * STRING.
+   * Reads through an undesired field.
    *
-   * Can be used to read CHAR and VARCHAR when the caller takes responsibility for
-   * truncation/padding issues.
+   * No data values are valid after this call.
+   * Designed for skipping columns that are not included.
    */
+  public void skipNextField() throws IOException {
+    final Field current = stack.peek();
+    final boolean isNull = isNull(current);
 
-  // This class is for internal use.
-  private class LazyBinaryReadStringResults extends ReadStringResults {
-    public LazyBinaryReadStringResults() {
-      super();
-    }
-  }
-
-  // Reading a STRING field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different bytes field. 
-  @Override
-  public ReadStringResults createReadStringResults() {
-    return new LazyBinaryReadStringResults();
-  }
-
-  @Override
-  public void readString(ReadStringResults readStringResults) throws IOException {
-    // using vint instead of 4 bytes
-    LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
-    offset += tempVInt.length;
-    // Could be last item for empty string -- ok to be at end.
-    if (offset > end) {
-      warnBeyondEof();
-    }
-    int saveStart = offset;
-    int length = tempVInt.value;
-    offset += length;
-    // Last item -- ok to be at end.
-    if (offset > end) {
-      warnBeyondEof();
+    if (isNull) {
+      current.index++;
+      return;
     }
 
-    // Move past this NOT NULL field.
-    fieldIndex++;
+    if (readUnionTag(current)) {
+      current.index++;
+      return;
+    }
 
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
+    final Field child = getChild(current);
+
+    if (child.category == Category.PRIMITIVE) {
+      readPrimitive(child);
+      current.index++;
+    } else {
+      parseHeader(child);
+      stack.push(child);
+
+      for (int i = 0; i < child.count; i++) {
+        skipNextField();
       }
+      finishComplexVariableFieldsType();
     }
 
-    readStringResults.bytes = bytes;
-    readStringResults.start = saveStart;
-    readStringResults.length = length;
-  }
-
-  /*
-   * CHAR.
-   */
-
-  // This class is for internal use.
-  private static class LazyBinaryReadHiveCharResults extends ReadHiveCharResults {
-
-    // Use our STRING reader.
-    public LazyBinaryReadStringResults readStringResults;
-
-    public LazyBinaryReadHiveCharResults() {
-      super();
-    }
-
-    public HiveCharWritable getHiveCharWritable() {
-      return hiveCharWritable;
-    }
-  }
-
-  // Reading a CHAR field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different CHAR field. 
-  @Override
-  public ReadHiveCharResults createReadHiveCharResults() {
-    return new LazyBinaryReadHiveCharResults();
-  }
-
-  public void readHiveChar(ReadHiveCharResults readHiveCharResults) throws IOException {
-    LazyBinaryReadHiveCharResults lazyBinaryReadHiveCharResults = (LazyBinaryReadHiveCharResults) readHiveCharResults;
-
-    if (!lazyBinaryReadHiveCharResults.isInit()) {
-      lazyBinaryReadHiveCharResults.init((CharTypeInfo) primitiveTypeInfos[fieldIndex]);
-    }
-
-    if (lazyBinaryReadHiveCharResults.readStringResults == null) {
-      lazyBinaryReadHiveCharResults.readStringResults = new LazyBinaryReadStringResults();
-    }
-    LazyBinaryReadStringResults readStringResults = lazyBinaryReadHiveCharResults.readStringResults;
-
-    // Read the bytes using our basic method.
-    readString(readStringResults);
-
-    // Copy the bytes into our Text object, then truncate.
-    HiveCharWritable hiveCharWritable = lazyBinaryReadHiveCharResults.getHiveCharWritable();
-    hiveCharWritable.getTextValue().set(readStringResults.bytes, readStringResults.start, readStringResults.length);
-    hiveCharWritable.enforceMaxLength(lazyBinaryReadHiveCharResults.getMaxLength());
-
-    readHiveCharResults.bytes = hiveCharWritable.getTextValue().getBytes();
-    readHiveCharResults.start = 0;
-    readHiveCharResults.length = hiveCharWritable.getTextValue().getLength();
-  }
-
-  /*
-   * VARCHAR.
-   */
-
-  // This class is for internal use.
-  private static class LazyBinaryReadHiveVarcharResults extends ReadHiveVarcharResults {
-
-    // Use our STRING reader.
-    public LazyBinaryReadStringResults readStringResults;
-
-    public LazyBinaryReadHiveVarcharResults() {
-      super();
-    }
-
-    public HiveVarcharWritable getHiveVarcharWritable() {
-      return hiveVarcharWritable;
-    }
-  }
-
-  // Reading a VARCHAR field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different VARCHAR field. 
-  @Override
-  public ReadHiveVarcharResults createReadHiveVarcharResults() {
-    return new LazyBinaryReadHiveVarcharResults();
-  }
-
-  public void readHiveVarchar(ReadHiveVarcharResults readHiveVarcharResults) throws IOException {
-    LazyBinaryReadHiveVarcharResults lazyBinaryReadHiveVarcharResults = (LazyBinaryReadHiveVarcharResults) readHiveVarcharResults;
-
-    if (!lazyBinaryReadHiveVarcharResults.isInit()) {
-      lazyBinaryReadHiveVarcharResults.init((VarcharTypeInfo) primitiveTypeInfos[fieldIndex]);
-    }
-
-    if (lazyBinaryReadHiveVarcharResults.readStringResults == null) {
-      lazyBinaryReadHiveVarcharResults.readStringResults = new LazyBinaryReadStringResults();
-    }
-    LazyBinaryReadStringResults readStringResults = lazyBinaryReadHiveVarcharResults.readStringResults;
-
-    // Read the bytes using our basic method.
-    readString(readStringResults);
-
-    // Copy the bytes into our Text object, then truncate.
-    HiveVarcharWritable hiveVarcharWritable = lazyBinaryReadHiveVarcharResults.getHiveVarcharWritable();
-    hiveVarcharWritable.getTextValue().set(readStringResults.bytes, readStringResults.start, readStringResults.length);
-    hiveVarcharWritable.enforceMaxLength(lazyBinaryReadHiveVarcharResults.getMaxLength());
-
-    readHiveVarcharResults.bytes = hiveVarcharWritable.getTextValue().getBytes();
-    readHiveVarcharResults.start = 0;
-    readHiveVarcharResults.length = hiveVarcharWritable.getTextValue().getLength();
-  }
-
-  /*
-   * BINARY.
-   */
-
-  // This class is for internal use.
-  private class LazyBinaryReadBinaryResults extends ReadBinaryResults {
-
-    // Use our STRING reader.
-    public LazyBinaryReadStringResults readStringResults;
-
-    public LazyBinaryReadBinaryResults() {
-      super();
-    }
-  }
-
-  // Reading a BINARY field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different bytes field. 
-  @Override
-  public ReadBinaryResults createReadBinaryResults() {
-    return new LazyBinaryReadBinaryResults();
-  }
-
-  public void readBinary(ReadBinaryResults readBinaryResults) throws IOException {
-    LazyBinaryReadBinaryResults lazyBinaryReadBinaryResults = (LazyBinaryReadBinaryResults) readBinaryResults;
-
-    if (lazyBinaryReadBinaryResults.readStringResults == null) {
-      lazyBinaryReadBinaryResults.readStringResults = new LazyBinaryReadStringResults();
-    }
-    LazyBinaryReadStringResults readStringResults = lazyBinaryReadBinaryResults.readStringResults;
-
-    // Read the bytes using our basic method.
-    readString(readStringResults);
-
-    readBinaryResults.bytes = readStringResults.bytes;
-    readBinaryResults.start = readStringResults.start;
-    readBinaryResults.length = readStringResults.length;
-  }
-
-  /*
-   * DATE.
-   */
-
-  // This class is for internal use.
-  private static class LazyBinaryReadDateResults extends ReadDateResults {
-
-    public LazyBinaryReadDateResults() {
-      super();
-    }
-
-    public DateWritable getDateWritable() {
-      return dateWritable;
-    }
-  }
-
-  // Reading a DATE field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different DATE field. 
-  @Override
-  public ReadDateResults createReadDateResults() {
-    return new LazyBinaryReadDateResults();
-  }
-
-  @Override
-  public void readDate(ReadDateResults readDateResults) throws IOException {
-    LazyBinaryReadDateResults lazyBinaryReadDateResults = (LazyBinaryReadDateResults) readDateResults;
-    LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
-    offset += tempVInt.length;
-    // Last item -- ok to be at end.
     if (offset > end) {
-      warnBeyondEof();
+      throw new EOFException();
     }
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    DateWritable dateWritable = lazyBinaryReadDateResults.getDateWritable();
-    dateWritable.set(tempVInt.value);
   }
 
   /*
-   * INTERVAL_YEAR_MONTH.
+   * Call this method may be called after all the all fields have been read to check
+   * for unread fields.
+   *
+   * Note that when optimizing reading to stop reading unneeded include columns, worrying
+   * about whether all data is consumed is not appropriate (often we aren't reading it all by
+   * design).
+   *
+   * Since LazySimpleDeserializeRead parses the line through the last desired column it does
+   * support this function.
    */
-
-  // This class is for internal use.
-  private static class LazyBinaryReadIntervalYearMonthResults extends ReadIntervalYearMonthResults {
-
-    public LazyBinaryReadIntervalYearMonthResults() {
-      super();
-    }
-
-    public HiveIntervalYearMonthWritable getHiveIntervalYearMonthWritable() {
-      return hiveIntervalYearMonthWritable;
-    }
+  public boolean isEndOfInputReached() {
+    return (offset == end);
   }
 
-  // Reading a INTERVAL_YEAR_MONTH field require a results object to receive value information.
-  // A separate results object is created by the caller at initialization per different
-  // INTERVAL_YEAR_MONTH field. 
-  @Override
-  public ReadIntervalYearMonthResults createReadIntervalYearMonthResults() {
-    return new LazyBinaryReadIntervalYearMonthResults();
-  }
-
-  @Override
-  public void readIntervalYearMonth(ReadIntervalYearMonthResults readIntervalYearMonthResults)
-          throws IOException {
-    LazyBinaryReadIntervalYearMonthResults lazyBinaryReadIntervalYearMonthResults =
-                (LazyBinaryReadIntervalYearMonthResults) readIntervalYearMonthResults;
-
-    LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
-    offset += tempVInt.length;
-    // Last item -- ok to be at end.
-    if (offset > end) {
-      warnBeyondEof();
-    }
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
+  private boolean isNull(Field field) {
+    final byte b = (byte) (1 << (field.index % 8));
+    switch (field.category) {
+    case PRIMITIVE:
+      return false;
+    case LIST:
+    case MAP:
+      final byte nullByte = bytes[field.nullByteStart + (field.index / 8)];
+      return (nullByte & b) == 0;
+    case STRUCT:
+      if (field.index % 8 == 0) {
+        field.nullByte = bytes[offset++];
       }
-    }
-
-    HiveIntervalYearMonthWritable hiveIntervalYearMonthWritable =
-                lazyBinaryReadIntervalYearMonthResults.getHiveIntervalYearMonthWritable();
-    hiveIntervalYearMonthWritable.set(tempVInt.value);
-  }
-
-  /*
-   * INTERVAL_DAY_TIME.
-   */
-
-  // This class is for internal use.
-  private static class LazyBinaryReadIntervalDayTimeResults extends ReadIntervalDayTimeResults {
-
-    public LazyBinaryReadIntervalDayTimeResults() {
-      super();
-    }
-
-    public HiveIntervalDayTimeWritable getHiveIntervalDayTimeWritable() {
-      return hiveIntervalDayTimeWritable;
+      return (field.nullByte & b) == 0;
+    case UNION:
+      return false;
+    default:
+      throw new RuntimeException();
     }
   }
 
-  // Reading a INTERVAL_DAY_TIME field require a results object to receive value information.
-  // A separate results object is created by the caller at initialization per different
-  // INTERVAL_DAY_TIME field. 
-  @Override
-  public ReadIntervalDayTimeResults createReadIntervalDayTimeResults() {
-    return new LazyBinaryReadIntervalDayTimeResults();
-  }
+  private void parseHeader(Field field) {
+    // Init
+    field.index = 0;
+    field.start = offset;
 
-  @Override
-  public void readIntervalDayTime(ReadIntervalDayTimeResults readIntervalDayTimeResults)
-          throws IOException {
-    LazyBinaryReadIntervalDayTimeResults lazyBinaryReadIntervalDayTimeResults =
-                (LazyBinaryReadIntervalDayTimeResults) readIntervalDayTimeResults;
-    LazyBinaryUtils.readVLong(bytes, offset, tempVLong);
-    offset += tempVLong.length;
-    if (offset >= end) {
-      // Overshoot or not enough for next item.
-      warnBeyondEof();
-    }
-    LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
-    offset += tempVInt.length;
-    // Last item -- ok to be at end.
-    if (offset > end) {
-      warnBeyondEof();
+    // Read length
+    if (!skipLengthPrefix) {
+      final int length = LazyBinaryUtils.byteArrayToInt(bytes, offset);
+      offset += 4;
+      field.end = offset + length;
     }
 
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
+    switch (field.category) {
+    case LIST:
+    case MAP:
+      // Read count
+      LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
+      if (field.category == Category.LIST) {
+        field.count = tempVInt.value;
+      } else {
+        field.count = tempVInt.value * 2;
       }
-    }
+      offset += tempVInt.length;
 
-    HiveIntervalDayTimeWritable hiveIntervalDayTimeWritable =
-                lazyBinaryReadIntervalDayTimeResults.getHiveIntervalDayTimeWritable();
-    hiveIntervalDayTimeWritable.set(tempVLong.value, tempVInt.value);
-  }
-
-  /*
-   * TIMESTAMP.
-   */
-
-  // This class is for internal use.
-  private static class LazyBinaryReadTimestampResults extends ReadTimestampResults {
-
-    public LazyBinaryReadTimestampResults() {
-      super();
-    }
-
-    public TimestampWritable getTimestampWritable() {
-      return timestampWritable;
+      // Null byte start
+      field.nullByteStart = offset;
+      offset += ((field.count) + 7) / 8;
+      break;
+    case STRUCT:
+      field.count = ((StructTypeInfo) field.typeInfo).getAllStructFieldTypeInfos().size();
+      break;
+    case UNION:
+      field.count = 2;
+      break;
     }
   }
 
-  // Reading a TIMESTAMP field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different TIMESTAMP field. 
+  private Field getChild(Field field) {
+    switch (field.category) {
+    case LIST:
+      return field.children[0];
+    case MAP:
+      return field.children[field.index % 2];
+    case STRUCT:
+      return field.children[field.index];
+    case UNION:
+      return field.children[field.tag];
+    default:
+      throw new RuntimeException();
+    }
+  }
+
+  private boolean readUnionTag(Field field) {
+    if (field.category == Category.UNION && field.index == 0) {
+      field.tag = bytes[offset++];
+      currentInt = field.tag;
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  // Push or next
   @Override
-  public ReadTimestampResults createReadTimestampResults() {
-    return new LazyBinaryReadTimestampResults();
-  }
+  public boolean readComplexField() throws IOException {
+    final Field current = stack.peek();
+    boolean isNull = isNull(current);
 
-  @Override
-  public void readTimestamp(ReadTimestampResults readTimestampResults) throws IOException {
-    LazyBinaryReadTimestampResults lazyBinaryReadTimestampResults = (LazyBinaryReadTimestampResults) readTimestampResults;
-    int length = TimestampWritable.getTotalLength(bytes, offset);
-    int saveStart = offset;
-    offset += length;
-    // Last item -- ok to be at end.
+    if (isNull) {
+      current.index++;
+      return false;
+    }
+
+    if (readUnionTag(current)) {
+      current.index++;
+      return true;
+    }
+
+    final Field child = getChild(current);
+
+    if (child.category == Category.PRIMITIVE) {
+      isNull = !readPrimitive(child);
+      current.index++;
+    } else {
+      parseHeader(child);
+      stack.push(child);
+    }
+
     if (offset > end) {
-      warnBeyondEof();
+      throw new EOFException();
     }
-
-    // Move past this NOT NULL field.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    TimestampWritable timestampWritable = lazyBinaryReadTimestampResults.getTimestampWritable();
-    timestampWritable.set(bytes, saveStart);
+    return !isNull;
   }
 
-  /*
-   * DECIMAL.
-   */
-
-  // This class is for internal use.
-  private static class LazyBinaryReadDecimalResults extends ReadDecimalResults {
-
-    public HiveDecimal hiveDecimal;
-
-    public void init(DecimalTypeInfo decimalTypeInfo) {
-      super.init(decimalTypeInfo);
-    }
-
-    @Override
-    public HiveDecimal getHiveDecimal() {
-      return hiveDecimal;
-    }
-  }
-
-  // Reading a DECIMAL field require a results object to receive value information.  A separate
-  // results object is created by the caller at initialization per different DECIMAL field. 
+  // Pop (list, map)
   @Override
-  public ReadDecimalResults createReadDecimalResults() {
-    return new LazyBinaryReadDecimalResults();
+  public boolean isNextComplexMultiValue() {
+    Field current = stack.peek();
+    final boolean isNext = current.index < current.count;
+    if (!isNext) {
+      stack.pop();
+      stack.peek().index++;
+    }
+    return isNext;
   }
 
+  // Pop (struct, union)
   @Override
-  public void readHiveDecimal(ReadDecimalResults readDecimalResults) throws IOException {
-    LazyBinaryReadDecimalResults lazyBinaryReadDecimalResults = (LazyBinaryReadDecimalResults) readDecimalResults;
-
-    if (!lazyBinaryReadDecimalResults.isInit()) {
-      lazyBinaryReadDecimalResults.init(saveDecimalTypeInfo);
+  public void finishComplexVariableFieldsType() {
+    stack.pop();
+    if (stack.peek() == null) {
+      throw new RuntimeException();
     }
-
-    lazyBinaryReadDecimalResults.hiveDecimal = saveDecimal;
-
-    saveDecimal = null;
-    saveDecimalTypeInfo = null;
-  }
-
-  /**
-   * We read the whole HiveDecimal value and then enforce precision and scale, which may
-   * make it a NULL.
-   * @return     Returns true if this HiveDecimal enforced to a NULL.
-   */
-  private boolean earlyReadHiveDecimal() throws EOFException {
-
-    // Since enforcing precision and scale can cause a HiveDecimal to become NULL,
-    // we must read it, enforce it here, and either return NULL or buffer the result.
-
-    // These calls are to see how much data there is. The setFromBytes call below will do the same
-    // readVInt reads but actually unpack the decimal.
-    LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
-    int saveStart = offset;
-    offset += tempVInt.length;
-    if (offset >= end) {
-      // Overshoot or not enough for next item.
-      warnBeyondEof();
-    }
-    LazyBinaryUtils.readVInt(bytes, offset, tempVInt);
-    offset += tempVInt.length;
-    if (offset >= end) {
-      // Overshoot or not enough for next item.
-      warnBeyondEof();
-    }
-    offset += tempVInt.value;
-    // Last item -- ok to be at end.
-    if (offset > end) {
-      warnBeyondEof();
-    }
-    int length = offset - saveStart;
-
-    if (tempHiveDecimalWritable == null) {
-      tempHiveDecimalWritable = new HiveDecimalWritable();
-    }
-    LazyBinarySerDe.setFromBytes(bytes, saveStart, length,
-        tempHiveDecimalWritable);
-
-    saveDecimalTypeInfo = (DecimalTypeInfo) primitiveTypeInfos[fieldIndex];
-
-    int precision = saveDecimalTypeInfo.getPrecision();
-    int scale = saveDecimalTypeInfo.getScale();
-
-    saveDecimal = tempHiveDecimalWritable.getHiveDecimal(precision, scale);
-
-    // Move past this field whether it is NULL or NOT NULL.
-    fieldIndex++;
-
-    // Every 8 fields we read a new NULL byte.
-    if (fieldIndex < fieldCount) {
-      if ((fieldIndex % 8) == 0) {
-        // Get next null byte.
-        if (offset >= end) {
-          warnBeyondEof();
-        }
-        nullByte = bytes[offset++];
-      }
-    }
-
-    // Now return whether it is NULL or NOT NULL.
-    return (saveDecimal == null);
+    stack.peek().index++;
   }
 }

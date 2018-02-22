@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,12 +18,8 @@
 package org.apache.hadoop.hive.ql.hooks;
 
 import java.util.Set;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 import org.apache.hadoop.hive.conf.HiveConf;
-import org.apache.hadoop.hive.ql.session.SessionState;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.Partition;
@@ -37,21 +33,20 @@ public class UpdateInputAccessTimeHook {
 
   private static final String LAST_ACCESS_TIME = "lastAccessTime";
 
-  public static class PreExec implements PreExecute {
-    Hive db;
+  public static class PreExec implements ExecuteWithHookContext {
 
-    public void run(SessionState sess, Set<ReadEntity> inputs,
-                    Set<WriteEntity> outputs, UserGroupInformation ugi)
-      throws Exception {
+    @Override
+    public void run(HookContext hookContext) throws Exception {
+      HiveConf conf = hookContext.getConf();
+      Set<ReadEntity> inputs = hookContext.getQueryPlan().getInputs();
 
-      if (db == null) {
-        try {
-          db = Hive.get(sess.getConf());
-        } catch (HiveException e) {
-          // ignore
-          db = null;
-          return;
-        }
+      Hive db;
+      try {
+        db = Hive.get(conf);
+      } catch (HiveException e) {
+        // ignore
+        db = null;
+        return;
       }
 
       int lastAccessTime = (int) (System.currentTimeMillis()/1000);
@@ -66,7 +61,7 @@ public class UpdateInputAccessTimeHook {
         case TABLE: {
           Table t = db.getTable(re.getTable().getTableName());
           t.setLastAccessTime(lastAccessTime);
-          db.alterTable(t.getDbName() + "." + t.getTableName(), t);
+          db.alterTable(t, null);
           break;
         }
         case PARTITION: {
@@ -74,9 +69,9 @@ public class UpdateInputAccessTimeHook {
           Table t = db.getTable(p.getTable().getTableName());
           p = db.getPartition(t, p.getSpec(), false);
           p.setLastAccessTime(lastAccessTime);
-          db.alterPartition(t.getTableName(), p);
+          db.alterPartition(t.getTableName(), p, null);
           t.setLastAccessTime(lastAccessTime);
-          db.alterTable(t.getDbName() + "." + t.getTableName(), t);
+          db.alterTable(t, null);
           break;
         }
         default:

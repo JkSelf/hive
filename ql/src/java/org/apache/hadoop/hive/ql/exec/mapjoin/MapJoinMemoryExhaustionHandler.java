@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -21,8 +21,8 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.text.NumberFormat;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.session.SessionState.LogHelper;
 
@@ -31,7 +31,7 @@ import org.apache.hadoop.hive.ql.session.SessionState.LogHelper;
  * for HashTableSinkOperator.
  */
 public class MapJoinMemoryExhaustionHandler {
-  private static final Log LOG = LogFactory.getLog(MapJoinMemoryExhaustionHandler.class);
+  private static final Logger LOG = LoggerFactory.getLogger(MapJoinMemoryExhaustionHandler.class);
 
   public final MemoryMXBean memoryMXBean;
 
@@ -86,17 +86,17 @@ public class MapJoinMemoryExhaustionHandler {
    *
    * @param tableContainerSize currently table container size
    * @param numRows number of rows processed
-   * @throws MapJoinMemoryExhaustionException
+   * @throws MapJoinMemoryExhaustionError
    */
   public void checkMemoryStatus(long tableContainerSize, long numRows)
-  throws MapJoinMemoryExhaustionException {
+  throws MapJoinMemoryExhaustionError {
     long usedMemory = memoryMXBean.getHeapMemoryUsage().getUsed();
     double percentage = (double) usedMemory / (double) maxHeapSize;
     String msg = Utilities.now() + "\tProcessing rows:\t" + numRows + "\tHashtable size:\t"
         + tableContainerSize + "\tMemory usage:\t" + usedMemory + "\tpercentage:\t" + percentageNumberFormat.format(percentage);
     console.printInfo(msg);
     if(percentage > maxMemoryUsage) {
-      throw new MapJoinMemoryExhaustionException(msg);
+      throw new MapJoinMemoryExhaustionError(msg);
     }
    }
 }

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -60,9 +60,6 @@ public class PhysicalOptimizer {
       }
     }
 
-    if (hiveConf.getBoolVar(HiveConf.ConfVars.HIVEOPTINDEXFILTER)) {
-      resolvers.add(new IndexWhereResolver());
-    }
     resolvers.add(new MapJoinResolver());
     if (hiveConf.getBoolVar(HiveConf.ConfVars.HIVEMETADATAONLYQUERIES)) {
       resolvers.add(new MetadataOnlyOptimizer());
@@ -82,7 +79,7 @@ public class PhysicalOptimizer {
     }
 
     if (hiveConf.getBoolVar(HiveConf.ConfVars.HIVE_CHECK_CROSS_PRODUCT)) {
-      resolvers.add(new CrossProductCheck());
+      resolvers.add(new CrossProductHandler());
     }
 
     // Vectorization should be the last optimization, because it doesn't modify the plan
@@ -93,6 +90,10 @@ public class PhysicalOptimizer {
     }
     if (!"none".equalsIgnoreCase(hiveConf.getVar(HiveConf.ConfVars.HIVESTAGEIDREARRANGE))) {
       resolvers.add(new StageIDsRearranger());
+    }
+
+    if (pctx.getContext().getExplainAnalyze() != null) {
+      resolvers.add(new AnnotateRunTimeStatsOptimizer());
     }
   }
 

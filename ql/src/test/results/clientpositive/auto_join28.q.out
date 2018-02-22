@@ -58,8 +58,8 @@ STAGE PLANS:
             Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
             Map Join Operator
               condition map:
-                   Left Outer Join0 to 1
-                   Right Outer Join1 to 2
+                   Left Outer Join 0 to 1
+                   Right Outer Join 1 to 2
               filter predicates:
                 0 {(key < 10)}
                 1 
@@ -89,8 +89,8 @@ STAGE PLANS:
             compressed: false
             Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
             table:
-                input format: org.apache.hadoop.mapred.TextInputFormat
-                output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                 serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -142,7 +142,7 @@ STAGE PLANS:
             alias: src3
             Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
             Filter Operator
-              predicate: ((key > 10) and (key < 10)) (type: boolean)
+              predicate: ((key < 10) and (key > 10)) (type: boolean)
               Statistics: Num rows: 55 Data size: 584 Basic stats: COMPLETE Column stats: NONE
               HashTable Sink Operator
                 filter predicates:
@@ -162,8 +162,8 @@ STAGE PLANS:
             Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
             Map Join Operator
               condition map:
-                   Left Outer Join0 to 1
-                   Left Outer Join1 to 2
+                   Left Outer Join 0 to 1
+                   Left Outer Join 1 to 2
               filter predicates:
                 0 {(key < 10)}
                 1 
@@ -193,8 +193,8 @@ STAGE PLANS:
             compressed: false
             Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
             table:
-                input format: org.apache.hadoop.mapred.TextInputFormat
-                output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                 serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -266,8 +266,8 @@ STAGE PLANS:
             Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
             Map Join Operator
               condition map:
-                   Right Outer Join0 to 1
-                   Left Outer Join1 to 2
+                   Right Outer Join 0 to 1
+                   Left Outer Join 1 to 2
               filter predicates:
                 0 
                 1 {(key > 10)}
@@ -297,8 +297,8 @@ STAGE PLANS:
             compressed: false
             Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
             table:
-                input format: org.apache.hadoop.mapred.TextInputFormat
-                output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                 serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
@@ -367,8 +367,8 @@ STAGE PLANS:
             Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: NONE
             Map Join Operator
               condition map:
-                   Right Outer Join0 to 1
-                   Right Outer Join1 to 2
+                   Right Outer Join 0 to 1
+                   Right Outer Join 1 to 2
               filter predicates:
                 0 
                 1 {(key > 10)}
@@ -398,8 +398,8 @@ STAGE PLANS:
             compressed: false
             Statistics: Num rows: 1100 Data size: 11686 Basic stats: COMPLETE Column stats: NONE
             table:
-                input format: org.apache.hadoop.mapred.TextInputFormat
-                output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+                input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
                 serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0

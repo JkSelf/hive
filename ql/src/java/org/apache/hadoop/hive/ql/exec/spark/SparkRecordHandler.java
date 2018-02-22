@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,10 +18,11 @@
 
 package org.apache.hadoop.hive.ql.exec.spark;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.MapredContext;
 import org.apache.hadoop.hive.ql.log.PerfLogger;
+import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.OutputCollector;
 import org.apache.hadoop.mapred.Reporter;
@@ -35,8 +36,8 @@ import java.util.Iterator;
 
 public abstract class SparkRecordHandler {
   protected static final String CLASS_NAME = SparkRecordHandler.class.getName();
-  protected final PerfLogger perfLogger = PerfLogger.getPerfLogger();
-  private static final Log LOG = LogFactory.getLog(SparkRecordHandler.class);
+  protected final PerfLogger perfLogger = SessionState.getPerfLogger();
+  private static final Logger LOG = LoggerFactory.getLogger(SparkRecordHandler.class);
 
   // used to log memory usage periodically
   protected final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
@@ -47,6 +48,8 @@ public abstract class SparkRecordHandler {
   protected boolean abort = false;
   private long rowNumber = 0;
   private long nextLogThreshold = 1;
+
+  protected boolean anyRow = false;
 
   public <K, V> void init(JobConf job, OutputCollector<K, V> output, Reporter reporter) throws Exception {
     jc = job;
@@ -80,7 +83,7 @@ public abstract class SparkRecordHandler {
   public abstract <E> void processRow(Object key, Iterator<E> values) throws IOException;
 
   /**
-   * Log processed row number and used memory info.
+   * Logger processed row number and used memory info.
    */
   protected void logMemoryInfo() {
     rowNumber++;
@@ -96,7 +99,7 @@ public abstract class SparkRecordHandler {
   public abstract boolean getDone();
 
   /**
-   * Log information to be logged at the end.
+   * Logger information to be logged at the end.
    */
   protected void logCloseInfo() {
     long usedMemory = memoryMXBean.getHeapMemoryUsage().getUsed();

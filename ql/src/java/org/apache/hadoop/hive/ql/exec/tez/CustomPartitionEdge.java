@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -20,12 +20,13 @@ package org.apache.hadoop.hive.ql.exec.tez;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.tez.dag.api.EdgeManagerPlugin;
 import org.apache.tez.dag.api.EdgeManagerPluginContext;
 import org.apache.tez.runtime.api.events.DataMovementEvent;
@@ -33,7 +34,7 @@ import org.apache.tez.runtime.api.events.InputReadErrorEvent;
 
 public class CustomPartitionEdge extends EdgeManagerPlugin {
 
-  private static final Log LOG = LogFactory.getLog(CustomPartitionEdge.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(CustomPartitionEdge.class.getName());
 
   CustomEdgeConfiguration conf = null;
   final EdgeManagerPluginContext context;
@@ -84,6 +85,12 @@ public class CustomPartitionEdge extends EdgeManagerPlugin {
   @Override
   public void routeDataMovementEventToDestination(DataMovementEvent event,
       int sourceTaskIndex, int sourceOutputIndex, Map<Integer, List<Integer>> mapDestTaskIndices) {
+    if (conf.getRoutingTable().get(sourceOutputIndex).size() == 0) {
+      // No task for given input, return empty list with -1 as index
+      mapDestTaskIndices.put(-1, new ArrayList<>());
+      return;
+    }
+    // Normal case.
     List<Integer> outputIndices = Collections.singletonList(sourceTaskIndex);
     for (Integer destIndex : conf.getRoutingTable().get(sourceOutputIndex)) {
       mapDestTaskIndices.put(destIndex, outputIndices);

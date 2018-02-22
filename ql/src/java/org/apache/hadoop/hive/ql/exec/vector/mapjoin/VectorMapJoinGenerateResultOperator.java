@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,8 +23,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.commons.lang.ArrayUtils;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.ql.CompilationOpContext;
+import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.persistence.HybridHashTableContainer;
 import org.apache.hadoop.hive.ql.exec.persistence.HybridHashTableContainer.HashPartition;
 import org.apache.hadoop.hive.ql.exec.persistence.MapJoinBytesTableContainer;
@@ -39,14 +42,19 @@ import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpression;
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHashTableResult;
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.hashtable.VectorMapJoinHashMapResult;
 import org.apache.hadoop.hive.ql.exec.vector.mapjoin.optimized.VectorMapJoinOptimizedCreateHashTable;
+import org.apache.hadoop.hive.ql.exec.vector.rowbytescontainer.VectorRowBytesContainer;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
 import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.WriteBuffers.ByteSegmentRef;
 import org.apache.hadoop.hive.serde2.lazybinary.fast.LazyBinaryDeserializeRead;
 import org.apache.hadoop.hive.serde2.lazybinary.fast.LazyBinarySerializeWrite;
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
+import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
 import org.apache.hadoop.hive.serde2.ByteStream.Output;
 
 /**
@@ -70,25 +78,50 @@ import org.apache.hadoop.hive.serde2.ByteStream.Output;
 public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinCommonOperator {
 
   private static final long serialVersionUID = 1L;
-  private static final Log LOG = LogFactory.getLog(VectorMapJoinGenerateResultOperator.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(VectorMapJoinGenerateResultOperator.class.getName());
   private static final String CLASS_NAME = VectorMapJoinGenerateResultOperator.class.getName();
+  private static final int CHECK_INTERRUPT_PER_OVERFLOW_BATCHES = 10;
 
-  private transient PrimitiveTypeInfo[] bigTablePrimitiveTypeInfos;
+  //------------------------------------------------------------------------------------------------
+
+  private transient TypeInfo[] bigTableTypeInfos;
 
   private transient VectorSerializeRow bigTableVectorSerializeRow;
 
   private transient VectorDeserializeRow bigTableVectorDeserializeRow;
 
+  private transient Thread ownThread;
+  private transient int interruptCheckCounter = CHECK_INTERRUPT_PER_OVERFLOW_BATCHES;
+
   // Debug display.
   protected transient long batchCounter;
 
-  public VectorMapJoinGenerateResultOperator() {
+  /** Kryo ctor. */
+  protected VectorMapJoinGenerateResultOperator() {
     super();
   }
 
-  public VectorMapJoinGenerateResultOperator(VectorizationContext vContext, OperatorDesc conf)
-              throws HiveException {
-    super(vContext, conf);
+  public VectorMapJoinGenerateResultOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorMapJoinGenerateResultOperator(CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) throws HiveException {
+    super(ctx, conf, vContext, vectorDesc);
+  }
+
+  @Override
+  protected void initializeOp(Configuration hconf) throws HiveException {
+    super.initializeOp(hconf);
+    setUpInterruptChecking();
+  }
+
+  private void setUpInterruptChecking() {
+    for (Operator<? extends OperatorDesc> child : childOperatorsArray) {
+      // We will only do interrupt checking in the lowest-level operator for multiple joins.
+      if (child instanceof VectorMapJoinGenerateResultOperator) return;
+    }
+    ownThread = Thread.currentThread();
   }
 
   protected void commonSetup(VectorizedRowBatch batch) throws HiveException {
@@ -122,6 +155,28 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
 
     batch.selected = saveSelected;
     batch.selectedInUse = saveSelectedInUse;
+  }
+
+  protected void doSmallTableDeserializeRow(VectorizedRowBatch batch, int batchIndex,
+      ByteSegmentRef byteSegmentRef, VectorMapJoinHashMapResult hashMapResult)
+          throws HiveException {
+
+    byte[] bytes = byteSegmentRef.getBytes();
+    int offset = (int) byteSegmentRef.getOffset();
+    int length = byteSegmentRef.getLength();
+    smallTableVectorDeserializeRow.setBytes(bytes, offset, length);
+
+    try {
+      // Our hash tables are immutable.  We can safely do by reference STRING, CHAR/VARCHAR, etc.
+      smallTableVectorDeserializeRow.deserializeByRef(batch, batchIndex);
+    } catch (Exception e) {
+      throw new HiveException(
+          "\nHashMapResult detail: " +
+              hashMapResult.getDetailedHashMapResultPositionString() +
+          "\nDeserializeRead detail: " +
+              smallTableVectorDeserializeRow.getDetailedReadPositionString(),
+          e);
+    }
   }
 
   //------------------------------------------------------------------------------------------------
@@ -162,19 +217,16 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
 
       int batchIndex = allMatchs[allMatchesIndex + i];
 
+      // Outer key copying is only used when we are using the input BigTable batch as the output.
+      //
       if (bigTableVectorCopyOuterKeys != null) {
         // Copy within row.
         bigTableVectorCopyOuterKeys.copyByReference(batch, batchIndex, batch, batchIndex);
       }
 
       if (smallTableVectorDeserializeRow != null) {
-
-        byte[] bytes = byteSegmentRef.getBytes();
-        int offset = (int) byteSegmentRef.getOffset();
-        int length = byteSegmentRef.getLength();
-        smallTableVectorDeserializeRow.setBytes(bytes, offset, length);
-
-        smallTableVectorDeserializeRow.deserializeByValue(batch, batchIndex);
+        doSmallTableDeserializeRow(batch, batchIndex,
+            byteSegmentRef, hashMapResult);
       }
 
       // VectorizedBatchUtil.debugDisplayOneRow(batch, batchIndex, "generateHashMapResultSingleValue big table");
@@ -228,25 +280,16 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
 
         // Copy the BigTable values into the overflow batch. Since the overflow batch may
         // not get flushed here, we must copy by value.
+        // Note this includes any outer join keys that need to go into the small table "area".
         if (bigTableRetainedVectorCopy != null) {
           bigTableRetainedVectorCopy.copyByValue(batch, batchIndex,
                                                  overflowBatch, overflowBatch.size);
         }
 
-        // Reference the keys we just copied above.
-        if (bigTableVectorCopyOuterKeys != null) {
-          bigTableVectorCopyOuterKeys.copyByReference(overflowBatch, overflowBatch.size,
-                                                      overflowBatch, overflowBatch.size);
-        }
-
         if (smallTableVectorDeserializeRow != null) {
 
-          byte[] bytes = byteSegmentRef.getBytes();
-          int offset = (int) byteSegmentRef.getOffset();
-          int length = byteSegmentRef.getLength();
-          smallTableVectorDeserializeRow.setBytes(bytes, offset, length);
-
-          smallTableVectorDeserializeRow.deserializeByValue(overflowBatch, overflowBatch.size);
+          doSmallTableDeserializeRow(overflowBatch, overflowBatch.size,
+              byteSegmentRef, hashMapResult);
         }
 
         // VectorizedBatchUtil.debugDisplayOneRow(overflowBatch, overflowBatch.size, "generateHashMapResultMultiValue overflow");
@@ -285,19 +328,14 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
     }
 
     ByteSegmentRef byteSegmentRef = hashMapResult.first();
-    while (true) {
+    while (byteSegmentRef != null) {
 
       // Fill up as much of the overflow batch as possible with small table values.
       while (byteSegmentRef != null) {
 
         if (smallTableVectorDeserializeRow != null) {
-
-          byte[] bytes = byteSegmentRef.getBytes();
-          int offset = (int) byteSegmentRef.getOffset();
-          int length = byteSegmentRef.getLength();
-          smallTableVectorDeserializeRow.setBytes(bytes, offset, length);
-
-          smallTableVectorDeserializeRow.deserializeByValue(overflowBatch, overflowBatch.DEFAULT_SIZE);
+          doSmallTableDeserializeRow(overflowBatch, overflowBatch.size,
+              byteSegmentRef, hashMapResult);
         }
 
         overflowBatch.size++;
@@ -329,12 +367,6 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
             overflowBatch.cols[column].isRepeating = true;
           }
         }
-        if (bigTableVectorCopyOuterKeys != null) {
-          bigTableVectorCopyOuterKeys.copyByReference(batch, batchIndex, overflowBatch, 0);
-          for (int column : bigTableOuterKeyOutputVectorColumns) {
-            overflowBatch.cols[column].isRepeating = true;
-          }
-        }
 
         // Crucial here that we don't reset the overflow batch, or we will loose the small table
         // values we put in above.
@@ -345,19 +377,12 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
           ColumnVector colVector = overflowBatch.cols[column];
           colVector.reset();
         }
-
-        if (bigTableVectorCopyOuterKeys != null) {
-          for (int column : bigTableOuterKeyOutputVectorColumns) {
-            ColumnVector colVector = overflowBatch.cols[column];
-            colVector.reset();
-          }
-        }
       }
 
-      if (hashMapResult.isEof()) {
+      byteSegmentRef = hashMapResult.next();
+      if (byteSegmentRef == null) {
         break;
       }
-      byteSegmentRef = hashMapResult.next();
 
       // Get ready for a another round of small table values.
       overflowBatch.reset();
@@ -410,18 +435,20 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
 
   private void setupSpillSerDe(VectorizedRowBatch batch) throws HiveException {
 
-    PrimitiveTypeInfo[] inputObjInspectorsTypeInfos =
-        VectorizedBatchUtil.primitiveTypeInfosFromStructObjectInspector(
+    TypeInfo[] inputObjInspectorsTypeInfos =
+        VectorizedBatchUtil.typeInfosFromStructObjectInspector(
                (StructObjectInspector) inputObjInspectors[posBigTable]);
 
     List<Integer> projectedColumns = vContext.getProjectedColumns();
     int projectionSize = vContext.getProjectedColumns().size();
 
-    List<PrimitiveTypeInfo> typeInfoList = new ArrayList<PrimitiveTypeInfo>();
+    List<TypeInfo> typeInfoList = new ArrayList<TypeInfo>();
     List<Integer> noNullsProjectionList = new ArrayList<Integer>();
     for (int i = 0; i < projectionSize; i++) {
       int projectedColumn = projectedColumns.get(i);
-      if (batch.cols[projectedColumn] != null) {
+      if (batch.cols[projectedColumn] != null &&
+          inputObjInspectorsTypeInfos[i].getCategory() == Category.PRIMITIVE) {
+        // Only columns present in the batch and non-complex types.
         typeInfoList.add(inputObjInspectorsTypeInfos[i]);
         noNullsProjectionList.add(projectedColumn);
       }
@@ -429,17 +456,21 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
 
     int[] noNullsProjection = ArrayUtils.toPrimitive(noNullsProjectionList.toArray(new Integer[0]));
     int noNullsProjectionSize = noNullsProjection.length;
-    bigTablePrimitiveTypeInfos = typeInfoList.toArray(new PrimitiveTypeInfo[0]);
+    bigTableTypeInfos = typeInfoList.toArray(new TypeInfo[0]);
 
     bigTableVectorSerializeRow =
-            new VectorSerializeRow(new LazyBinarySerializeWrite(noNullsProjectionSize));
+            new VectorSerializeRow<LazyBinarySerializeWrite>(
+                new LazyBinarySerializeWrite(noNullsProjectionSize));
 
     bigTableVectorSerializeRow.init(
-                bigTablePrimitiveTypeInfos,
-                noNullsProjectionList);
+                bigTableTypeInfos,
+                noNullsProjection);
 
-    bigTableVectorDeserializeRow = new VectorDeserializeRow(
-            new LazyBinaryDeserializeRead(bigTablePrimitiveTypeInfos));
+    bigTableVectorDeserializeRow =
+        new VectorDeserializeRow<LazyBinaryDeserializeRead>(
+            new LazyBinaryDeserializeRead(
+                bigTableTypeInfos,
+                /* useExternalBuffer */ true));
 
     bigTableVectorDeserializeRow.init(noNullsProjection);
   }
@@ -452,7 +483,7 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
     HybridHashTableContainer ht = (HybridHashTableContainer) mapJoinTables[posSingleVectorMapJoinSmallTable];
     HashPartition hp = ht.getHashPartitions()[partitionId];
 
-    VectorMapJoinRowBytesContainer rowBytesContainer = hp.getMatchfileRowBytesContainer();
+    VectorRowBytesContainer rowBytesContainer = hp.getMatchfileRowBytesContainer();
     Output output = rowBytesContainer.getOuputForRowBytes();
 //  int offset = output.getLength();
     bigTableVectorSerializeRow.setOutputAppend(output);
@@ -502,6 +533,8 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
   protected void reloadHashTable(byte pos, int partitionId)
           throws IOException, HiveException, SerDeException, ClassNotFoundException {
 
+    this.vectorMapJoinHashTable = null;
+
     // The super method will reload a hash table partition of one of the small tables.
     // Currently, for native vector map join it will only be one small table.
     super.reloadHashTable(pos, partitionId);
@@ -511,6 +544,7 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
     vectorMapJoinHashTable = VectorMapJoinOptimizedCreateHashTable.createHashTable(conf,
         smallTable);
     needHashTableSetup = true;
+    LOG.info("Created " + vectorMapJoinHashTable.getClass().getSimpleName() + " from " + this.getClass().getSimpleName());
 
     if (LOG.isDebugEnabled()) {
       LOG.debug(CLASS_NAME + " reloadHashTable!");
@@ -536,7 +570,7 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
     int batchCount = 0;
 
     try {
-      VectorMapJoinRowBytesContainer bigTable = partition.getMatchfileRowBytesContainer();
+      VectorRowBytesContainer bigTable = partition.getMatchfileRowBytesContainer();
       bigTable.prepareForReading();
 
       while (bigTable.readNext()) {
@@ -546,14 +580,18 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
         int offset = bigTable.currentOffset();
         int length = bigTable.currentLength();
 
-//      LOG.debug(CLASS_NAME + " reProcessBigTable serialized row #" + rowCount + ", offset " + offset + ", length " + length);
-
         bigTableVectorDeserializeRow.setBytes(bytes, offset, length);
-        bigTableVectorDeserializeRow.deserializeByValue(spillReplayBatch, spillReplayBatch.size);
+        try {
+          bigTableVectorDeserializeRow.deserialize(spillReplayBatch, spillReplayBatch.size);
+        } catch (Exception e) {
+          throw new HiveException(
+              "\nDeserializeRead detail: " +
+                  bigTableVectorDeserializeRow.getDetailedReadPositionString(),
+              e);
+        }
         spillReplayBatch.size++;
 
         if (spillReplayBatch.size == VectorizedRowBatch.DEFAULT_SIZE) {
-          // LOG.debug("reProcessBigTable going to call process with spillReplayBatch.size " + spillReplayBatch.size + " rows");
           process(spillReplayBatch, posBigTable); // call process once we have a full batch
           spillReplayBatch.reset();
           batchCount++;
@@ -561,7 +599,6 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
       }
       // Process the row batch that has less than DEFAULT_SIZE rows
       if (spillReplayBatch.size > 0) {
-        // LOG.debug("reProcessBigTable going to call process with spillReplayBatch.size " + spillReplayBatch.size + " rows");
         process(spillReplayBatch, posBigTable);
         spillReplayBatch.reset();
         batchCount++;
@@ -600,7 +637,7 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
     batch.projectionSize = outputProjection.length;
     batch.projectedColumns = outputProjection;
 
-    forward(batch, null);
+    forward(batch, null, true);
 
     // Revert the projected columns back, because batch can be re-used by our parent operators.
     batch.projectionSize = originalProjectionSize;
@@ -612,15 +649,24 @@ public abstract class VectorMapJoinGenerateResultOperator extends VectorMapJoinC
    * Forward the overflow batch and reset the batch.
    */
   protected void forwardOverflow() throws HiveException {
-    forward(overflowBatch, null);
+    forward(overflowBatch, null, true);
     overflowBatch.reset();
+    maybeCheckInterrupt();
+  }
+
+  private void maybeCheckInterrupt() throws HiveException {
+    if (ownThread == null || --interruptCheckCounter > 0) return;
+    if (ownThread.isInterrupted()) {
+      throw new HiveException("Thread interrupted");
+    }
+    interruptCheckCounter = CHECK_INTERRUPT_PER_OVERFLOW_BATCHES;
   }
 
   /**
    * Forward the overflow batch, but do not reset the batch.
    */
   private void forwardOverflowNoReset() throws HiveException {
-    forward(overflowBatch, null);
+    forward(overflowBatch, null, true);
   }
 
   /*

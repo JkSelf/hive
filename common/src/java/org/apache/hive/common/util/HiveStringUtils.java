@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -38,14 +38,20 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.StringTokenizer;
+import java.util.regex.Pattern;
 
+import com.google.common.base.Splitter;
 import com.google.common.collect.Interner;
 import com.google.common.collect.Interners;
+
+import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.text.translate.CharSequenceTranslator;
+import org.apache.commons.lang3.text.translate.EntityArrays;
+import org.apache.commons.lang3.text.translate.LookupTranslator;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.classification.InterfaceAudience;
 import org.apache.hadoop.hive.common.classification.InterfaceStability;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.util.StringUtils;
 
 /**
  * HiveStringUtils
@@ -64,18 +70,28 @@ public class HiveStringUtils {
 
   private static final DecimalFormat decimalFormat;
 
-  /**
-   * Maintain a String pool to reduce memory.
-   */
-  private static final Interner<String> STRING_INTERNER;
+  private static final CharSequenceTranslator ESCAPE_JAVA =
+      new LookupTranslator(
+        new String[][] {
+          {"\"", "\\\""},
+          {"\\", "\\\\"},
+      }).with(
+        new LookupTranslator(EntityArrays.JAVA_CTRL_CHARS_ESCAPE()));
+
+  private static final CharSequenceTranslator ESCAPE_HIVE_COMMAND =
+      new LookupTranslator(
+        new String[][] {
+          {"'", "\\'"},
+          {";", "\\;"},
+          {"\\", "\\\\"},
+      }).with(
+        new LookupTranslator(EntityArrays.JAVA_CTRL_CHARS_ESCAPE()));
 
   static {
     NumberFormat numberFormat = NumberFormat.getNumberInstance(Locale.ENGLISH);
     decimalFormat = (DecimalFormat) numberFormat;
     decimalFormat.applyPattern("#.##");
-
-    STRING_INTERNER = Interners.newWeakInterner();
-  }
+}
 
   /**
    * Return the internalized string, or null if the given string is null.
@@ -86,7 +102,7 @@ public class HiveStringUtils {
     if(str == null) {
       return null;
     }
-    return STRING_INTERNER.intern(str);
+    return str.intern();
   }
 
   /**
@@ -113,6 +129,11 @@ public class HiveStringUtils {
   public static Map<String, String> intern(Map<String, String> map) {
     if(map == null) {
       return null;
+    }
+
+    if (map.isEmpty()) {
+      // nothing to intern
+      return map;
     }
     Map<String, String> newMap = new HashMap<String, String>(map.size());
     for(Map.Entry<String, String> entry : map.entrySet()) {
@@ -399,7 +420,7 @@ public class HiveStringUtils {
 
   /**
    * Splits a comma separated value <code>String</code>, trimming leading and trailing whitespace on each value.
-   * @param str a comma separated <String> with values
+   * @param str a comma separated <code>String</code> with values
    * @return a <code>Collection</code> of <code>String</code> values
    */
   public static Collection<String> getTrimmedStringCollection(String str){
@@ -409,7 +430,7 @@ public class HiveStringUtils {
 
   /**
    * Splits a comma separated value <code>String</code>, trimming leading and trailing whitespace on each value.
-   * @param str a comma separated <String> with values
+   * @param str a comma separated <code>String</code> with values
    * @return an array of <code>String</code> values
    */
   public static String[] getTrimmedStrings(String str){
@@ -422,6 +443,7 @@ public class HiveStringUtils {
 
   final public static String[] emptyStringArray = {};
   final public static char COMMA = ',';
+  final public static char EQUALS = '=';
   final public static String COMMA_STR = ",";
   final public static char ESCAPE_CHAR = '\\';
 
@@ -521,6 +543,37 @@ public class HiveStringUtils {
   }
 
   /**
+   * In a given string of comma-separated key=value pairs insert a new value of a given key
+   *
+   * @param key The key whose value needs to be replaced
+   * @param newValue The new value of the key
+   * @param strKvPairs Comma separated key=value pairs Eg: "k1=v1, k2=v2, k3=v3"
+   * @return Comma separated string of key=value pairs with the new value for key keyName
+   */
+  public static String insertValue(String key, String newValue,
+      String strKvPairs) {
+    String[] keyValuePairs = HiveStringUtils.split(strKvPairs);
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < keyValuePairs.length; i++) {
+      String[] pair = HiveStringUtils.split(keyValuePairs[i], ESCAPE_CHAR, EQUALS);
+      if (pair.length != 2) {
+        throw new RuntimeException("Error parsing the keyvalue pair " + keyValuePairs[i]);
+      }
+      sb.append(pair[0]);
+      sb.append(EQUALS);
+      if (pair[0].equals(key)) {
+        sb.append(newValue);
+      } else {
+        sb.append(pair[1]);
+      }
+      if (i < (keyValuePairs.length - 1)) {
+        sb.append(COMMA);
+      }
+    }
+    return sb.toString();
+  }
+
+  /**
    * Finds the first occurrence of the separator character ignoring the escaped
    * separators starting from the index. Note the substring between the index
    * and the position of the separator is passed.
@@ -598,6 +651,29 @@ public class HiveStringUtils {
       result.append(curChar);
     }
     return result.toString();
+  }
+
+  /**
+   * Escape non-unicode characters. StringEscapeUtil.escapeJava() will escape
+   * unicode characters as well but in some cases it's not desired.
+   *
+   * @param str Original string
+   * @return Escaped string
+   */
+  public static String escapeJava(String str) {
+    return ESCAPE_JAVA.translate(str);
+  }
+
+  /**
+   * Escape non-unicode characters, and ', and ;
+   * Like StringEscapeUtil.escapeJava() will escape
+   * unicode characters as well but in some cases it's not desired.
+   *
+   * @param str Original string
+   * @return Escaped string
+   */
+  public static String escapeHiveCommand(String str) {
+    return ESCAPE_HIVE_COMMAND.translate(str);
   }
 
   /**
@@ -685,7 +761,7 @@ public class HiveStringUtils {
    * @param LOG the target log object
    */
   public static void startupShutdownMessage(Class<?> clazz, String[] args,
-                                     final org.apache.commons.logging.Log LOG) {
+                                     final org.slf4j.Logger LOG) {
     final String hostname = getHostname();
     final String classname = clazz.getSimpleName();
     LOG.info(
@@ -878,6 +954,24 @@ public class HiveStringUtils {
   }
 
   /**
+   * Concatenates strings, using a separator. Empty/blank string or null will be
+   * ignored.
+   *
+   * @param strings Strings to join.
+   * @param separator Separator to join with.
+   */
+  public static String joinIgnoringEmpty(String[] strings, char separator) {
+    ArrayList<String> list = new ArrayList<String>();
+    for(String str : strings) {
+      if (StringUtils.isNotBlank(str)) {
+        list.add(str);
+      }
+    }
+
+    return StringUtils.join(list, separator);
+  }
+
+  /**
    * Convert SOME_STUFF to SomeStuff
    *
    * @param s input string
@@ -888,7 +982,7 @@ public class HiveStringUtils {
     String[] words = split(s.toLowerCase(Locale.US), ESCAPE_CHAR, '_');
 
     for (String word : words) {
-      sb.append(org.apache.commons.lang.StringUtils.capitalize(word));
+      sb.append(StringUtils.capitalize(word));
     }
 
     return sb.toString();
@@ -911,6 +1005,57 @@ public class HiveStringUtils {
       }
     }
     return len;
+  }
+
+  /**
+   * Checks if b is an ascii character
+   */
+  public static boolean isAscii(byte b) {
+    return (b & 0x80) == 0;
+  }
+
+  /**
+   * Returns the number of leading whitespace characters in the utf-8 string
+   */
+  public static int findLeadingSpaces(byte[] bytes, int start, int length) {
+    int numSpaces;
+    for (numSpaces = 0; numSpaces < length; ++numSpaces) {
+      int curPos = start + numSpaces;
+      if (isAscii(bytes[curPos]) && Character.isWhitespace(bytes[curPos])) {
+        continue;
+      }
+      break; // non-space character
+    }
+    return (numSpaces - start);
+  }
+
+  /**
+   * Returns the number of trailing whitespace characters in the utf-8 string
+   */
+  public static int findTrailingSpaces(byte[] bytes, int start, int length) {
+    int numSpaces;
+    for (numSpaces = 0; numSpaces < length; ++numSpaces) {
+      int curPos = start + (length - (numSpaces + 1));
+      if (isAscii(bytes[curPos]) && Character.isWhitespace(bytes[curPos])) {
+        continue;
+      } else {
+        break; // non-space character
+      }
+    }
+    return numSpaces;
+  }
+
+  /**
+   * Finds trimmed length of utf-8 string
+   */
+  public static int findTrimmedLength(byte[] bytes, int start, int length, int leadingSpaces) {
+    int trailingSpaces = findTrailingSpaces(bytes, start, length);
+    length = length - leadingSpaces;
+    // If string is entirely whitespace, no need to apply trailingSpaces.
+    if (length > 0) {
+      length = length - trailingSpaces;
+    }
+    return length;
   }
 
   public static String normalizeIdentifier(String identifier) {
@@ -958,4 +1103,99 @@ public class HiveStringUtils {
     }
     return false;
   }
+
+  public static String getPartitionValWithInvalidCharacter(List<String> partVals,
+      Pattern partitionValidationPattern) {
+    if (partitionValidationPattern == null) {
+      return null;
+    }
+  
+    for (String partVal : partVals) {
+      if (!partitionValidationPattern.matcher(partVal).matches()) {
+        return partVal;
+      }
+    }
+  
+    return null;
+  }
+
+  /**
+   * Strip comments from a sql statement, tracking when the statement contains a string literal.
+   *
+   * @param statement the input string
+   * @return a stripped statement
+   */
+  public static String removeComments(String statement) {
+    if (statement == null) {
+      return null;
+    }
+    Iterator<String> iterator = Splitter.on("\n").omitEmptyStrings().split(statement).iterator();
+    int[] startQuote = {-1};
+    StringBuilder ret = new StringBuilder(statement.length());
+    while (iterator.hasNext()) {
+      String lineWithComments = iterator.next();
+      String lineNoComments = removeComments(lineWithComments, startQuote);
+      ret.append(lineNoComments);
+      if (iterator.hasNext() && !lineNoComments.isEmpty()) {
+        ret.append("\n");
+      }
+    }
+    return ret.toString();
+  }
+
+  /**
+   * Remove comments from the current line of a query.
+   * Avoid removing comment-like strings inside quotes.
+   * @param line a line of sql text
+   * @param startQuote The value -1 indicates that line does not begin inside a string literal.
+   *                   Other values indicate that line does begin inside a string literal
+   *                   and the value passed is the delimiter character.
+   *                   The array type is used to pass int type as input/output parameter.
+   * @return the line with comments removed.
+   */
+  public static String removeComments(String line, int[] startQuote) {
+    if (line == null || line.isEmpty()) {
+      return line;
+    }
+    if (startQuote[0] == -1 && isComment(line)) {
+      return "";  //assume # can only be used at the beginning of line.
+    }
+    StringBuilder builder = new StringBuilder();
+    for (int index = 0; index < line.length();) {
+      if (startQuote[0] == -1 && index < line.length() - 1 && line.charAt(index) == '-'
+          && line.charAt(index + 1) == '-') {
+        // Jump to the end of current line. When a multiple line query is executed with -e parameter,
+        // it is passed in as one line string separated with '\n'
+        for (; index < line.length() && line.charAt(index) != '\n'; ++index);
+        continue;
+      }
+
+      char letter = line.charAt(index);
+      if (startQuote[0] == letter && (index == 0 || line.charAt(index - 1) != '\\')) {
+        startQuote[0] = -1; // Turn escape off.
+      } else if (startQuote[0] == -1 && (letter == '\'' || letter == '"') && (index == 0
+          || line.charAt(index - 1) != '\\')) {
+        startQuote[0] = letter; // Turn escape on.
+      }
+
+      builder.append(letter);
+      index++;
+    }
+
+    return builder.toString().trim();
+  }
+
+  /**
+   * Test whether a line is a comment.
+   *
+   * @param line the line to be tested
+   * @return true if a comment
+   */
+  private static boolean isComment(String line) {
+    // SQL92 comment prefix is "--"
+    // beeline also supports shell-style "#" prefix
+    String lineTrimmed = line.trim();
+    return lineTrimmed.startsWith("#") || lineTrimmed.startsWith("--");
+  }
+
 }

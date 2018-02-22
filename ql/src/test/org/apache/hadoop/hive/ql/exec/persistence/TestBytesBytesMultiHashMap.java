@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -43,6 +43,9 @@ public class TestBytesBytesMultiHashMap {
     assertEquals(CAPACITY, map.getCapacity());
     map = new BytesBytesMultiHashMap(9, LOAD_FACTOR, WB_SIZE);
     assertEquals(16, map.getCapacity());
+
+    // Verify the scenario when maxProbeSize is a very small value, it doesn't fail
+    BytesBytesMultiHashMap map1 = new BytesBytesMultiHashMap(1024, (float) 0.75, 524288, 1);
   }
 
   @Test
@@ -130,8 +133,6 @@ public class TestBytesBytesMultiHashMap {
         hs.add(ref.copy());
         ref = hashMapResult.next();
       }
-    } else {
-      assertTrue(hashMapResult.isEof());
     }
     assertEquals(state, count);
     assertEquals(values.length, count);

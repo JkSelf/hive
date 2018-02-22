@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -23,11 +23,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Stack;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.exec.ColumnInfo;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
+import org.apache.hadoop.hive.ql.exec.GroupByOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
 import org.apache.hadoop.hive.ql.exec.RowSchema;
 import org.apache.hadoop.hive.ql.lib.DefaultGraphWalker;
@@ -38,8 +37,6 @@ import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.lib.NodeProcessor;
 import org.apache.hadoop.hive.ql.lib.NodeProcessorCtx;
 import org.apache.hadoop.hive.ql.lib.Rule;
-import org.apache.hadoop.hive.ql.lib.RuleExactMatch;
-import org.apache.hadoop.hive.ql.lib.RuleRegExp;
 import org.apache.hadoop.hive.ql.lib.TypeRule;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
@@ -47,6 +44,9 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeFieldDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
+import org.apache.hadoop.hive.ql.ppd.ExprWalkerInfo.ExprInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Expression factory for predicate pushdown processing. Each processor
@@ -55,8 +55,7 @@ import org.apache.hadoop.hive.ql.plan.OperatorDesc;
  */
 public final class ExprWalkerProcFactory {
 
-  private static final Log LOG = LogFactory
-      .getLog(ExprWalkerProcFactory.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(ExprWalkerProcFactory.class.getName());
 
   /**
    * ColumnExprProcessor.
@@ -80,15 +79,28 @@ public final class ExprWalkerProcFactory {
         tabAlias = ci.getTabAlias();
       }
 
+      ExprInfo colExprInfo = null;
       boolean isCandidate = true;
       if (op.getColumnExprMap() != null) {
         // replace the output expression with the input expression so that
         // parent op can understand this expression
         ExprNodeDesc exp = op.getColumnExprMap().get(colref.getColumn());
+        // if the operator is a groupby and we are referencing the grouping
+        // id column, we cannot push the predicate
+        if (op instanceof GroupByOperator) {
+          GroupByOperator groupBy = (GroupByOperator) op;
+          if (groupBy.getConf().isGroupingSetsPresent()) {
+            int groupingSetPlaceholderPos = groupBy.getConf().getKeys().size() - 1;
+            if (colref.getColumn().equals(groupBy.getSchema().getColumnNames().get(groupingSetPlaceholderPos))) {
+              exp = null;
+            }
+          }
+        }
         if (exp == null) {
           // means that expression can't be pushed either because it is value in
           // group by
-          ctx.setIsCandidate(colref, false);
+          colExprInfo = ctx.addOrGetExprInfo(colref);
+          colExprInfo.isCandidate = false;
           return false;
         } else {
           if (exp instanceof ExprNodeGenericFuncDesc) {
@@ -99,16 +111,25 @@ public final class ExprWalkerProcFactory {
             tabAlias = column.getTabAlias();
           }
         }
-        ctx.addConvertedNode(colref, exp);
-        ctx.setIsCandidate(exp, isCandidate);
-        ctx.addAlias(exp, tabAlias);
+        colExprInfo = ctx.addOrGetExprInfo(colref);
+        colExprInfo.convertedExpr = exp;
+        ExprInfo expInfo = ctx.addExprInfo(exp);
+        expInfo.isCandidate = isCandidate;
+        if (tabAlias != null) {
+          expInfo.alias = tabAlias;
+        } else {
+          expInfo.alias = colExprInfo.alias;
+        }
       } else {
         if (ci == null) {
           return false;
         }
-        ctx.addAlias(colref, tabAlias);
+        colExprInfo = ctx.addOrGetExprInfo(colref);
+        if (tabAlias != null) {
+          colExprInfo.alias = tabAlias;
+        }
       }
-      ctx.setIsCandidate(colref, isCandidate);
+      colExprInfo.isCandidate = isCandidate;
       return isCandidate;
     }
 
@@ -127,30 +148,37 @@ public final class ExprWalkerProcFactory {
       String alias = null;
       ExprNodeFieldDesc expr = (ExprNodeFieldDesc) nd;
 
-      boolean isCandidate = true;
       assert (nd.getChildren().size() == 1);
       ExprNodeDesc ch = (ExprNodeDesc) nd.getChildren().get(0);
-      ExprNodeDesc newCh = ctx.getConvertedNode(ch);
+      ExprInfo chExprInfo = ctx.getExprInfo(ch);
+      ExprNodeDesc newCh = chExprInfo != null ? chExprInfo.convertedExpr : null;
       if (newCh != null) {
         expr.setDesc(newCh);
         ch = newCh;
+        chExprInfo = ctx.getExprInfo(ch);
       }
-      String chAlias = ctx.getAlias(ch);
 
-      isCandidate = isCandidate && ctx.isCandidate(ch);
+      boolean isCandidate;
+      String chAlias;
+      if (chExprInfo != null) {
+        chAlias = chExprInfo.alias;
+        isCandidate = chExprInfo.isCandidate;
+      } else {
+        chAlias = null;
+        isCandidate = false;
+      }
       // need to iterate through all children even if one is found to be not a
       // candidate
       // in case if the other children could be individually pushed up
       if (isCandidate && chAlias != null) {
-        if (alias == null) {
-          alias = chAlias;
-        } else if (!chAlias.equalsIgnoreCase(alias)) {
-          isCandidate = false;
-        }
+        alias = chAlias;
       }
 
-      ctx.addAlias(expr, alias);
-      ctx.setIsCandidate(expr, isCandidate);
+      ExprInfo exprInfo = ctx.addOrGetExprInfo(expr);
+      if (alias != null) {
+        exprInfo.alias = alias;
+      }
+      exprInfo.isCandidate = isCandidate;
       return isCandidate;
     }
 
@@ -170,9 +198,10 @@ public final class ExprWalkerProcFactory {
       String alias = null;
       ExprNodeGenericFuncDesc expr = (ExprNodeGenericFuncDesc) nd;
 
-      if (!FunctionRegistry.isDeterministic(expr.getGenericUDF())) {
+      if (!FunctionRegistry.isConsistentWithinQuery(expr.getGenericUDF())) {
         // this GenericUDF can't be pushed down
-        ctx.setIsCandidate(expr, false);
+        ExprInfo exprInfo = ctx.addOrGetExprInfo(expr);
+        exprInfo.isCandidate = false;
         ctx.setDeterministic(false);
         return false;
       }
@@ -180,14 +209,22 @@ public final class ExprWalkerProcFactory {
       boolean isCandidate = true;
       for (int i = 0; i < nd.getChildren().size(); i++) {
         ExprNodeDesc ch = (ExprNodeDesc) nd.getChildren().get(i);
-        ExprNodeDesc newCh = ctx.getConvertedNode(ch);
+        ExprInfo chExprInfo = ctx.getExprInfo(ch);
+        ExprNodeDesc newCh = chExprInfo != null ? chExprInfo.convertedExpr : null;
         if (newCh != null) {
           expr.getChildren().set(i, newCh);
           ch = newCh;
+          chExprInfo = ctx.getExprInfo(ch);
         }
-        String chAlias = ctx.getAlias(ch);
 
-        isCandidate = isCandidate && ctx.isCandidate(ch);
+        String chAlias;
+        if (chExprInfo != null) {
+          chAlias = chExprInfo.alias;
+          isCandidate = isCandidate && chExprInfo.isCandidate;
+        } else {
+          chAlias = null;
+          isCandidate = false;
+        }
         // need to iterate through all children even if one is found to be not a
         // candidate
         // in case if the other children could be individually pushed up
@@ -203,8 +240,11 @@ public final class ExprWalkerProcFactory {
           break;
         }
       }
-      ctx.addAlias(expr, alias);
-      ctx.setIsCandidate(expr, isCandidate);
+      ExprInfo exprInfo = ctx.addOrGetExprInfo(expr);
+      if (alias != null) {
+        exprInfo.alias = alias;
+      }
+      exprInfo.isCandidate = isCandidate;
       return isCandidate;
     }
 
@@ -219,7 +259,8 @@ public final class ExprWalkerProcFactory {
     public Object process(Node nd, Stack<Node> stack, NodeProcessorCtx procCtx,
         Object... nodeOutputs) throws SemanticException {
       ExprWalkerInfo ctx = (ExprWalkerInfo) procCtx;
-      ctx.setIsCandidate((ExprNodeDesc) nd, true);
+      ExprInfo exprInfo = ctx.addOrGetExprInfo((ExprNodeDesc) nd);
+      exprInfo.isCandidate = true;
       return true;
     }
   }
@@ -324,12 +365,21 @@ public final class ExprWalkerProcFactory {
       return;
     }
 
-    if (ctx.isCandidate(expr)) {
-      ctx.addFinalCandidate(expr);
+    ExprInfo exprInfo = ctx.getExprInfo(expr);
+    if (exprInfo != null && exprInfo.isCandidate) {
+      String alias = exprInfo.alias;
+      if ((alias == null) && (exprInfo.convertedExpr != null)) {
+    	ExprInfo convertedExprInfo = ctx.getExprInfo(exprInfo.convertedExpr);
+    	if (convertedExprInfo != null) {
+    		alias = convertedExprInfo.alias;
+    	}
+      }
+      ctx.addFinalCandidate(alias, exprInfo.convertedExpr != null ?
+              exprInfo.convertedExpr : expr);
       return;
     } else if (!FunctionRegistry.isOpAnd(expr) &&
         HiveConf.getBoolVar(conf, HiveConf.ConfVars.HIVEPPDREMOVEDUPLICATEFILTERS)) {
-      ctx.addNonFinalCandidate(expr);
+      ctx.addNonFinalCandidate(exprInfo != null ? exprInfo.alias : null, expr);
     }
   }
 

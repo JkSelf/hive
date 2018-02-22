@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,10 +27,17 @@ import java.util.Set;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.WMFullResourcePlan;
+import org.apache.hadoop.hive.metastore.api.WMResourcePlan;
+import org.apache.hadoop.hive.metastore.api.WMValidateResourcePlanResponse;
+import org.apache.hadoop.hive.ql.metadata.ForeignKeyInfo;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
+import org.apache.hadoop.hive.ql.metadata.NotNullConstraint;
 import org.apache.hadoop.hive.ql.metadata.Partition;
+import org.apache.hadoop.hive.ql.metadata.PrimaryKeyInfo;
 import org.apache.hadoop.hive.ql.metadata.Table;
+import org.apache.hadoop.hive.ql.metadata.UniqueConstraint;
 
 /**
  * Interface to format table and index information.  We can format it
@@ -71,12 +78,18 @@ public interface MetaDataFormatter {
    * @param isPretty
    * @param isOutputPadded - if true, add spacing and indentation
    * @param colStats
+   * @param fkInfo  foreign keys information
+   * @param pkInfo  primary key information
+   * @param ukInfo  unique constraint information
+   * @param nnInfo  not null constraint information
    * @throws HiveException
    */
   public void describeTable(DataOutputStream out, String colPath,
       String tableName, Table tbl, Partition part, List<FieldSchema> cols,
-      boolean isFormatted, boolean isExt, boolean isPretty,
-      boolean isOutputPadded, List<ColumnStatisticsObj> colStats)
+      boolean isFormatted, boolean isExt,
+      boolean isOutputPadded, List<ColumnStatisticsObj> colStats,
+      PrimaryKeyInfo pkInfo, ForeignKeyInfo fkInfo,
+      UniqueConstraint ukInfo, NotNullConstraint nnInfo)
           throws HiveException;
 
   /**
@@ -109,5 +122,14 @@ public interface MetaDataFormatter {
   public void showDatabaseDescription (DataOutputStream out, String database, String comment,
       String location, String ownerName, String ownerType, Map<String, String> params)
           throws HiveException;
+
+  void showResourcePlans(DataOutputStream out, List<WMResourcePlan> resourcePlans)
+      throws HiveException;
+
+  void showFullResourcePlan(DataOutputStream out, WMFullResourcePlan resourcePlan)
+      throws HiveException;
+
+  void showErrors(DataOutputStream out, WMValidateResourcePlanResponse errors)
+      throws HiveException;
 }
 

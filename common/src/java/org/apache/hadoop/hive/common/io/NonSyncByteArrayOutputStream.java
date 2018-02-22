@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -41,6 +41,10 @@ public class NonSyncByteArrayOutputStream extends ByteArrayOutputStream {
 
   public int getLength() {
     return count;
+  }
+
+  public void setWritePosition(int writePosition) {
+    count = writePosition;
   }
 
   /**

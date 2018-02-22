@@ -1,5 +1,6 @@
-set hive.exec.submitviachild=true;
-set hive.exec.submit.local.task.via.child=true;
+set hive.mapred.mode=nonstrict;
+set hive.exec.submitviachild=false;
+set hive.exec.submit.local.task.via.child=false;
 
 CREATE TABLE orc_create_people_staging (
   id int,
@@ -31,9 +32,6 @@ INSERT OVERWRITE TABLE orc_create_people SELECT * FROM orc_create_people_staging
 
 set hive.stats.autogather = true;
 analyze table orc_create_people compute statistics;
-desc formatted orc_create_people;
-
-analyze table orc_create_people compute statistics partialscan;
 desc formatted orc_create_people;
 
 analyze table orc_create_people compute statistics noscan;
@@ -76,10 +74,6 @@ INSERT OVERWRITE TABLE orc_create_people PARTITION (state)
 
 set hive.stats.autogather = true;
 analyze table orc_create_people partition(state) compute statistics;
-desc formatted orc_create_people partition(state="Ca");
-desc formatted orc_create_people partition(state="Or");
-
-analyze table orc_create_people partition(state) compute statistics partialscan;
 desc formatted orc_create_people partition(state="Ca");
 desc formatted orc_create_people partition(state="Or");
 
@@ -132,10 +126,6 @@ analyze table orc_create_people partition(state) compute statistics;
 desc formatted orc_create_people partition(state="Ca");
 desc formatted orc_create_people partition(state="Or");
 
-analyze table orc_create_people partition(state) compute statistics partialscan;
-desc formatted orc_create_people partition(state="Ca");
-desc formatted orc_create_people partition(state="Or");
-
 analyze table orc_create_people partition(state) compute statistics noscan;
 desc formatted orc_create_people partition(state="Ca");
 desc formatted orc_create_people partition(state="Or");
@@ -181,28 +171,11 @@ STORED AS orc;
 INSERT OVERWRITE TABLE orc_create_people PARTITION (state)
   SELECT * FROM orc_create_people_staging ORDER BY id;
 
--- set the table to text format
-ALTER TABLE orc_create_people SET SERDE 'org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe';
-ALTER TABLE orc_create_people SET FILEFORMAT TEXTFILE;
-
--- load the text data into a new partition
-LOAD DATA LOCAL INPATH '../../data/files/kv1.txt' OVERWRITE INTO TABLE orc_create_people PARTITION(state="OH");
-
--- set the table back to orc
-ALTER TABLE orc_create_people SET SERDE 'org.apache.hadoop.hive.ql.io.orc.OrcSerde';
-ALTER TABLE orc_create_people SET FILEFORMAT ORC;
-
 set hive.stats.autogather = true;
 analyze table orc_create_people partition(state) compute statistics;
 desc formatted orc_create_people partition(state="Ca");
-desc formatted orc_create_people partition(state="OH");
-
-analyze table orc_create_people partition(state) compute statistics partialscan;
-desc formatted orc_create_people partition(state="Ca");
-desc formatted orc_create_people partition(state="OH");
 
 analyze table orc_create_people partition(state) compute statistics noscan;
 desc formatted orc_create_people partition(state="Ca");
-desc formatted orc_create_people partition(state="OH");
 
 drop table orc_create_people;

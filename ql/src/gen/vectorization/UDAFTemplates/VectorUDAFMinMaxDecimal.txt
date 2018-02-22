@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -25,13 +25,16 @@ import org.apache.hadoop.hive.ql.exec.vector.expressions.aggregates.VectorAggreg
 import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpressionWriter;
 import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpressionWriterFactory;
 import org.apache.hadoop.hive.ql.exec.vector.VectorAggregationBufferRow;
+import org.apache.hadoop.hive.ql.exec.vector.VectorAggregationDesc;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
+import org.apache.hadoop.hive.ql.exec.vector.ColumnVector;
 import org.apache.hadoop.hive.ql.exec.vector.DecimalColumnVector;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.AggregationDesc;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFEvaluator;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFEvaluator.Mode;
 import org.apache.hadoop.hive.ql.util.JavaDataModel;
 import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
-import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 
 /**
 * <ClassName>. Vectorized implementation for MIN/MAX aggregates.
@@ -61,12 +64,11 @@ public class <ClassName> extends VectorAggregateExpression {
       }
 
       public void checkValue(HiveDecimalWritable writable, short scale) {
-        HiveDecimal value = writable.getHiveDecimal();
         if (isNull) {
           isNull = false;
-          this.value.set(value);
-        } else if (this.value.getHiveDecimal().compareTo(value) <OperatorSymbol> 0) {
-          this.value.set(value);
+          this.value.set(writable);
+        } else if (this.value.compareTo(writable) <OperatorSymbol> 0) {
+          this.value.set(writable);
         }
       }
 
@@ -82,22 +84,17 @@ public class <ClassName> extends VectorAggregateExpression {
       }
     }
 
-    private VectorExpression inputExpression;
-    private transient VectorExpressionWriter resultWriter;
+  // This constructor is used to momentarily create the object so match can be called.
+  public <ClassName>() {
+    super();
+  }
 
-    public <ClassName>(VectorExpression inputExpression) {
-      this();
-      this.inputExpression = inputExpression;
-    }
+  public <ClassName>(VectorAggregationDesc vecAggrDesc) {
+    super(vecAggrDesc);
+    init();
+  }
 
-    public <ClassName>() {
-      super();
-    }
-
-    @Override
-    public void init(AggregationDesc desc) throws HiveException {
-      resultWriter = VectorExpressionWriterFactory.genVectorExpressionWritable(
-          desc.getParameters().get(0));
+    private void init() {
     }
 
     private Aggregation getCurrentAggregationBuffer(
@@ -123,8 +120,10 @@ public class <ClassName> extends VectorAggregateExpression {
 
       inputExpression.evaluate(batch);
 
-      DecimalColumnVector inputVector = (DecimalColumnVector)batch.
-        cols[this.inputExpression.getOutputColumn()];
+      DecimalColumnVector inputVector =
+          (DecimalColumnVector) batch.cols[
+              this.inputExpression.getOutputColumnNum()];
+
       HiveDecimalWritable[] vector = inputVector.vector;
 
       if (inputVector.noNulls) {
@@ -245,14 +244,16 @@ public class <ClassName> extends VectorAggregateExpression {
       int batchSize,
       boolean[] isNull) {
 
+      if (isNull[0]) {
+        return;
+      }
+
       for (int i=0; i < batchSize; ++i) {
-        if (!isNull[i]) {
-          Aggregation myagg = getCurrentAggregationBuffer(
-            aggregationBufferSets,
-            aggregrateIndex,
-            i);
-          myagg.checkValue(value, scale);
-        }
+        Aggregation myagg = getCurrentAggregationBuffer(
+          aggregationBufferSets,
+          aggregrateIndex,
+          i);
+        myagg.checkValue(value, scale);
       }
     }
 
@@ -302,8 +303,9 @@ public class <ClassName> extends VectorAggregateExpression {
 
         inputExpression.evaluate(batch);
 
-        DecimalColumnVector inputVector = (DecimalColumnVector)batch.
-            cols[this.inputExpression.getOutputColumn()];
+        DecimalColumnVector inputVector =
+            (DecimalColumnVector)batch.cols[
+                this.inputExpression.getOutputColumnNum()];
 
         int batchSize = batch.size;
 
@@ -316,11 +318,10 @@ public class <ClassName> extends VectorAggregateExpression {
         HiveDecimalWritable[] vector = inputVector.vector;
 
         if (inputVector.isRepeating) {
-          if (inputVector.noNulls &&
+          if ((inputVector.noNulls || !inputVector.isNull[0]) &&
             (myagg.isNull || (myagg.value.compareTo(vector[0]) <OperatorSymbol> 0))) {
             myagg.isNull = false;
-            HiveDecimal value = vector[0].getHiveDecimal();
-            myagg.value.set(value);
+            myagg.value.set(vector[0]);
           }
           return;
         }
@@ -329,14 +330,14 @@ public class <ClassName> extends VectorAggregateExpression {
           iterateNoSelectionNoNulls(myagg, vector, inputVector.scale, batchSize);
         }
         else if (!batch.selectedInUse) {
-          iterateNoSelectionHasNulls(myagg, vector, inputVector.scale, 
+          iterateNoSelectionHasNulls(myagg, vector, inputVector.scale,
             batchSize, inputVector.isNull);
         }
         else if (inputVector.noNulls){
           iterateSelectionNoNulls(myagg, vector, inputVector.scale, batchSize, batch.selected);
         }
         else {
-          iterateSelectionHasNulls(myagg, vector, inputVector.scale, 
+          iterateSelectionHasNulls(myagg, vector, inputVector.scale,
             batchSize, inputVector.isNull, batch.selected);
         }
     }
@@ -352,13 +353,13 @@ public class <ClassName> extends VectorAggregateExpression {
       for (int j=0; j< batchSize; ++j) {
         int i = selected[j];
         if (!isNull[i]) {
-          HiveDecimal value = vector[i].getHiveDecimal();
+          HiveDecimalWritable writable = vector[i];
           if (myagg.isNull) {
             myagg.isNull = false;
-            myagg.value.set(value);
+            myagg.value.set(writable);
           }
-          else if (myagg.value.getHiveDecimal().compareTo(value) <OperatorSymbol> 0) {
-            myagg.value.set(value);
+          else if (myagg.value.compareTo(writable) <OperatorSymbol> 0) {
+            myagg.value.set(writable);
           }
         }
       }
@@ -372,15 +373,14 @@ public class <ClassName> extends VectorAggregateExpression {
         int[] selected) {
 
       if (myagg.isNull) {
-        HiveDecimal value = vector[selected[0]].getHiveDecimal();
-        myagg.value.set(value);
+        myagg.value.set(vector[selected[0]]);
         myagg.isNull = false;
       }
 
       for (int i=0; i< batchSize; ++i) {
-        HiveDecimal value = vector[selected[i]].getHiveDecimal();
-        if (myagg.value.getHiveDecimal().compareTo(value) <OperatorSymbol> 0) {
-          myagg.value.set(value);
+        HiveDecimalWritable writable = vector[selected[i]];
+        if (myagg.value.compareTo(writable) <OperatorSymbol> 0) {
+          myagg.value.set(writable);
         }
       }
     }
@@ -394,13 +394,13 @@ public class <ClassName> extends VectorAggregateExpression {
 
       for(int i=0;i<batchSize;++i) {
         if (!isNull[i]) {
-          HiveDecimal value = vector[i].getHiveDecimal();
+          HiveDecimalWritable writable = vector[i];
           if (myagg.isNull) {
-            myagg.value.set(value);
+            myagg.value.set(writable);
             myagg.isNull = false;
           }
-          else if (myagg.value.getHiveDecimal().compareTo(value) <OperatorSymbol> 0) {
-            myagg.value.set(value);
+          else if (myagg.value.compareTo(writable) <OperatorSymbol> 0) {
+            myagg.value.set(writable);
           }
         }
       }
@@ -412,15 +412,14 @@ public class <ClassName> extends VectorAggregateExpression {
         short scale,
         int batchSize) {
       if (myagg.isNull) {
-        HiveDecimal value = vector[0].getHiveDecimal();
-        myagg.value.set(value);
+        myagg.value.set(vector[0]);
         myagg.isNull = false;
       }
 
       for (int i=0;i<batchSize;++i) {
-        HiveDecimal value = vector[i].getHiveDecimal();
-        if (myagg.value.getHiveDecimal().compareTo(value) <OperatorSymbol> 0) {
-          myagg.value.set(value);
+        HiveDecimalWritable writable = vector[i];
+        if (myagg.value.compareTo(writable) <OperatorSymbol> 0) {
+          myagg.value.set(writable);
         }
       }
     }
@@ -437,24 +436,7 @@ public class <ClassName> extends VectorAggregateExpression {
     }
 
     @Override
-    public Object evaluateOutput(
-        AggregationBuffer agg) throws HiveException {
-    Aggregation myagg = (Aggregation) agg;
-      if (myagg.isNull) {
-        return null;
-      }
-      else {
-        return resultWriter.writeValue(myagg.value);
-      }
-    }
-
-    @Override
-    public ObjectInspector getOutputObjectInspector() {
-      return resultWriter.getObjectInspector();
-    }
-
-    @Override
-    public int getAggregationBufferFixedSize() {
+    public long getAggregationBufferFixedSize() {
     JavaDataModel model = JavaDataModel.get();
     return JavaDataModel.alignUp(
       model.object() +
@@ -462,12 +444,33 @@ public class <ClassName> extends VectorAggregateExpression {
       model.memoryAlign());
   }
 
-  public VectorExpression getInputExpression() {
-    return inputExpression;
+  @Override
+  public boolean matches(String name, ColumnVector.Type inputColVectorType,
+      ColumnVector.Type outputColVectorType, Mode mode) {
+
+    /*
+     * Min/max input and output is DECIMAL.
+     *
+     * Any mode (PARTIAL1, PARTIAL2, FINAL, COMPLETE).
+     */
+    return
+        name.equals("<DescriptionName>") &&
+        inputColVectorType == ColumnVector.Type.DECIMAL &&
+        outputColVectorType == ColumnVector.Type.DECIMAL;
   }
 
-  public void setInputExpression(VectorExpression inputExpression) {
-    this.inputExpression = inputExpression;
+  @Override
+  public void assignRowColumn(VectorizedRowBatch batch, int batchIndex, int columnNum,
+      AggregationBuffer agg) throws HiveException {
+
+    DecimalColumnVector outputColVector = (DecimalColumnVector) batch.cols[columnNum];
+    Aggregation myagg = (Aggregation) agg;
+    if (myagg.isNull) {
+      outputColVector.noNulls = false;
+      outputColVector.isNull[batchIndex] = true;
+      return;
+    }
+    outputColVector.isNull[batchIndex] = false;
+    outputColVector.vector[batchIndex].set(myagg.value);
   }
 }
-

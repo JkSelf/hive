@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -27,8 +27,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.serde2.io.TimestampLocalTZWritable;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.SettableTimestampLocalTZObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampLocalTZObjectInspector;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.SerDeException;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
@@ -38,6 +41,7 @@ import org.apache.hadoop.hive.serde2.io.HiveIntervalDayTimeWritable;
 import org.apache.hadoop.hive.serde2.io.HiveIntervalYearMonthWritable;
 import org.apache.hadoop.hive.serde2.io.HiveVarcharWritable;
 import org.apache.hadoop.hive.serde2.io.TimestampWritable;
+import org.apache.hadoop.hive.serde2.lazy.LazyDouble;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector.Category;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory.ObjectInspectorOptions;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.AbstractPrimitiveWritableObjectInspector;
@@ -77,6 +81,7 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampObjectIn
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.WritableStringObjectInspector;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoUtils;
 import org.apache.hadoop.io.BytesWritable;
+import org.apache.hadoop.io.DoubleWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.util.StringUtils;
 
@@ -89,7 +94,7 @@ import org.apache.hadoop.util.StringUtils;
  */
 public final class ObjectInspectorUtils {
 
-  protected final static Log LOG = LogFactory.getLog(ObjectInspectorUtils.class.getName());
+  private static final Logger LOG = LoggerFactory.getLogger(ObjectInspectorUtils.class.getName());
 
   /**
    * This enum controls how we copy primitive objects.
@@ -101,6 +106,79 @@ public final class ObjectInspectorUtils {
    */
   public enum ObjectInspectorCopyOption {
     DEFAULT, JAVA, WRITABLE
+  }
+
+  /**
+   * This enum controls how we interpret null value when compare two objects.
+   *
+   * MINVALUE means treating null value as the minimum value.
+   * MAXVALUE means treating null value as the maximum value.
+   *
+   */
+  public enum NullValueOption {
+	MINVALUE, MAXVALUE
+  }
+
+  /**
+   * This class can be used to wrap Hive objects and put in HashMap or HashSet.
+   * The objects will be compared using ObjectInspectors.
+   *
+   */
+  public static class ObjectInspectorObject {
+    private final Object[] objects;
+    private final ObjectInspector[] oi;
+
+    public ObjectInspectorObject(Object object, ObjectInspector oi) {
+      this.objects = new Object[] { object };
+      this.oi = new ObjectInspector[] { oi };
+    }
+
+    public ObjectInspectorObject(Object[] objects, ObjectInspector[] oi) {
+      this.objects = objects;
+      this.oi = oi;
+    }
+
+    public Object[] getValues() {
+      return objects;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) return true;
+      if (obj == null || obj.getClass() != this.getClass()) { return false; }
+
+      ObjectInspectorObject comparedObject = (ObjectInspectorObject)obj;
+      return ObjectInspectorUtils.compare(objects, oi, comparedObject.objects, comparedObject.oi) == 0;
+    }
+
+    @Override
+    public int hashCode() {
+      return ObjectInspectorUtils.getBucketHashCode(objects, oi);
+    }
+  }
+
+  /**
+   * Calculates the hash code for array of Objects that contains writables. This is used
+   * to work around the buggy Hadoop DoubleWritable hashCode implementation. This should
+   * only be used for process-local hash codes; don't replace stored hash codes like bucketing.
+   */
+  public static int writableArrayHashCode(Object[] keys) {
+    if (keys == null) return 0;
+    int hashcode = 1;
+    for (Object element : keys) {
+      hashcode = 31 * hashcode;
+      if (element == null) continue;
+      if (element instanceof LazyDouble) {
+        long v = Double.doubleToLongBits(((LazyDouble)element).getWritableObject().get());
+        hashcode = hashcode + (int) (v ^ (v >>> 32));
+      } else if (element instanceof DoubleWritable){
+        long v = Double.doubleToLongBits(((DoubleWritable)element).get());
+        hashcode = hashcode + (int) (v ^ (v >>> 32));
+      } else {
+        hashcode = hashcode + element.hashCode();
+      }
+    }
+    return hashcode;
   }
 
   /**
@@ -116,6 +194,21 @@ public final class ObjectInspectorUtils {
       }
     }
     return oi;
+  }
+
+  /**
+   * Get the corresponding standard ObjectInspector array for an array of ObjectInspector.
+   */
+  public static ObjectInspector[] getStandardObjectInspector(ObjectInspector[] ois,
+      ObjectInspectorCopyOption objectInspectorOption) {
+    if (ois == null) return null;
+
+    ObjectInspector[] result = new ObjectInspector[ois.length];
+    for (int i = 0; i < ois.length; i++) {
+      result[i] = getStandardObjectInspector(ois[i], objectInspectorOption);
+    }
+
+    return result;
   }
 
   /**
@@ -248,6 +341,23 @@ public final class ObjectInspectorUtils {
   }
 
   /**
+   * Returns a deep copy of an array of objects
+   */
+  public static Object[] copyToStandardObject(
+      Object[] o, ObjectInspector[] oi, ObjectInspectorCopyOption objectInspectorOption) {
+    if (o == null) return null;
+    assert(o.length == oi.length);
+
+    Object[] result = new Object[o.length];
+    for (int i = 0; i < o.length; i++) {
+      result[i] = ObjectInspectorUtils.copyToStandardObject(
+          o[i], oi[i], objectInspectorOption);
+    }
+
+    return result;
+  }
+
+  /**
    * Returns a deep copy of the Object o that can be scanned by a
    * StandardObjectInspector returned by getStandardObjectInspector(oi).
    */
@@ -305,6 +415,10 @@ public final class ObjectInspectorUtils {
         result = loi.getPrimitiveJavaObject(o);
         if (loi.getPrimitiveCategory() == PrimitiveObjectInspector.PrimitiveCategory.TIMESTAMP) {
           result = PrimitiveObjectInspectorFactory.javaTimestampObjectInspector.copyObject(result);
+        } else if (loi.getPrimitiveCategory() ==
+            PrimitiveObjectInspector.PrimitiveCategory.TIMESTAMPLOCALTZ) {
+          result = PrimitiveObjectInspectorFactory.javaTimestampTZObjectInspector.
+              copyObject(result);
         }
         break;
       case WRITABLE:
@@ -494,6 +608,45 @@ public final class ObjectInspectorUtils {
     }
   }
 
+  /**
+   * Computes the bucket number to which the bucketFields belong to
+   * @param bucketFields  the bucketed fields of the row
+   * @param bucketFieldInspectors  the ObjectInpsectors for each of the bucketed fields
+   * @param totalBuckets the number of buckets in the table
+   * @return the bucket number
+   */
+  public static int getBucketNumber(Object[] bucketFields, ObjectInspector[] bucketFieldInspectors, int totalBuckets) {
+    return getBucketNumber(getBucketHashCode(bucketFields, bucketFieldInspectors), totalBuckets);
+  }
+
+  /**
+   * https://cwiki.apache.org/confluence/display/Hive/LanguageManual+DDL+BucketedTables
+   * @param hashCode as produced by {@link #getBucketHashCode(Object[], ObjectInspector[])}
+   */
+  public static int getBucketNumber(int hashCode, int numberOfBuckets) {
+    if(numberOfBuckets <= 0) {
+      //note that (X % 0) is illegal and (X % -1) = 0
+      // -1 is a common default when the value is missing
+      throw new IllegalArgumentException("Number of Buckets must be > 0");
+    }
+    return (hashCode & Integer.MAX_VALUE) % numberOfBuckets;
+  }
+  /**
+   * Computes the hash code for the given bucketed fields
+   * @param bucketFields
+   * @param bucketFieldInspectors
+   * @return
+   */
+  public static int getBucketHashCode(Object[] bucketFields, ObjectInspector[] bucketFieldInspectors) {
+    int hashCode = 0;
+    for (int i = 0; i < bucketFields.length; i++) {
+      int fieldHash = ObjectInspectorUtils.hashCode(bucketFields[i], bucketFieldInspectors[i]);
+      hashCode = 31 * hashCode + fieldHash;
+    }
+    return hashCode;
+  }
+
+
   public static int hashCode(Object o, ObjectInspector objIns) {
     if (o == null) {
       return 0;
@@ -548,6 +701,9 @@ public final class ObjectInspectorUtils {
         TimestampWritable t = ((TimestampObjectInspector) poi)
             .getPrimitiveWritableObject(o);
         return t.hashCode();
+      case TIMESTAMPLOCALTZ:
+        TimestampLocalTZWritable tstz = ((TimestampLocalTZObjectInspector) poi).getPrimitiveWritableObject(o);
+        return tstz.hashCode();
       case INTERVAL_YEAR_MONTH:
         HiveIntervalYearMonthWritable intervalYearMonth = ((HiveIntervalYearMonthObjectInspector) poi)
             .getPrimitiveWritableObject(o);
@@ -557,6 +713,8 @@ public final class ObjectInspectorUtils {
             .getPrimitiveWritableObject(o);
         return intervalDayTime.hashCode();
       case DECIMAL:
+        // Since getBucketHashCode uses this, HiveDecimal return the old (much slower) but
+        // compatible hash code.
         return ((HiveDecimalObjectInspector) poi).getPrimitiveWritableObject(o).hashCode();
 
       default: {
@@ -670,17 +828,38 @@ public final class ObjectInspectorUtils {
 
   /**
    * Compare two objects with their respective ObjectInspectors.
+   * Treat null as minimum value.
    */
   public static int compare(Object o1, ObjectInspector oi1, Object o2,
       ObjectInspector oi2, MapEqualComparer mapEqualComparer) {
+    return compare(o1, oi1, o2, oi2, mapEqualComparer, NullValueOption.MINVALUE);
+  }
+
+  /**
+   * Compare two objects with their respective ObjectInspectors.
+   * if nullValueOpt is MAXVALUE, treat null as maximum value.
+   * if nullValueOpt is MINVALUE, treat null as minimum value.
+   */
+  public static int compare(Object o1, ObjectInspector oi1, Object o2,
+      ObjectInspector oi2, MapEqualComparer mapEqualComparer, NullValueOption nullValueOpt) {
     if (oi1.getCategory() != oi2.getCategory()) {
       return oi1.getCategory().compareTo(oi2.getCategory());
     }
 
+    int nullCmpRtn = -1;
+    switch (nullValueOpt) {
+    case MAXVALUE:
+      nullCmpRtn = 1;
+      break;
+    case MINVALUE:
+      nullCmpRtn = -1;
+      break;
+    }
+
     if (o1 == null) {
-      return o2 == null ? 0 : -1;
+      return o2 == null ? 0 : nullCmpRtn;
     } else if (o2 == null) {
-      return 1;
+      return -nullCmpRtn;
     }
 
     switch (oi1.getCategory()) {
@@ -786,6 +965,13 @@ public final class ObjectInspectorUtils {
             .getPrimitiveWritableObject(o2);
         return t1.compareTo(t2);
       }
+      case TIMESTAMPLOCALTZ: {
+        TimestampLocalTZWritable tstz1 = ((TimestampLocalTZObjectInspector) poi1).
+            getPrimitiveWritableObject(o1);
+        TimestampLocalTZWritable tstz2 = ((TimestampLocalTZObjectInspector) poi2).
+            getPrimitiveWritableObject(o2);
+        return tstz1.compareTo(tstz2);
+      }
       case INTERVAL_YEAR_MONTH: {
         HiveIntervalYearMonthWritable i1 = ((HiveIntervalYearMonthObjectInspector) poi1)
             .getPrimitiveWritableObject(o1);
@@ -823,7 +1009,7 @@ public final class ObjectInspectorUtils {
         int r = compare(soi1.getStructFieldData(o1, fields1.get(i)), fields1
             .get(i).getFieldObjectInspector(), soi2.getStructFieldData(o2,
             fields2.get(i)), fields2.get(i).getFieldObjectInspector(),
-            mapEqualComparer);
+            mapEqualComparer, nullValueOpt);
         if (r != 0) {
           return r;
         }
@@ -838,7 +1024,7 @@ public final class ObjectInspectorUtils {
         int r = compare(loi1.getListElement(o1, i), loi1
             .getListElementObjectInspector(), loi2.getListElement(o2, i), loi2
             .getListElementObjectInspector(),
-            mapEqualComparer);
+            mapEqualComparer, nullValueOpt);
         if (r != 0) {
           return r;
         }
@@ -863,7 +1049,7 @@ public final class ObjectInspectorUtils {
       return compare(uoi1.getField(o1),
           uoi1.getObjectInspectors().get(tag1),
           uoi2.getField(o2), uoi2.getObjectInspectors().get(tag2),
-          mapEqualComparer);
+          mapEqualComparer, nullValueOpt);
     }
     default:
       throw new RuntimeException("Compare on unknown type: "
@@ -1153,6 +1339,8 @@ public final class ObjectInspectorUtils {
       return oi instanceof SettableDateObjectInspector;
     case TIMESTAMP:
       return oi instanceof SettableTimestampObjectInspector;
+    case TIMESTAMPLOCALTZ:
+      return oi instanceof SettableTimestampLocalTZObjectInspector;
     case INTERVAL_YEAR_MONTH:
       return oi instanceof SettableHiveIntervalYearMonthObjectInspector;
     case INTERVAL_DAY_TIME:
@@ -1197,8 +1385,8 @@ public final class ObjectInspectorUtils {
    *
    * @param oi - Input object inspector
    * @param oiSettableProperties - Lookup map to cache the result.(If no caching, pass null)
-   * @return - true if : (1) oi is an instance of settable<DataType>OI.
-   *                     (2) All the embedded object inspectors are instances of settable<DataType>OI.
+   * @return - true if : (1) oi is an instance of settable&lt;DataType&gt;OI.
+   *                     (2) All the embedded object inspectors are instances of settable&lt;DataType&gt;OI.
    *           If (1) or (2) is false, return false.
    */
   public static boolean hasAllFieldsSettable(ObjectInspector oi,

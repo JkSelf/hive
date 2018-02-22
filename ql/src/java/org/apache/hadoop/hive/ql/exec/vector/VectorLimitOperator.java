@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,36 +18,83 @@
 
 package org.apache.hadoop.hive.ql.exec.vector;
 
+import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.exec.LimitOperator;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.LimitDesc;
 import org.apache.hadoop.hive.ql.plan.OperatorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorDesc;
+import org.apache.hadoop.hive.ql.plan.VectorLimitDesc;
+
+import com.google.common.annotations.VisibleForTesting;
 
 /**
  * Limit operator implementation Limits the number of rows to be passed on.
  **/
-public class VectorLimitOperator extends LimitOperator  {
+public class VectorLimitOperator extends LimitOperator implements VectorizationOperator {
 
   private static final long serialVersionUID = 1L;
 
+  private VectorizationContext vContext;
+  private VectorLimitDesc vectorDesc;
+
+  /** Kryo ctor. */
+  @VisibleForTesting
   public VectorLimitOperator() {
     super();
   }
 
-  public VectorLimitOperator(VectorizationContext vContext, OperatorDesc conf) {
+  public VectorLimitOperator(CompilationOpContext ctx) {
+    super(ctx);
+  }
+
+  public VectorLimitOperator(
+      CompilationOpContext ctx, OperatorDesc conf,
+      VectorizationContext vContext, VectorDesc vectorDesc) {
+    this(ctx);
     this.conf = (LimitDesc) conf;
+    this.vContext = vContext;
+    this.vectorDesc = (VectorLimitDesc) vectorDesc;
+  }
+
+  @Override
+  public VectorizationContext getInputVectorizationContext() {
+    return vContext;
   }
 
   @Override
   public void process(Object row, int tag) throws HiveException {
     VectorizedRowBatch batch = (VectorizedRowBatch) row;
 
-    if (currCount < limit) {
-      batch.size = Math.min(batch.size, limit - currCount);
-      forward(row, inputObjInspectors[tag]);
+    if (currCount + batch.size < offset) {
       currCount += batch.size;
-    } else {
+    } else if (currCount >= offset + limit) {
       setDone(true);
+    } else {
+      int skipSize = 0;
+      if (currCount < offset) {
+        skipSize = offset - currCount;
+      }
+      //skip skipSize rows of batch
+      batch.size = Math.min(batch.size, offset + limit - currCount);
+      if (batch.selectedInUse == false) {
+        batch.selectedInUse = true;
+        batch.selected = new int[batch.size];
+        for (int i = 0; i < batch.size - skipSize; i++) {
+          batch.selected[i] = skipSize + i;
+        }
+      } else {
+        for (int i = 0; i < batch.size - skipSize; i++) {
+          batch.selected[i] = batch.selected[skipSize + i];
+        }
+      }
+      forward(row, inputObjInspectors[tag], true);
+      currCount += batch.size;
     }
+  }
+
+  @Override
+  public VectorDesc getVectorDesc() {
+    return vectorDesc;
   }
 }

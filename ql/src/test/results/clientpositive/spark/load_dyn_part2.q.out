@@ -1,14 +1,10 @@
-PREHOOK: query: -- SORT_QUERY_RESULTS
-
-create table if not exists nzhang_part_bucket (key string, value string) 
+PREHOOK: query: create table if not exists nzhang_part_bucket (key string, value string) 
   partitioned by (ds string, hr string) 
   clustered by (key) into 10 buckets
 PREHOOK: type: CREATETABLE
 PREHOOK: Output: database:default
 PREHOOK: Output: default@nzhang_part_bucket
-POSTHOOK: query: -- SORT_QUERY_RESULTS
-
-create table if not exists nzhang_part_bucket (key string, value string) 
+POSTHOOK: query: create table if not exists nzhang_part_bucket (key string, value string) 
   partitioned by (ds string, hr string) 
   clustered by (key) into 10 buckets
 POSTHOOK: type: CREATETABLE
@@ -27,7 +23,6 @@ hr                  	string
 	 	 
 # Partition Information	 	 
 # col_name            	data_type           	comment             
-	 	 
 ds                  	string              	                    
 hr                  	string              	                    
 	 	 
@@ -93,7 +88,8 @@ STAGE PLANS:
               name: default.nzhang_part_bucket
 
   Stage: Stage-2
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
 
 PREHOOK: query: insert overwrite table nzhang_part_bucket partition (ds='2010-03-23', hr) select key, value, hr from srcpart where ds is not null and hr is not null
 PREHOOK: type: QUERY

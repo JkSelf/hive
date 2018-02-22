@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -33,5 +33,9 @@ public class TraitsUtil {
 
   public static RelTraitSet getDefaultTraitSet(RelOptCluster cluster) {
     return cluster.traitSetOf(HiveRelNode.CONVENTION, RelCollations.EMPTY);
+  }
+
+  public static RelTraitSet getDefaultTraitSet(RelOptCluster cluster, RelTraitSet traitsFromInput) {
+    return RelTraitSet.createEmpty().merge(traitsFromInput).merge(getDefaultTraitSet(cluster));
   }
 }

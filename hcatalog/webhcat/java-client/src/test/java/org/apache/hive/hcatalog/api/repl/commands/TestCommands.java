@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,15 +18,15 @@
  */
 package org.apache.hive.hcatalog.api.repl.commands;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.cli.CliSessionState;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.MetaException;
-import org.apache.hadoop.hive.ql.CommandNeedRetryException;
-import org.apache.hadoop.hive.ql.Driver;
+import org.apache.hadoop.hive.ql.DriverFactory;
+import org.apache.hadoop.hive.ql.IDriver;
 import org.apache.hadoop.hive.ql.processors.CommandProcessorResponse;
 import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hive.hcatalog.HcatTestUtils;
@@ -64,10 +64,10 @@ import static org.junit.Assert.assertTrue;
 
 public class TestCommands {
 
-  private static Log LOG = LogFactory.getLog(CommandTestUtils.class.getName());
+  private static Logger LOG = LoggerFactory.getLogger(CommandTestUtils.class.getName());
 
   private static HiveConf hconf;
-  private static Driver driver;
+  private static IDriver driver;
   private static HCatClient client;
   private static String TEST_PATH;
 
@@ -77,14 +77,16 @@ public class TestCommands {
     TestHCatClient.startMetaStoreServer();
     hconf = TestHCatClient.getConf();
     hconf.set(HiveConf.ConfVars.SEMANTIC_ANALYZER_HOOK.varname,"");
-
+    hconf
+    .setVar(HiveConf.ConfVars.HIVE_AUTHORIZATION_MANAGER,
+        "org.apache.hadoop.hive.ql.security.authorization.plugin.sqlstd.SQLStdHiveAuthorizerFactory");
     TEST_PATH = System.getProperty("test.warehouse.dir","/tmp") + Path.SEPARATOR +
         TestCommands.class.getCanonicalName() + "-" + System.currentTimeMillis();
     Path testPath = new Path(TEST_PATH);
     FileSystem fs = FileSystem.get(testPath.toUri(),hconf);
     fs.mkdirs(testPath);
 
-    driver = new Driver(hconf);
+    driver = DriverFactory.newDriver(hconf);
     SessionState.start(new CliSessionState(hconf));
     client = HCatClient.create(hconf);
   }
@@ -95,7 +97,7 @@ public class TestCommands {
   }
 
   @Test
-  public void testDropDatabaseCommand() throws HCatException, CommandNeedRetryException {
+  public void testDropDatabaseCommand() throws HCatException {
     String dbName = "cmd_testdb";
     int evid = 999;
     Command testCmd = new DropDatabaseCommand(dbName, evid);
@@ -127,7 +129,7 @@ public class TestCommands {
   }
 
   @Test
-  public void testDropTableCommand() throws HCatException, CommandNeedRetryException {
+  public void testDropTableCommand() throws HCatException {
     String dbName = "cmd_testdb";
     String tableName = "cmd_testtable";
     int evid = 789;
@@ -207,7 +209,7 @@ public class TestCommands {
   }
 
   @Test
-  public void testDropPartitionCommand() throws HCatException, CommandNeedRetryException, MetaException {
+  public void testDropPartitionCommand() throws HCatException, MetaException {
     String dbName = "cmd_testdb";
     String tableName = "cmd_testtable";
     int evid = 789;
@@ -299,7 +301,7 @@ public class TestCommands {
   }
 
   @Test
-  public void testDropTableCommand2() throws HCatException, CommandNeedRetryException, MetaException {
+  public void testDropTableCommand2() throws HCatException, MetaException {
     // Secondary DropTableCommand test for testing repl-drop-tables' effect on partitions inside a partitioned table
     // when there exist partitions inside the table which are older than the drop event.
     // Our goal is this : Create a table t, with repl.last.id=157, say.
@@ -370,7 +372,7 @@ public class TestCommands {
 
 
   @Test
-  public void testBasicReplEximCommands() throws IOException, CommandNeedRetryException {
+  public void testBasicReplEximCommands() throws IOException {
     // repl export, has repl.last.id and repl.scope=all in it
     // import repl dump, table has repl.last.id on it (will likely be 0)
     int evid = 111;
@@ -451,7 +453,7 @@ public class TestCommands {
   }
 
   @Test
-  public void testMetadataReplEximCommands() throws IOException, CommandNeedRetryException {
+  public void testMetadataReplEximCommands() throws IOException {
     // repl metadata export, has repl.last.id and repl.scope=metadata
     // import repl metadata dump, table metadata changed, allows override, has repl.last.id
     int evid = 222;
@@ -531,7 +533,7 @@ public class TestCommands {
 
 
   @Test
-  public void testNoopReplEximCommands() throws CommandNeedRetryException, IOException {
+  public void testNoopReplEximCommands() throws Exception {
     // repl noop export on non-existant table, has repl.noop, does not error
     // import repl noop dump, no error
 

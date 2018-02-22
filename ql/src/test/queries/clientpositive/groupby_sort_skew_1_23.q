@@ -1,5 +1,4 @@
-set hive.enforce.bucketing = true;
-set hive.enforce.sorting = true;
+set hive.mapred.mode=nonstrict;
 set hive.exec.reducers.max = 10;
 set hive.map.groupby.sorted=true;
 set hive.groupby.skewindata=true;
@@ -10,7 +9,7 @@ set hive.groupby.skewindata=true;
 CREATE TABLE T1(key STRING, val STRING)
 CLUSTERED BY (key) SORTED BY (key) INTO 2 BUCKETS STORED AS TEXTFILE;
 
-LOAD DATA LOCAL INPATH '../../data/files/T1.txt' INTO TABLE T1;
+LOAD DATA LOCAL INPATH '../../data/files/bucket_files/000000_0' INTO TABLE T1;
 
 -- perform an insert to make sure there are 2 files
 INSERT OVERWRITE TABLE T1 select key, val from T1;
@@ -101,12 +100,12 @@ SELECT * FROM outputTbl3;
 -- group by followed by another group by
 EXPLAIN EXTENDED 
 INSERT OVERWRITE TABLE outputTbl1
-SELECT key + key, sum(cnt) from
+SELECT cast(key + key as string), sum(cnt) from
 (SELECT key, count(1) as cnt FROM T1 GROUP BY key) subq1
 group by key + key;
 
 INSERT OVERWRITE TABLE outputTbl1
-SELECT key + key, sum(cnt) from
+SELECT cast(key + key as string), sum(cnt) from
 (SELECT key, count(1) as cnt FROM T1 GROUP BY key) subq1
 group by key + key;
 
@@ -136,14 +135,14 @@ INSERT OVERWRITE TABLE outputTbl1
 SELECT * FROM (
 SELECT key, count(1) FROM T1 GROUP BY key
   UNION ALL
-SELECT key + key as key, count(1) FROM T1 GROUP BY key + key
+SELECT cast(key + key as string) as key, count(1) FROM T1 GROUP BY key + key
 ) subq1;
 
 INSERT OVERWRITE TABLE outputTbl1
 SELECT * FROM (
 SELECT key, count(1) as cnt FROM T1 GROUP BY key
   UNION ALL
-SELECT key + key as key, count(1) as cnt FROM T1 GROUP BY key + key
+SELECT cast(key + key as string) as key, count(1) as cnt FROM T1 GROUP BY key + key
 ) subq1;
 
 SELECT * FROM outputTbl1;

@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,16 +18,14 @@
 
 package org.apache.hive.service.cli.session;
 
-import java.util.Map;
+import java.io.File;
+import java.util.List;
 
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hive.service.cli.SessionHandle;
 import org.apache.hive.service.cli.operation.OperationManager;
-import org.apache.hive.service.cli.thrift.TProtocolVersion;
-
-import java.io.File;
-import java.util.Map;
+import org.apache.hive.service.rpc.thrift.TProtocolVersion;
 
 /**
  * Methods that don't need to be executed under a doAs
@@ -87,5 +85,13 @@ public interface HiveSessionBase {
 
   void setIpAddress(String ipAddress);
 
+  List<String> getForwardedAddresses();
+
+  void setForwardedAddresses(List<String> forwardedAddresses);
+
   long getLastAccessTime();
+
+  long getCreationTime();
+
+  int getOpenOperationCount();
 }

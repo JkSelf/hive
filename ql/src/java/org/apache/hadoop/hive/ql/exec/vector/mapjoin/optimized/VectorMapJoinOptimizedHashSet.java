@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -74,5 +74,10 @@ public class VectorMapJoinOptimizedHashSet
   public VectorMapJoinOptimizedHashSet(
       MapJoinTableContainer originalTableContainer, ReusableGetAdaptor hashMapRowGetter) {
     super(originalTableContainer, hashMapRowGetter);
+  }
+
+  @Override
+  public long getEstimatedMemorySize() {
+    return super.getEstimatedMemorySize();
   }
 }

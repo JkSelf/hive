@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -19,17 +19,16 @@
 package org.apache.hadoop.hive.serde2.lazy;
 
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.serde2.lazy.objectinspector.primitive.LazyBinaryObjectInspector;
 import org.apache.hadoop.io.BytesWritable;
 
 public class LazyBinary extends LazyPrimitive<LazyBinaryObjectInspector, BytesWritable> {
 
-  private static final Log LOG = LogFactory.getLog(LazyBinary.class);
-  private static final boolean DEBUG_LOG_ENABLED = LOG.isDebugEnabled();
+  private static final Logger LOG = LoggerFactory.getLogger(LazyBinary.class);
 
-  LazyBinary(LazyBinaryObjectInspector oi) {
+  public LazyBinary(LazyBinaryObjectInspector oi) {
     super(oi);
     data = new BytesWritable();
   }
@@ -56,7 +55,7 @@ public class LazyBinary extends LazyPrimitive<LazyBinaryObjectInspector, BytesWr
   // todo this should be configured in serde
   public static byte[] decodeIfNeeded(byte[] recv) {
     boolean arrayByteBase64 = Base64.isArrayByteBase64(recv);
-    if (DEBUG_LOG_ENABLED && arrayByteBase64) {
+    if (LOG.isDebugEnabled() && arrayByteBase64) {
       LOG.debug("Data only contains Base64 alphabets only so try to decode the data.");
     }
     return arrayByteBase64 ? Base64.decodeBase64(recv) : recv;

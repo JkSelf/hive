@@ -27,7 +27,7 @@ STAGE PLANS:
             Select Operator
               Statistics: Num rows: 500 Data size: 5312 Basic stats: COMPLETE Column stats: COMPLETE
               Group By Operator
-                aggregations: count(1)
+                aggregations: count()
                 mode: hash
                 outputColumnNames: _col0
                 Statistics: Num rows: 1 Data size: 8 Basic stats: COMPLETE Column stats: COMPLETE
@@ -53,6 +53,26 @@ STAGE PLANS:
                   output format: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
                   serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
                   name: default.dest1
+            Select Operator
+              expressions: _col0 (type: int)
+              outputColumnNames: key
+              Statistics: Num rows: 1 Data size: 4 Basic stats: COMPLETE Column stats: COMPLETE
+              Group By Operator
+                aggregations: compute_stats(key, 'hll')
+                mode: complete
+                outputColumnNames: _col0
+                Statistics: Num rows: 1 Data size: 424 Basic stats: COMPLETE Column stats: COMPLETE
+                Select Operator
+                  expressions: _col0 (type: struct<columntype:string,min:bigint,max:bigint,countnulls:bigint,numdistinctvalues:bigint,ndvbitvector:binary>)
+                  outputColumnNames: _col0
+                  Statistics: Num rows: 1 Data size: 424 Basic stats: COMPLETE Column stats: COMPLETE
+                  File Output Operator
+                    compressed: false
+                    Statistics: Num rows: 1 Data size: 424 Basic stats: COMPLETE Column stats: COMPLETE
+                    table:
+                        input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                        output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                        serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
 
   Stage: Stage-0
     Move Operator
@@ -65,7 +85,12 @@ STAGE PLANS:
               name: default.dest1
 
   Stage: Stage-2
-    Stats-Aggr Operator
+    Stats Work
+      Basic Stats Work:
+      Column Stats Desc:
+          Columns: key
+          Column Types: int
+          Table: default.dest1
 
 PREHOOK: query: FROM src INSERT OVERWRITE TABLE dest1 SELECT count(1)
 PREHOOK: type: QUERY
@@ -75,7 +100,7 @@ POSTHOOK: query: FROM src INSERT OVERWRITE TABLE dest1 SELECT count(1)
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@src
 POSTHOOK: Output: default@dest1
-POSTHOOK: Lineage: dest1.key EXPRESSION []
+POSTHOOK: Lineage: dest1.key EXPRESSION [(src)src.null, ]
 PREHOOK: query: SELECT dest1.* FROM dest1
 PREHOOK: type: QUERY
 PREHOOK: Input: default@dest1

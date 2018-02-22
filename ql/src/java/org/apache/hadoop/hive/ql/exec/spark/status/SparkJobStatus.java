@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -29,6 +29,8 @@ import java.util.Map;
  */
 public interface SparkJobStatus {
 
+  String getAppID();
+
   int getJobId();
 
   JobExecutionStatus getState() throws HiveException;
@@ -41,5 +43,11 @@ public interface SparkJobStatus {
 
   SparkStatistics getSparkStatistics();
 
+  String getWebUIURL();
+
   void cleanup();
+
+  Throwable getError();
+
+  void setError(Throwable e);
 }

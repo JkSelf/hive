@@ -1,4 +1,4 @@
-/**
+/*
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -18,10 +18,12 @@
 
 package org.apache.hadoop.hive.ql.parse;
 
+import org.apache.hadoop.hive.conf.HiveConf.StrictChecks;
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,20 +39,26 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.ql.ErrorMsg;
+import org.apache.hadoop.hive.ql.QueryState;
 import org.apache.hadoop.hive.ql.exec.Task;
 import org.apache.hadoop.hive.ql.exec.TaskFactory;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
-import org.apache.hadoop.hive.ql.io.FileFormatException;
-import org.apache.hadoop.hive.ql.io.orc.OrcFile;
-import org.apache.hadoop.hive.ql.io.orc.OrcInputFormat;
+import org.apache.hadoop.hive.ql.io.AcidUtils;
+import org.apache.hadoop.hive.ql.io.HiveFileFormatUtils;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.Partition;
-import org.apache.hadoop.hive.ql.plan.LoadTableDesc;
-import org.apache.hadoop.hive.ql.plan.MoveWork;
 import org.apache.hadoop.hive.ql.plan.StatsWork;
+import org.apache.hadoop.hive.ql.metadata.Table;
+import org.apache.hadoop.hive.ql.plan.LoadTableDesc;
+import org.apache.hadoop.hive.ql.plan.LoadTableDesc.LoadFileType;
+import org.apache.hadoop.hive.ql.plan.MoveWork;
+import org.apache.hadoop.hive.ql.plan.BasicStatsWork;
+import org.apache.hadoop.hive.ql.session.SessionState;
 import org.apache.hadoop.mapred.InputFormat;
+
+import com.google.common.collect.Lists;
 
 /**
  * LoadSemanticAnalyzer.
@@ -58,8 +66,8 @@ import org.apache.hadoop.mapred.InputFormat;
  */
 public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
 
-  public LoadSemanticAnalyzer(HiveConf conf) throws SemanticException {
-    super(conf);
+  public LoadSemanticAnalyzer(QueryState queryState) throws SemanticException {
+    super(queryState);
   }
 
   public static FileStatus[] matchFilesOrDir(FileSystem fs, Path path)
@@ -68,7 +76,7 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
       @Override
       public boolean accept(Path p) {
         String name = p.getName();
-        return name.equals("_metadata") ? true : !name.startsWith("_") && !name.startsWith(".");
+        return name.equals(EximUtil.METADATA_NAME) ? true : !name.startsWith("_") && !name.startsWith(".");
       }
     });
     if ((srcs != null) && srcs.length == 1) {
@@ -128,8 +136,10 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
     return new URI(fromScheme, fromAuthority, path, null, null);
   }
 
-  private void applyConstraints(URI fromURI, URI toURI, Tree ast,
-      boolean isLocal) throws SemanticException {
+  private List<FileStatus> applyConstraintsAndGetFiles(URI fromURI, Tree ast,
+      boolean isLocal, Table table) throws SemanticException {
+
+    FileStatus[] srcs = null;
 
     // local mode implies that scheme should be "file"
     // we can change this going forward
@@ -139,7 +149,7 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
     }
 
     try {
-      FileStatus[] srcs = matchFilesOrDir(FileSystem.get(fromURI, conf), new Path(fromURI));
+      srcs = matchFilesOrDir(FileSystem.get(fromURI, conf), new Path(fromURI));
       if (srcs == null || srcs.length == 0) {
         throw new SemanticException(ErrorMsg.INVALID_PATH.getMsg(ast,
             "No files matching path " + fromURI));
@@ -151,23 +161,55 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
               "source contains directory: " + oneSrc.getPath().toString()));
         }
       }
+      // Do another loop if table is bucketed
+      List<String> bucketCols = table.getBucketCols();
+      if (bucketCols != null && !bucketCols.isEmpty()) {
+        // Hive assumes that user names the files as per the corresponding
+        // bucket. For e.g, file names should follow the format 000000_0, 000000_1 etc.
+        // Here the 1st file will belong to bucket 0 and 2nd to bucket 1 and so on.
+        boolean[] bucketArray = new boolean[table.getNumBuckets()];
+        // initialize the array
+        Arrays.fill(bucketArray, false);
+        int numBuckets = table.getNumBuckets();
+
+        for (FileStatus oneSrc : srcs) {
+          String bucketName = oneSrc.getPath().getName();
+
+          //get the bucket id
+          String bucketIdStr =
+                  Utilities.getBucketFileNameFromPathSubString(bucketName);
+          int bucketId = Utilities.getBucketIdFromFile(bucketIdStr);
+          LOG.debug("bucket ID for file " + oneSrc.getPath() + " = " + bucketId
+          + " for table " + table.getFullyQualifiedName());
+          if (bucketId == -1) {
+            throw new SemanticException(ErrorMsg.INVALID_PATH.getMsg(
+                    "The file name is invalid : "
+                            + oneSrc.getPath().toString() + " for table "
+            + table.getFullyQualifiedName()));
+          }
+          if (bucketId >= numBuckets) {
+            throw new SemanticException(ErrorMsg.INVALID_PATH.getMsg(
+                    "The file name corresponds to invalid bucketId : "
+                            + oneSrc.getPath().toString())
+                    + ". Maximum number of buckets can be " + numBuckets
+            + " for table " + table.getFullyQualifiedName());
+          }
+          if (bucketArray[bucketId]) {
+            throw new SemanticException(ErrorMsg.INVALID_PATH.getMsg(
+                    "Multiple files for same bucket : " + bucketId
+                            + ". Only 1 file per bucket allowed in single load command. To load multiple files for same bucket, use multiple statements for table "
+            + table.getFullyQualifiedName()));
+          }
+          bucketArray[bucketId] = true;
+        }
+      }
     } catch (IOException e) {
       // Has to use full name to make sure it does not conflict with
       // org.apache.commons.lang.StringUtils
       throw new SemanticException(ErrorMsg.INVALID_PATH.getMsg(ast), e);
     }
 
-    // only in 'local' mode do we copy stuff from one place to another.
-    // reject different scheme/authority in other cases.
-    if (!isLocal
-        && (!StringUtils.equals(fromURI.getScheme(), toURI.getScheme()) || !StringUtils
-        .equals(fromURI.getAuthority(), toURI.getAuthority()))) {
-      String reason = "Move from: " + fromURI.toString() + " to: "
-          + toURI.toString() + " is not valid. "
-          + "Please check that values for params \"default.fs.name\" and "
-          + "\"hive.metastore.warehouse.dir\" do not conflict.";
-      throw new SemanticException(ErrorMsg.ILLEGAL_PATH.getMsg(ast, reason));
-    }
+    return Lists.newArrayList(srcs);
   }
 
   @Override
@@ -206,7 +248,7 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
     // initialize destination table/partition
     TableSpec ts = new TableSpec(db, conf, (ASTNode) tableTree);
 
-   if (ts.tableHandle.isView()) {
+    if (ts.tableHandle.isView() || ts.tableHandle.isMaterializedView()) {
       throw new SemanticException(ErrorMsg.DML_AGAINST_VIEW.getMsg());
     }
     if (ts.tableHandle.isNonNative()) {
@@ -216,22 +258,28 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
     if(ts.tableHandle.isStoredAsSubDirectories()) {
       throw new SemanticException(ErrorMsg.LOAD_INTO_STORED_AS_DIR.getMsg());
     }
-
-    URI toURI = ((ts.partHandle != null) ? ts.partHandle.getDataLocation()
-        : ts.tableHandle.getDataLocation()).toUri();
-
     List<FieldSchema> parts = ts.tableHandle.getPartitionKeys();
     if ((parts != null && parts.size() > 0)
         && (ts.partSpec == null || ts.partSpec.size() == 0)) {
       throw new SemanticException(ErrorMsg.NEED_PARTITION_ERROR.getMsg());
     }
 
+    List<String> bucketCols = ts.tableHandle.getBucketCols();
+    if (bucketCols != null && !bucketCols.isEmpty()) {
+      String error = StrictChecks.checkBucketing(conf);
+      if (error != null) {
+        throw new SemanticException("Please load into an intermediate table"
+            + " and use 'insert... select' to allow Hive to enforce bucketing. " + error);
+      }
+    }
+
     // make sure the arguments make sense
-    applyConstraints(fromURI, toURI, fromTree, isLocal);
+    List<FileStatus> files = applyConstraintsAndGetFiles(fromURI, fromTree, isLocal, ts.tableHandle);
 
     // for managed tables, make sure the file formats match
-    if (TableType.MANAGED_TABLE.equals(ts.tableHandle.getTableType())) {
-      ensureFileFormatsMatch(ts, fromURI);
+    if (TableType.MANAGED_TABLE.equals(ts.tableHandle.getTableType())
+        && conf.getBoolVar(HiveConf.ConfVars.HIVECHECKFILEFORMAT)) {
+      ensureFileFormatsMatch(ts, files, fromURI);
     }
     inputs.add(toReadEntity(new Path(fromURI)));
     Task<? extends Serializable> rTask = null;
@@ -268,10 +316,18 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
       }
     }
 
+    Long txnId = null;
+    int stmtId = -1;
+    if (AcidUtils.isTransactionalTable(ts.tableHandle)) {
+      txnId = SessionState.get().getTxnMgr().getCurrentTxnId();
+      stmtId = SessionState.get().getTxnMgr().getWriteIdAndIncrement();
+    }
 
     LoadTableDesc loadTableWork;
     loadTableWork = new LoadTableDesc(new Path(fromURI),
-      Utilities.getTableDesc(ts.tableHandle), partSpec, isOverWrite);
+      Utilities.getTableDesc(ts.tableHandle), partSpec,
+      isOverWrite ? LoadFileType.REPLACE_ALL : LoadFileType.KEEP_EXISTING, txnId);
+    loadTableWork.setStmtId(stmtId);
     if (preservePartitionSpecs){
       // Note : preservePartitionSpecs=true implies inheritTableSpecs=false but
       // but preservePartitionSpecs=false(default) here is not sufficient enough
@@ -279,8 +335,10 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
       loadTableWork.setInheritTableSpecs(false);
     }
 
-    Task<? extends Serializable> childTask = TaskFactory.get(new MoveWork(getInputs(),
-        getOutputs(), loadTableWork, null, true, isLocal), conf);
+    Task<? extends Serializable> childTask = TaskFactory.get(
+        new MoveWork(getInputs(), getOutputs(), loadTableWork, null, true,
+            isLocal), conf
+    );
     if (rTask != null) {
       rTask.addDependentTask(childTask);
     } else {
@@ -295,37 +353,21 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
     // Update the stats which do not require a complete scan.
     Task<? extends Serializable> statTask = null;
     if (conf.getBoolVar(HiveConf.ConfVars.HIVESTATSAUTOGATHER)) {
-      StatsWork statDesc = new StatsWork(loadTableWork);
-      statDesc.setNoStatsAggregator(true);
-      statDesc.setClearAggregatorStats(true);
-      statDesc.setStatsReliable(conf.getBoolVar(HiveConf.ConfVars.HIVE_STATS_RELIABLE));
-      statTask = TaskFactory.get(statDesc, conf);
+      BasicStatsWork basicStatsWork = new BasicStatsWork(loadTableWork);
+      basicStatsWork.setNoStatsAggregator(true);
+      basicStatsWork.setClearAggregatorStats(true);
+      StatsWork columnStatsWork = new StatsWork(ts.tableHandle, basicStatsWork, conf);
+      statTask = TaskFactory.get(columnStatsWork, conf);
     }
 
-    // HIVE-3334 has been filed for load file with index auto update
-    if (HiveConf.getBoolVar(conf, HiveConf.ConfVars.HIVEINDEXAUTOUPDATE)) {
-      IndexUpdater indexUpdater = new IndexUpdater(loadTableWork, getInputs(), conf);
-      try {
-        List<Task<? extends Serializable>> indexUpdateTasks = indexUpdater.generateUpdateTasks();
-
-        for (Task<? extends Serializable> updateTask : indexUpdateTasks) {
-          //LOAD DATA will either have a copy & move or just a move,
-          // we always want the update to be dependent on the move
-          childTask.addDependentTask(updateTask);
-          if (statTask != null) {
-            updateTask.addDependentTask(statTask);
-          }
-        }
-      } catch (HiveException e) {
-        console.printInfo("WARNING: could not auto-update stale indexes, indexes are not out of sync");
-      }
-    }
-    else if (statTask != null) {
+    if (statTask != null) {
       childTask.addDependentTask(statTask);
     }
   }
 
-  private void ensureFileFormatsMatch(TableSpec ts, URI fromURI) throws SemanticException {
+  private void ensureFileFormatsMatch(TableSpec ts, List<FileStatus> fileStatuses,
+      final URI fromURI)
+      throws SemanticException {
     final Class<? extends InputFormat> destInputFormat;
     try {
       if (ts.getPartSpec() == null || ts.getPartSpec().isEmpty()) {
@@ -337,21 +379,16 @@ public class LoadSemanticAnalyzer extends BaseSemanticAnalyzer {
       throw new SemanticException(e);
     }
 
-    // Other file formats should do similar check to make sure file formats match
-    // when doing LOAD DATA .. INTO TABLE
-    if (OrcInputFormat.class.equals(destInputFormat)) {
-      Path inputFilePath = new Path(fromURI);
-      try {
-        FileSystem fs = FileSystem.get(fromURI, conf);
-        // just creating orc reader is going to do sanity checks to make sure its valid ORC file
-        OrcFile.createReader(fs, inputFilePath);
-      } catch (FileFormatException e) {
-        throw new SemanticException(ErrorMsg.INVALID_FILE_FORMAT_IN_LOAD.getMsg("Destination" +
-            " table is stored as ORC but the file being loaded is not a valid ORC file."));
-      } catch (IOException e) {
-        throw new SemanticException("Unable to load data to destination table." +
-            " Error: " + e.getMessage());
+    try {
+      FileSystem fs = FileSystem.get(fromURI, conf);
+      boolean validFormat = HiveFileFormatUtils.checkInputFormat(fs, conf, destInputFormat,
+          fileStatuses);
+      if (!validFormat) {
+        throw new SemanticException(ErrorMsg.INVALID_FILE_FORMAT_IN_LOAD.getMsg());
       }
+    } catch (Exception e) {
+      throw new SemanticException("Unable to load data to destination table." +
+          " Error: " + e.getMessage());
     }
   }
 }
