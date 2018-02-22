@@ -39,6 +39,7 @@ import org.apache.hadoop.hive.common.StringInternUtils;
 import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
+import org.apache.hadoop.hive.ql.exec.spark.SparkRuntimeFilterPruner;
 import org.apache.hive.common.util.Ref;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -457,6 +458,16 @@ public class HiveInputFormat<K extends WritableComparable, V extends Writable>
       if (HiveConf.getVar(job, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("spark")
           && HiveConf.isSparkDPPAny(job)) {
         SparkDynamicPartitionPruner pruner = new SparkDynamicPartitionPruner();
+        try {
+          pruner.prune(mrwork, job);
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+
+      if (HiveConf.getVar(job, HiveConf.ConfVars.HIVE_EXECUTION_ENGINE).equals("spark")
+        && HiveConf.getBoolVar(job, ConfVars.SPARK_DYNAMIC_RUNTIMEFILTER_PRUNING)) {
+        SparkRuntimeFilterPruner pruner = new SparkRuntimeFilterPruner();
         try {
           pruner.prune(mrwork, job);
         } catch (Exception e) {

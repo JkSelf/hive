@@ -1,0 +1,171 @@
+PREHOOK: query: create table pokes(foo int)
+PREHOOK: type: CREATETABLE
+PREHOOK: Output: database:default
+PREHOOK: Output: default@pokes
+POSTHOOK: query: create table pokes(foo int)
+POSTHOOK: type: CREATETABLE
+POSTHOOK: Output: database:default
+POSTHOOK: Output: default@pokes
+PREHOOK: query: create table poke1(foo1 int, fil string)
+PREHOOK: type: CREATETABLE
+PREHOOK: Output: database:default
+PREHOOK: Output: default@poke1
+POSTHOOK: query: create table poke1(foo1 int, fil string)
+POSTHOOK: type: CREATETABLE
+POSTHOOK: Output: database:default
+POSTHOOK: Output: default@poke1
+PREHOOK: query: insert into table pokes values(1)
+PREHOOK: type: QUERY
+PREHOOK: Input: _dummy_database@_dummy_table
+PREHOOK: Output: default@pokes
+POSTHOOK: query: insert into table pokes values(1)
+POSTHOOK: type: QUERY
+POSTHOOK: Input: _dummy_database@_dummy_table
+POSTHOOK: Output: default@pokes
+POSTHOOK: Lineage: pokes.foo SCRIPT []
+PREHOOK: query: insert into table poke1 values(1, "123")
+PREHOOK: type: QUERY
+PREHOOK: Input: _dummy_database@_dummy_table
+PREHOOK: Output: default@poke1
+POSTHOOK: query: insert into table poke1 values(1, "123")
+POSTHOOK: type: QUERY
+POSTHOOK: Input: _dummy_database@_dummy_table
+POSTHOOK: Output: default@poke1
+POSTHOOK: Lineage: poke1.fil SCRIPT []
+POSTHOOK: Lineage: poke1.foo1 SCRIPT []
+PREHOOK: query: explain select count(*) from pokes join poke1  on (pokes.foo = poke1.foo1) where poke1.fil=123
+PREHOOK: type: QUERY
+POSTHOOK: query: explain select count(*) from pokes join poke1  on (pokes.foo = poke1.foo1) where poke1.fil=123
+POSTHOOK: type: QUERY
+STAGE DEPENDENCIES:
+  Stage-2 is a root stage
+  Stage-1 depends on stages: Stage-2
+  Stage-0 depends on stages: Stage-1
+
+STAGE PLANS:
+  Stage: Stage-2
+    Spark
+      Edges:
+        Reducer 6 <- Map 5 (GROUP, 1)
+#### A masked pattern was here ####
+      Vertices:
+        Map 5 
+            Map Operator Tree:
+                TableScan
+                  alias: pokes
+                  filterExpr: foo is not null (type: boolean)
+                  Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+                  Filter Operator
+                    predicate: foo is not null (type: boolean)
+                    Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+                    Select Operator
+                      expressions: foo (type: int)
+                      outputColumnNames: _col0
+                      Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+                      Select Operator
+                        expressions: _col0 (type: int)
+                        outputColumnNames: _col0
+                        Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+                        Group By Operator
+                          aggregations: min(_col0), max(_col0), bloom_filter(_col0, expectedEntries=1)
+                          mode: hash
+                          outputColumnNames: _col0, _col1, _col2
+                          Statistics: Num rows: 1 Data size: 12 Basic stats: COMPLETE Column stats: NONE
+                          Reduce Output Operator
+                            sort order: 
+                            Statistics: Num rows: 1 Data size: 12 Basic stats: COMPLETE Column stats: NONE
+                            value expressions: _col0 (type: int), _col1 (type: int), _col2 (type: binary)
+        Reducer 6 
+            Reduce Operator Tree:
+              Group By Operator
+                aggregations: min(VALUE._col0), max(VALUE._col1), bloom_filter(VALUE._col2, expectedEntries=1)
+                mode: final
+                outputColumnNames: _col0, _col1, _col2
+                Statistics: Num rows: 1 Data size: 12 Basic stats: COMPLETE Column stats: NONE
+                Spark Runtime Filter Partition Pruning Sink Operator
+                  Statistics: Num rows: 1 Data size: 12 Basic stats: COMPLETE Column stats: NONE
+                  target column name: foo1
+                  target work: Map 4
+
+  Stage: Stage-1
+    Spark
+      Edges:
+        Reducer 2 <- Map 1 (PARTITION-LEVEL SORT, 4), Map 4 (PARTITION-LEVEL SORT, 4)
+        Reducer 3 <- Reducer 2 (GROUP, 1)
+#### A masked pattern was here ####
+      Vertices:
+        Map 1 
+            Map Operator Tree:
+                TableScan
+                  alias: pokes
+                  filterExpr: foo is not null (type: boolean)
+                  Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+                  Filter Operator
+                    predicate: foo is not null (type: boolean)
+                    Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+                    Select Operator
+                      expressions: foo (type: int)
+                      outputColumnNames: _col0
+                      Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+                      Reduce Output Operator
+                        key expressions: _col0 (type: int)
+                        sort order: +
+                        Map-reduce partition columns: _col0 (type: int)
+                        Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+        Map 4 
+            Map Operator Tree:
+                TableScan
+                  alias: poke1
+                  filterExpr: ((UDFToDouble(fil) = 123.0) and foo1 is not null and (foo1 BETWEEN DynamicValue(RS_6_pokes_foo_min) AND DynamicValue(RS_6_pokes_foo_max) and in_bloom_filter(foo1, DynamicValue(RS_6_pokes_foo_bloom_filter)))) (type: boolean)
+                  Statistics: Num rows: 1 Data size: 5 Basic stats: COMPLETE Column stats: NONE
+                  Filter Operator
+                    predicate: ((UDFToDouble(fil) = 123.0) and (foo1 BETWEEN DynamicValue(RS_6_pokes_foo_min) AND DynamicValue(RS_6_pokes_foo_max) and in_bloom_filter(foo1, DynamicValue(RS_6_pokes_foo_bloom_filter))) and foo1 is not null) (type: boolean)
+                    Statistics: Num rows: 1 Data size: 5 Basic stats: COMPLETE Column stats: NONE
+                    Select Operator
+                      expressions: foo1 (type: int)
+                      outputColumnNames: _col0
+                      Statistics: Num rows: 1 Data size: 5 Basic stats: COMPLETE Column stats: NONE
+                      Reduce Output Operator
+                        key expressions: _col0 (type: int)
+                        sort order: +
+                        Map-reduce partition columns: _col0 (type: int)
+                        Statistics: Num rows: 1 Data size: 5 Basic stats: COMPLETE Column stats: NONE
+        Reducer 2 
+            Reduce Operator Tree:
+              Join Operator
+                condition map:
+                     Inner Join 0 to 1
+                keys:
+                  0 _col0 (type: int)
+                  1 _col0 (type: int)
+                Statistics: Num rows: 1 Data size: 1 Basic stats: COMPLETE Column stats: NONE
+                Group By Operator
+                  aggregations: count()
+                  mode: hash
+                  outputColumnNames: _col0
+                  Statistics: Num rows: 1 Data size: 8 Basic stats: COMPLETE Column stats: NONE
+                  Reduce Output Operator
+                    sort order: 
+                    Statistics: Num rows: 1 Data size: 8 Basic stats: COMPLETE Column stats: NONE
+                    value expressions: _col0 (type: bigint)
+        Reducer 3 
+            Reduce Operator Tree:
+              Group By Operator
+                aggregations: count(VALUE._col0)
+                mode: mergepartial
+                outputColumnNames: _col0
+                Statistics: Num rows: 1 Data size: 8 Basic stats: COMPLETE Column stats: NONE
+                File Output Operator
+                  compressed: false
+                  Statistics: Num rows: 1 Data size: 8 Basic stats: COMPLETE Column stats: NONE
+                  table:
+                      input format: org.apache.hadoop.mapred.SequenceFileInputFormat
+                      output format: org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat
+                      serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+
+  Stage: Stage-0
+    Fetch Operator
+      limit: -1
+      Processor Tree:
+        ListSink
+
