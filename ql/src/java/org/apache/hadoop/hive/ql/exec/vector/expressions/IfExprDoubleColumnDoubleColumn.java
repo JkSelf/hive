@@ -27,20 +27,13 @@ import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
  * The first is always a boolean (LongColumnVector).
  * The second and third are long columns or long expression results.
  */
-public class IfExprDoubleColumnDoubleColumn extends VectorExpression {
+public class IfExprDoubleColumnDoubleColumn extends IfExprConditionalFilter {
 
   private static final long serialVersionUID = 1L;
 
-  private final int arg1Column;
-  private final int arg2Column;
-  private final int arg3Column;
-
   public IfExprDoubleColumnDoubleColumn(int arg1Column, int arg2Column, int arg3Column,
       int outputColumnNum) {
-    super(outputColumnNum);
-    this.arg1Column = arg1Column;
-    this.arg2Column = arg2Column;
-    this.arg3Column = arg3Column;
+    super(arg1Column, arg2Column, arg3Column, outputColumnNum);
   }
 
   public IfExprDoubleColumnDoubleColumn() {
@@ -56,7 +49,7 @@ public class IfExprDoubleColumnDoubleColumn extends VectorExpression {
   public void evaluate(VectorizedRowBatch batch) {
 
     if (childExpressions != null) {
-      super.evaluateChildren(batch);
+      super.evaluateIfConditionalExpr(batch, childExpressions);
     }
 
     LongColumnVector arg1ColVector = (LongColumnVector) batch.cols[arg1Column];

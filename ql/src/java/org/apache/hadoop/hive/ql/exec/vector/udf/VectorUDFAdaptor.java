@@ -27,13 +27,11 @@ import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.ql.exec.MapredContext;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.exec.vector.*;
-import org.apache.hadoop.hive.ql.exec.vector.expressions.StringExpr;
-import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpression;
-import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpressionWriter;
-import org.apache.hadoop.hive.ql.exec.vector.expressions.VectorExpressionWriterFactory;
+import org.apache.hadoop.hive.ql.exec.vector.expressions.*;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDFIf;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
 import org.apache.hadoop.hive.serde2.io.HiveCharWritable;
 import org.apache.hadoop.hive.serde2.io.HiveVarcharWritable;
@@ -67,6 +65,7 @@ public class VectorUDFAdaptor extends VectorExpression {
   private transient VectorAssignRow outputVectorAssignRow;
   private transient ObjectInspector[] childrenOIs;
   private transient VectorExpressionWriter[] writers;
+  private IfExprConditionalFilter cf;
 
   public VectorUDFAdaptor() {
     super();
@@ -97,6 +96,12 @@ public class VectorUDFAdaptor extends VectorExpression {
     if (context != null) {
       context.setup(genericUDF);
     }
+
+    if((GenericUDFIf.class.getName()).equals(genericUDF.getUdfName())){
+      cf = new IfExprConditionalFilter
+        (argDescs[0].getColumnNum(), argDescs[1].getColumnNum(),
+          argDescs[2].getColumnNum(), outputColumnNum);
+    }
     outputTypeInfo = expr.getTypeInfo();
     outputVectorAssignRow = new VectorAssignRow();
     outputVectorAssignRow.init(outputTypeInfo, outputColumnNum);
@@ -123,7 +128,11 @@ public class VectorUDFAdaptor extends VectorExpression {
     }
 
     if (childExpressions != null) {
-      super.evaluateChildren(batch);
+      if ((GenericUDFIf.class.getName()).equals(genericUDF.getUdfName()) && cf != null) {
+        cf.evaluateIfConditionalExpr(batch, childExpressions);
+      } else {
+        super.evaluateChildren(batch);
+      }
     }
 
     int[] sel = batch.selected;
@@ -194,10 +203,25 @@ public class VectorUDFAdaptor extends VectorExpression {
    */
   private void setResult(int i, VectorizedRowBatch b) {
 
-    // get arguments
-    for (int j = 0; j < argDescs.length; j++) {
-      deferredChildren[j] = argDescs[j].getDeferredJavaObject(i, b, j, writers);
+    if ((GenericUDFIf.class.getName()).equals(genericUDF.getUdfName()) && cf != null) {
+      deferredChildren[0] = argDescs[0].getDeferredJavaObject(i, b, 0, writers);
+      try {
+        Object condition = deferredChildren[0].get();
+        if (condition != null && ((BooleanObjectInspector) childrenOIs[0]).get(condition)) {
+          deferredChildren[1] = argDescs[1].getDeferredJavaObject(i, b, 1, writers);
+        } else {
+          deferredChildren[2] = argDescs[2].getDeferredJavaObject(i, b, 2, writers);
+        }
+      } catch (HiveException e) {
+        e.printStackTrace();
+      }
+    } else {
+      // get arguments
+      for (int j = 0; j < argDescs.length; j++) {
+        deferredChildren[j] = argDescs[j].getDeferredJavaObject(i, b, j, writers);
+      }
     }
+
 
     // call function
     Object result;

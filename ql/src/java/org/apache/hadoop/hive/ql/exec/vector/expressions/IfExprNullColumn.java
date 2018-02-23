@@ -22,17 +22,13 @@ import org.apache.hadoop.hive.ql.exec.vector.LongColumnVector;
 import org.apache.hadoop.hive.ql.exec.vector.VectorExpressionDescriptor;
 import org.apache.hadoop.hive.ql.exec.vector.VectorizedRowBatch;
 
-public class IfExprNullColumn extends VectorExpression {
+public class IfExprNullColumn extends IfExprConditionalFilter {
 
   private static final long serialVersionUID = 1L;
 
-  private final int arg1Column;
-  private final int arg2Column;
 
   public IfExprNullColumn(int arg1Column, int arg2Column, int outputColumnNum) {
-	super(outputColumnNum);
-    this.arg1Column = arg1Column;
-    this.arg2Column = arg2Column;
+    super(arg1Column, -1, arg2Column, outputColumnNum);
   }
 
   public IfExprNullColumn() {
@@ -47,7 +43,7 @@ public class IfExprNullColumn extends VectorExpression {
   public void evaluate(VectorizedRowBatch batch) {
 
     if (childExpressions != null) {
-      super.evaluateChildren(batch);
+      super.evaluateIfConditionalExpr(batch, childExpressions);
     }
 
     final LongColumnVector arg1ColVector = (LongColumnVector) batch.cols[arg1Column];
